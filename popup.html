@@ -71,9 +71,53 @@
       border: 1px solid #ccc;
       margin-top: 6px;
     }
-    button.review {
+    button.select {
       background: #2563eb;
       color: #fff;
+      padding: 14px;
+      font-size: 15px;
+      margin-top: 14px;
+    }
+    button.select.highlight {
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35);
+      animation: pulse-once 1.2s ease 2;
+    }
+    @keyframes pulse-once {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.02); }
+    }
+    button.fetch {
+      background: #03c75a;
+      color: #fff;
+      margin-top: 6px;
+    }
+    button.fetch:disabled {
+      background: #9fd9b8;
+    }
+    .divider {
+      text-align: center;
+      color: #aaa;
+      font-size: 11px;
+      margin: 12px 0 8px;
+    }
+    .file-summary {
+      margin-top: 10px;
+      padding: 12px;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      font-size: 12px;
+      line-height: 1.5;
+      display: none;
+    }
+    .file-summary.visible { display: block; }
+    .file-summary strong { color: #0a7a3f; font-size: 18px; }
+    .file-summary .next-step {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed #e5e7eb;
+      color: #2563eb;
+      font-weight: 600;
     }
     #status {
       margin-top: 12px;
@@ -85,99 +129,61 @@
       white-space: pre-wrap;
       line-height: 1.45;
     }
-    #preview {
-      margin-top: 8px;
-      max-height: 220px;
-      overflow: auto;
-      font-size: 11px;
-      background: #fff;
-      border: 1px solid #eee;
-      border-radius: 6px;
-      padding: 8px;
-    }
-    .select-toolbar {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      margin-bottom: 8px;
-      flex-wrap: wrap;
-    }
-    .select-toolbar button {
-      width: auto;
-      margin: 0;
-      padding: 4px 10px;
-      font-size: 11px;
-      font-weight: 600;
-      background: #fff;
-      color: #333;
-      border: 1px solid #ccc;
-    }
-    .select-count {
-      margin-left: auto;
-      color: #666;
-      font-size: 11px;
-    }
-    .review-item {
-      display: flex;
-      gap: 8px;
-      align-items: flex-start;
-      padding: 8px 4px;
-      border-bottom: 1px solid #f0f0f0;
-      cursor: pointer;
-    }
-    .review-item:last-child { border-bottom: none; }
-    .review-item input { margin-top: 3px; flex-shrink: 0; cursor: pointer; }
-    .review-item-body { flex: 1; min-width: 0; }
-    .review-item-meta {
-      color: #888;
-      font-size: 10px;
-      margin-top: 2px;
-    }
-    .review-item-text {
-      line-height: 1.4;
-      word-break: break-all;
-    }
-    .badge {
-      display: inline-block;
-      padding: 2px 6px;
-      border-radius: 4px;
-      background: #eef8f2;
-      color: #0a7a3f;
-      font-size: 11px;
-      margin-right: 4px;
-    }
   </style>
 </head>
 <body>
   <h1>스마트스토어 리뷰 답글</h1>
-  <p class="sub">엑셀 업로드 → AI 답변 생성 → 검토·수정 → 일괄 확인 후 판매자센터 자동 입력</p>
+  <p class="sub">판매자센터 또는 엑셀 → 작업 화면에서 선택·생성·검토 → 자동 입력</p>
 
   <div class="row">
     <label for="apiKey">Gemini API 키</label>
     <input type="password" id="apiKey" placeholder="AIza..." autocomplete="off" />
-    <div class="hint">config.js 기본값을 사용하거나 여기서 덮어쓸 수 있습니다.</div>
   </div>
 
   <div class="row">
     <label for="systemPrompt">답글 톤 (선택)</label>
-    <textarea id="systemPrompt" placeholder="예: 친절하고 감사한 톤으로 2~3문장. 상품명을 자연스럽게 언급."></textarea>
+    <textarea id="systemPrompt" placeholder="예: 친절하고 감사한 톤으로 2~3문장."></textarea>
   </div>
+
+  <div class="row">
+    <label for="fetchDays">판매자센터에서 가져오기</label>
+    <select id="fetchDays" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;background:#fff;">
+      <option value="7" selected>최근 7일</option>
+      <option value="14">최근 14일</option>
+      <option value="30">최근 30일</option>
+    </select>
+    <button id="fetchBtn" class="fetch" type="button">판매자센터에서 가져오기</button>
+    <div class="hint">리뷰 관리 페이지(sell.smartstore.naver.com)에 로그인된 탭이 있어야 합니다.</div>
+  </div>
+
+  <div class="divider">— 또는 엑셀 파일 —</div>
 
   <div class="row">
     <label for="xlsxFile">리뷰 엑셀 (.xlsx)</label>
     <input type="file" id="xlsxFile" accept=".xlsx,.xls" />
-    <div class="hint">스마트스토어 공식 엑셀(리뷰글번호·리뷰상세내용·구매자평점 등) 자동 인식. 답글완료(Y) 행은 제외.</div>
+    <div class="hint">엑셀 다운로드 후 업로드해도 됩니다.</div>
   </div>
 
-  <div id="columnInfo" class="hint"></div>
-  <div id="preview" hidden></div>
+  <div id="fileSummary" class="file-summary"></div>
 
-  <button id="generateBtn" disabled>선택한 0건 답변 생성</button>
-  <button id="reviewBtn" class="review" type="button">답글 검토하기</button>
+  <button id="selectBtn" class="select" type="button" disabled>리뷰 답글 작업 열기</button>
   <button id="clearBtn" class="secondary" type="button">저장 데이터 전체 삭제</button>
 
-  <div id="status">엑셀 파일을 선택하세요.</div>
+  <div id="status">판매자센터에서 가져오거나 엑셀 파일을 선택하세요.</div>
 
+  <script>
+    (function () {
+      const noise = /Bad (un)?compressed size:/;
+      ['error', 'warn'].forEach((method) => {
+        const native = console[method].bind(console);
+        console[method] = function (...args) {
+          const msg = args.map((a) => String(a)).join(' ');
+          if (noise.test(msg)) return;
+          return native(...args);
+        };
+      });
+    })();
+  </script>
   <script src="config.js"></script>
   <script src="lib/xlsx.full.min.js"></script>
   <script src="popup.js"></script>

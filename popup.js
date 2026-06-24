@@ -15,13 +15,13 @@ const DEFAULT_SYSTEM_PROMPT =
 const els = {
   apiKey: document.getElementById('apiKey'),
   systemPrompt: document.getElementById('systemPrompt'),
+  fetchDays: document.getElementById('fetchDays'),
+  fetchBtn: document.getElementById('fetchBtn'),
   xlsxFile: document.getElementById('xlsxFile'),
-  generateBtn: document.getElementById('generateBtn'),
-  reviewBtn: document.getElementById('reviewBtn'),
+  selectBtn: document.getElementById('selectBtn'),
   clearBtn: document.getElementById('clearBtn'),
   status: document.getElementById('status'),
-  preview: document.getElementById('preview'),
-  columnInfo: document.getElementById('columnInfo'),
+  fileSummary: document.getElementById('fileSummary'),
 };
 
 let parsedRows = [];
@@ -37,8 +37,8 @@ async function init() {
   els.systemPrompt.value = DEFAULT_SYSTEM_PROMPT;
 
   els.xlsxFile.addEventListener('change', onFileSelected);
-  els.generateBtn.addEventListener('click', onGenerate);
-  els.reviewBtn.addEventListener('click', openReviewPage);
+  els.fetchBtn.addEventListener('click', onFetchFromSeller);
+  els.selectBtn.addEventListener('click', openWorkPage);
   els.clearBtn.addEventListener('click', onClearStorage);
   els.systemPrompt.addEventListener('input', scheduleSaveSettings);
   els.apiKey.addEventListener('input', scheduleSaveSettings);
@@ -60,22 +60,36 @@ async function init() {
   }
 
   restoreParseCache(data[CONFIG.PARSE_CACHE_KEY]);
-  updateReviewButton(data[CONFIG.DRAFT_KEY]);
-
+  updateWorkButton(data[CONFIG.DRAFT_KEY]);
   refreshJobStatus();
 }
 
-function updateReviewButton(draft) {
-  const count = draft?.items?.length || 0;
-  els.reviewBtn.textContent = count ? `답글 검토하기 (${count}건)` : '답글 검토하기';
+function openWorkPage() {
+  chrome.storage.local.get([CONFIG.DRAFT_KEY], (result) => {
+    const hasDraft = (result[CONFIG.DRAFT_KEY]?.items?.length || 0) > 0;
+    const hash = hasDraft ? '#review' : '';
+    chrome.tabs.create({ url: chrome.runtime.getURL(`select.html${hash}`) });
+  });
 }
 
-function openReviewPage() {
-  chrome.tabs.create({ url: chrome.runtime.getURL('review.html') });
+function updateWorkButton(draft) {
+  const count = draft?.items?.length || 0;
+  if (parsedRows.length) {
+    els.selectBtn.textContent = count
+      ? `리뷰 답글 작업 열기 (검토 ${count}건)`
+      : `리뷰 답글 작업 열기 (${parsedRows.length}건)`;
+  } else {
+    els.selectBtn.textContent = count
+      ? `리뷰 답글 작업 열기 (검토 ${count}건)`
+      : '리뷰 답글 작업 열기';
+  }
 }
 
 function restoreParseCache(cache) {
-  if (!cache?.parsedRows?.length) return;
+  if (!cache?.parsedRows?.length) {
+    updateFileSummary();
+    return;
+  }
 
   parsedRows = cache.parsedRows;
   columnMap = cache.columnMap || {};
@@ -84,28 +98,37 @@ function restoreParseCache(cache) {
     skippedReplied: cache.skippedReplied || 0,
     fileName: cache.fileName || '',
   };
-  selectedIds = new Set(
-    cache.selectedIds?.length
-      ? cache.selectedIds
-      : parsedRows.map((r) => r.id)
-  );
+  selectedIds = new Set(cache.selectedIds || []);
 
-  renderRowList();
-  updateGenerateButton();
-
+  updateFileSummary();
   if (cache.statusMessage) {
     setStatus(cache.statusMessage);
   }
 }
 
-function getSelectedRows() {
-  return parsedRows.filter((row) => selectedIds.has(row.id));
+function updateFileSummary() {
+  if (!parsedRows.length) {
+    els.fileSummary.classList.remove('visible');
+    els.selectBtn.disabled = true;
+    els.selectBtn.textContent = '리뷰 답글 작업 열기';
+    return;
+  }
+
+  els.fileSummary.classList.add('visible');
+  els.fileSummary.innerHTML = `
+    <div><strong>${parsedRows.length}</strong>건 리뷰 로드됨</div>
+    <div>${parseMeta?.fileName || ''}</div>
+    <div class="next-step">다음: [리뷰 답글 작업 열기] 버튼 클릭</div>
+  `;
+  els.selectBtn.disabled = false;
+  chrome.storage.local.get([CONFIG.DRAFT_KEY], (r) => updateWorkButton(r[CONFIG.DRAFT_KEY]));
 }
 
-function updateGenerateButton() {
-  const count = selectedIds.size;
-  els.generateBtn.textContent = `선택한 ${count}건 답변 생성`;
-  els.generateBtn.disabled = count === 0;
+function highlightSelectButton() {
+  els.selectBtn.classList.remove('highlight');
+  void els.selectBtn.offsetWidth;
+  els.selectBtn.classList.add('highlight');
+  setTimeout(() => els.selectBtn.classList.remove('highlight'), 3000);
 }
 
 async function saveParseCache(statusMessage) {
@@ -125,74 +148,6 @@ async function saveParseCache(statusMessage) {
       statusMessage: statusMessage || '',
       savedAt: Date.now(),
     },
-  });
-}
-
-function renderRowList() {
-  const mapped = Object.entries(columnMap)
-    .map(([k, idx]) => `${k}→"${parseMeta?.headers?.[idx] || ''}"`)
-    .join(' · ');
-  const skipInfo =
-    parseMeta?.skippedReplied > 0
-      ? ` · 답글완료 ${parseMeta.skippedReplied}건 제외`
-      : '';
-  const fileInfo = parseMeta?.fileName ? ` · 파일: ${parseMeta.fileName}` : '';
-  els.columnInfo.textContent = `인식된 컬럼: ${mapped}${skipInfo}${fileInfo}`;
-
-  if (!parsedRows.length) {
-    els.preview.hidden = true;
-    els.preview.innerHTML = '';
-    return;
-  }
-
-  els.preview.hidden = false;
-  els.preview.innerHTML = `
-    <div class="select-toolbar">
-      <button type="button" id="selectAllBtn">전체 선택</button>
-      <button type="button" id="selectNoneBtn">전체 해제</button>
-      <span class="select-count">${selectedIds.size} / ${parsedRows.length}건 선택</span>
-    </div>
-    ${parsedRows
-      .map(
-        (row) => `
-      <label class="review-item">
-        <input type="checkbox" data-id="${escapeHtml(row.id)}" ${selectedIds.has(row.id) ? 'checked' : ''} />
-        <div class="review-item-body">
-          <div><span class="badge">#${escapeHtml(row.id)}</span>${row.rating ? ` ★${escapeHtml(row.rating)}` : ''}</div>
-          <div class="review-item-text">${escapeHtml(row.content.slice(0, 80))}${row.content.length > 80 ? '…' : ''}</div>
-          ${row.product ? `<div class="review-item-meta">${escapeHtml(row.product.slice(0, 50))}${row.product.length > 50 ? '…' : ''}</div>` : ''}
-        </div>
-      </label>`
-      )
-      .join('')}
-  `;
-
-  els.preview.querySelector('#selectAllBtn')?.addEventListener('click', (e) => {
-    e.preventDefault();
-    selectedIds = new Set(parsedRows.map((r) => r.id));
-    renderRowList();
-    updateGenerateButton();
-    saveParseCache();
-  });
-
-  els.preview.querySelector('#selectNoneBtn')?.addEventListener('click', (e) => {
-    e.preventDefault();
-    selectedIds.clear();
-    renderRowList();
-    updateGenerateButton();
-    saveParseCache();
-  });
-
-  els.preview.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
-    cb.addEventListener('change', () => {
-      const id = cb.dataset.id;
-      if (cb.checked) selectedIds.add(id);
-      else selectedIds.delete(id);
-      const countEl = els.preview.querySelector('.select-count');
-      if (countEl) countEl.textContent = `${selectedIds.size} / ${parsedRows.length}건 선택`;
-      updateGenerateButton();
-      saveParseCache();
-    });
   });
 }
 
@@ -231,7 +186,18 @@ function detectColumns(headers) {
 }
 
 function parseWorkbook(arrayBuffer) {
-  const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+  const data = new Uint8Array(arrayBuffer);
+  const readOptions = {
+    type: 'array',
+    dense: true,
+    cellStyles: false,
+    cellNF: false,
+    cellHTML: false,
+    bookVBA: false,
+    bookDeps: false,
+  };
+
+  const workbook = readWorkbookSilently(data, readOptions);
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
@@ -244,14 +210,10 @@ function parseWorkbook(arrayBuffer) {
   const columnMap = detectColumns(headers);
 
   if (columnMap.id === undefined) {
-    throw new Error(
-      `리뷰글번호 컬럼을 찾지 못했습니다. 헤더: ${headers.join(', ')}`
-    );
+    throw new Error(`리뷰글번호 컬럼을 찾지 못했습니다. 헤더: ${headers.join(', ')}`);
   }
   if (columnMap.content === undefined) {
-    throw new Error(
-      `리뷰상세내용 컬럼을 찾지 못했습니다. 헤더: ${headers.join(', ')}`
-    );
+    throw new Error(`리뷰상세내용 컬럼을 찾지 못했습니다. 헤더: ${headers.join(', ')}`);
   }
 
   const dataRows = [];
@@ -299,8 +261,102 @@ function parseWorkbook(arrayBuffer) {
   return { headers, columnMap, dataRows, skippedReplied, skippedEmpty };
 }
 
-function renderPreview() {
-  renderRowList();
+function readWorkbookSilently(data, options) {
+  const prevError = console.error;
+  console.error = (...args) => {
+    const msg = String(args[0] ?? '');
+    if (
+      msg.includes('Bad uncompressed size') ||
+      msg.includes('Bad compressed size')
+    ) {
+      return;
+    }
+    prevError.apply(console, args);
+  };
+
+  try {
+    return XLSX.read(data, options);
+  } finally {
+    console.error = prevError;
+  }
+}
+
+async function onFetchFromSeller() {
+  const days = Number(els.fetchDays.value) || 7;
+  els.fetchBtn.disabled = true;
+  setStatus(`판매자센터에서 최근 ${days}일 리뷰를 가져오는 중...`);
+
+  try {
+    const tabs = await chrome.tabs.query({ url: 'https://sell.smartstore.naver.com/*' });
+    if (!tabs.length) {
+      throw new Error(
+        '판매자센터 탭이 없습니다.\n[sell.smartstore.naver.com] 리뷰 관리 페이지를 연 뒤 다시 시도하세요.'
+      );
+    }
+
+    const tab = tabs.find((t) => t.active) || tabs[0];
+    const response = await sendTabMessage(tab.id, {
+      type: 'FETCH_REVIEWS',
+      payload: { days, onlyUnreplied: true },
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || '가져오기 실패');
+    }
+
+    await applyImportedRows(response, response.sourceLabel || `판매자센터 (최근 ${days}일)`);
+  } catch (err) {
+    const msg = err.message || String(err);
+    if (/Receiving end does not exist|Could not establish connection/i.test(msg)) {
+      setStatus(
+        '판매자센터 페이지와 연결되지 않았습니다.\n리뷰 관리 페이지를 새로고침(F5)한 뒤 다시 시도하세요.'
+      );
+    } else {
+      setStatus(`오류: ${msg}`);
+    }
+  } finally {
+    els.fetchBtn.disabled = false;
+  }
+}
+
+function sendTabMessage(tabId, message) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(tabId, message, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(response);
+    });
+  });
+}
+
+async function applyImportedRows(result, sourceLabel) {
+  parsedRows = result.parsedRows;
+  columnMap = {
+    id: 0,
+    content: 1,
+    rating: 2,
+    product: 3,
+    reviewType: 4,
+    replyStatus: 5,
+  };
+  parseMeta = {
+    headers: ['리뷰글번호', '리뷰상세내용', '구매자평점', '상품명', '리뷰구분', '답글여부'],
+    skippedReplied: result.skippedReplied || 0,
+    fileName: sourceLabel,
+  };
+  selectedIds = new Set();
+
+  const skipMsg = parseMeta.skippedReplied
+    ? ` (답글완료 ${parseMeta.skippedReplied}건 제외)`
+    : '';
+  const statusMessage = `${parsedRows.length}건 가져옴${skipMsg}.\n[리뷰 답글 작업 열기]를 눌러주세요.`;
+  setStatus(statusMessage);
+  updateFileSummary();
+  highlightSelectButton();
+  await saveParseCache(statusMessage);
+  await saveSettings();
 }
 
 async function onFileSelected(event) {
@@ -308,13 +364,11 @@ async function onFileSelected(event) {
   parsedRows = [];
   columnMap = {};
   selectedIds.clear();
-  els.generateBtn.disabled = true;
+  els.selectBtn.disabled = true;
 
   if (!file) {
-    setStatus('엑셀 파일을 선택하세요.');
-    els.preview.hidden = true;
-    els.preview.innerHTML = '';
-    els.columnInfo.textContent = '';
+    setStatus('판매자센터에서 가져오거나 엑셀 파일을 선택하세요.');
+    updateFileSummary();
     return;
   }
 
@@ -330,85 +384,20 @@ async function onFileSelected(event) {
       fileName: file.name,
     };
     selectedIds = new Set();
-    renderRowList();
-    updateGenerateButton();
+
     const skipMsg = result.skippedReplied
       ? ` (답글완료 ${result.skippedReplied}건 제외)`
       : '';
-    const statusMessage = `${parsedRows.length}건 파싱 완료${skipMsg}. 생성할 리뷰를 선택하세요.`;
+    const statusMessage = `${parsedRows.length}건 파싱 완료${skipMsg}.\n아래 [리뷰 답글 작업 열기] 버튼을 눌러주세요.`;
     setStatus(statusMessage);
+    updateFileSummary();
+    highlightSelectButton();
     await saveParseCache(statusMessage);
     await saveSettings();
   } catch (err) {
     setStatus(`오류: ${err.message}`);
-    els.preview.hidden = true;
-    els.preview.innerHTML = '';
-    els.columnInfo.textContent = '';
+    updateFileSummary();
   }
-}
-
-async function onGenerate() {
-  const apiKey = els.apiKey.value.trim() || CONFIG.GEMINI_API_KEY;
-  if (!apiKey || apiKey.includes('YOUR_GEMINI_API_KEY')) {
-    setStatus('Gemini API 키를 config.js 또는 입력란에 넣어주세요.');
-    return;
-  }
-  if (!parsedRows.length) {
-    const cache = (await storageGet(CONFIG.PARSE_CACHE_KEY))[CONFIG.PARSE_CACHE_KEY];
-    if (cache?.parsedRows?.length) {
-      restoreParseCache(cache);
-    }
-  }
-  if (!parsedRows.length) {
-    setStatus('먼저 엑셀 파일을 업로드하세요.');
-    return;
-  }
-
-  const selectedRows = getSelectedRows();
-  if (!selectedRows.length) {
-    setStatus('답변을 생성할 리뷰를 1건 이상 선택하세요.');
-    return;
-  }
-
-  await saveSettings();
-
-  const job = await getJobStatus();
-  if (job?.status === 'running') {
-    setStatus(`${job.message}\n\n팝업을 닫아도 백그라운드에서 계속 진행됩니다.`);
-    setGeneratingUi(true);
-    return;
-  }
-
-  els.generateBtn.disabled = true;
-  setStatus(
-    `선택한 ${selectedRows.length}건 백그라운드 생성 시작...\n팝업을 닫아도 계속 진행됩니다.`
-  );
-
-  chrome.runtime.sendMessage(
-    {
-      type: 'START_GENERATE',
-      payload: {
-        rows: selectedRows,
-        apiKey,
-        systemPrompt: els.systemPrompt.value.trim(),
-        model: CONFIG.GEMINI_MODEL,
-      },
-    },
-    (response) => {
-      if (chrome.runtime.lastError) {
-        setStatus(`시작 실패: ${chrome.runtime.lastError.message}`);
-        setGeneratingUi(false);
-        return;
-      }
-      if (!response?.ok) {
-        setStatus(response?.error || '시작에 실패했습니다.');
-        setGeneratingUi(false);
-        return;
-      }
-      setGeneratingUi(true);
-      refreshJobStatus();
-    }
-  );
 }
 
 function onStorageChanged(changes, area) {
@@ -417,7 +406,14 @@ function onStorageChanged(changes, area) {
     applyJobUi(changes[CONFIG.PROGRESS_KEY].newValue);
   }
   if (changes[CONFIG.DRAFT_KEY]) {
-    updateReviewButton(changes[CONFIG.DRAFT_KEY].newValue);
+    updateWorkButton(changes[CONFIG.DRAFT_KEY].newValue);
+  }
+  if (changes[CONFIG.PARSE_CACHE_KEY]) {
+    const cache = changes[CONFIG.PARSE_CACHE_KEY].newValue;
+    if (cache?.selectedIds) {
+      selectedIds = new Set(cache.selectedIds);
+      updateFileSummary();
+    }
   }
 }
 
@@ -430,11 +426,7 @@ function refreshJobStatus() {
 
 function applyJobUi(job) {
   if (!job) {
-    if (parsedRows.length) {
-      setGeneratingUi(false);
-      updateGenerateButton();
-      return;
-    }
+    if (parsedRows.length) return;
     chrome.storage.local.get([CONFIG.DRAFT_KEY, CONFIG.PARSE_CACHE_KEY, CONFIG.APPLY_ENABLED_KEY], (data) => {
       if (data[CONFIG.PARSE_CACHE_KEY]?.statusMessage) {
         setStatus(data[CONFIG.PARSE_CACHE_KEY].statusMessage);
@@ -443,61 +435,40 @@ function applyJobUi(job) {
       const count = data[CONFIG.DRAFT_KEY]?.items?.length || 0;
       if (count > 0) {
         const apply = data[CONFIG.APPLY_ENABLED_KEY] ? ' (적용 활성화됨)' : ' (검토 필요)';
-        setStatus(`생성된 답글 ${count}건${apply}. [답글 검토하기]를 눌러 확인하세요.`);
+        setStatus(`생성된 답글 ${count}건${apply}. [리뷰 답글 작업 열기]에서 검토 탭을 확인하세요.`);
       }
     });
-    setGeneratingUi(false);
     return;
   }
 
   if (job.message) setStatus(job.message);
 
   if (job.status === 'running') {
-    setGeneratingUi(true);
-    els.generateBtn.textContent = `생성 중 (${job.current || 0}/${job.total || '?'})`;
+    els.selectBtn.disabled = true;
+    els.selectBtn.textContent = `생성 중 (${job.current || 0}/${job.total || '?'})`;
+    if (!jobPollTimer) {
+      jobPollTimer = setInterval(refreshJobStatus, 1500);
+    }
     return;
   }
 
-  setGeneratingUi(false);
-  updateGenerateButton();
-
-  if (job.status === 'done' || job.status === 'error') {
+  updateFileSummary();
+  if (jobPollTimer) {
     clearInterval(jobPollTimer);
     jobPollTimer = null;
-    if (job.status === 'done' && job.openReview) {
-      setStatus(`${job.message}\n\n[답글 검토하기]에서 확인·수정 후 일괄 확인하세요.`);
-    }
-  }
-}
-
-function getJobStatus() {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: 'GET_JOB_STATUS' }, (response) => {
-      resolve(response?.job || null);
-    });
-  });
-}
-
-function setGeneratingUi(isGenerating) {
-  const count = selectedIds.size;
-  els.generateBtn.disabled = isGenerating || count === 0;
-  if (isGenerating) {
-    els.generateBtn.textContent = '백그라운드 생성 중...';
-  } else {
-    els.generateBtn.textContent = `선택한 ${count}건 답변 생성`;
   }
 
-  if (isGenerating && !jobPollTimer) {
-    jobPollTimer = setInterval(refreshJobStatus, 1500);
-  }
-  if (!isGenerating && jobPollTimer) {
-    clearInterval(jobPollTimer);
-    jobPollTimer = null;
+  if (job.status === 'done') {
+    setStatus(`${job.message}\n\n작업 화면의 「2. 답글 검토」 탭에서 확인·수정 후 일괄 확인하세요.`);
+  } else if (job.status === 'stopped') {
+    setStatus(`${job.message}\n\n작업 화면의 「2. 답글 검토」 탭에서 확인·수정 후 일괄 확인하세요.`);
   }
 }
 
 async function onClearStorage() {
-  const job = await getJobStatus();
+  const job = await new Promise((resolve) => {
+    chrome.runtime.sendMessage({ type: 'GET_JOB_STATUS' }, (r) => resolve(r?.job));
+  });
   if (job?.status === 'running') {
     setStatus('답변 생성이 진행 중입니다. 완료 후 삭제하세요.');
     return;
@@ -515,13 +486,9 @@ async function onClearStorage() {
   columnMap = {};
   parseMeta = null;
   selectedIds.clear();
-  els.preview.hidden = true;
-  els.preview.innerHTML = '';
-  els.columnInfo.textContent = '';
-  els.generateBtn.disabled = true;
-  els.generateBtn.textContent = '선택한 0건 답변 생성';
   els.xlsxFile.value = '';
-  setStatus('저장된 답변·검토 데이터를 삭제했습니다.');
+  updateFileSummary();
+  setStatus('저장된 답변·검토 데이터를 삭제했습니다.\n다시 가져오거나 엑셀을 업로드하세요.');
 }
 
 function normalizeReviewContent(text) {
@@ -546,12 +513,4 @@ function storageSet(data) {
 function storageRemove(keys) {
   const keyList = Array.isArray(keys) ? keys : [keys];
   return new Promise((resolve) => chrome.storage.local.remove(keyList, resolve));
-}
-
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }

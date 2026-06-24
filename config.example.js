@@ -8,4 +8,6 @@ const CONFIG = {
   PROGRESS_KEY: 'smartstoreReviewJobProgress',
   PARSE_CACHE_KEY: 'smartstoreReviewParseCache',
   SETTINGS_KEY: 'smartstoreReviewSettings',
+  // (선택) Network > search(200) > Headers > Request URL 전체
+  REVIEW_SEARCH_URL: '',
 };

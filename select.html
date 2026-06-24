@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>리뷰 답글 작업</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 15px;
+      color: #1a1a1a;
+      background: #eef1f5;
+    }
+    .header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: #fff;
+      border-bottom: 1px solid #dde2e8;
+      box-shadow: 0 2px 12px rgba(0,0,0,.06);
+    }
+    .header-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 20px 24px 0;
+    }
+    .header h1 {
+      margin: 0 0 6px;
+      font-size: 24px;
+      font-weight: 800;
+    }
+    .header .sub {
+      margin: 0 0 16px;
+      color: #666;
+      font-size: 14px;
+    }
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin: 0 -4px;
+    }
+    .tab {
+      padding: 12px 20px;
+      border: none;
+      border-radius: 10px 10px 0 0;
+      background: transparent;
+      color: #666;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      margin-bottom: -1px;
+      transition: color .15s, background .15s;
+    }
+    .tab:hover {
+      color: #333;
+      background: #f8faf9;
+    }
+    .tab.active {
+      color: #0a7a3f;
+      background: #f6fdf9;
+      border-bottom-color: #03c75a;
+    }
+    .tab .badge {
+      display: inline-block;
+      min-width: 20px;
+      padding: 2px 7px;
+      margin-left: 6px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+      background: #e5e7eb;
+      color: #555;
+    }
+    .tab.active .badge {
+      background: #03c75a;
+      color: #fff;
+    }
+    .panel-toolbar {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 16px 24px;
+      background: #fff;
+      border-bottom: 1px solid #eef1f5;
+    }
+    .stats {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .stat-box {
+      background: #f8faf9;
+      border: 1px solid #d8ebe0;
+      border-radius: 12px;
+      padding: 12px 18px;
+      min-width: 120px;
+    }
+    .stat-box .label {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 4px;
+    }
+    .stat-box .value {
+      font-size: 22px;
+      font-weight: 800;
+      color: #0a7a3f;
+    }
+    .stat-box.selected .value { color: #2563eb; }
+    .stat-box.warn .value { color: #b45309; }
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .search {
+      flex: 1;
+      min-width: 220px;
+      padding: 12px 16px;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      font-size: 14px;
+    }
+    .search:focus {
+      outline: none;
+      border-color: #03c75a;
+      box-shadow: 0 0 0 3px rgba(3,199,90,.15);
+    }
+    button {
+      padding: 12px 18px;
+      border: none;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    button.secondary {
+      background: #fff;
+      color: #333;
+      border: 1px solid #ccc;
+    }
+    button.primary {
+      background: #03c75a;
+      color: #fff;
+      font-size: 16px;
+      padding: 14px 24px;
+    }
+    button.stop {
+      background: #fff;
+      color: #dc2626;
+      border: 2px solid #dc2626;
+      font-size: 15px;
+      padding: 12px 20px;
+    }
+    button.stop:hover:not(:disabled) {
+      background: #fef2f2;
+    }
+    button:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+    }
+    .banner {
+      max-width: 1100px;
+      margin: 16px auto 0;
+      padding: 12px 16px;
+      border-radius: 12px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .banner.info {
+      background: #eef8f2;
+      border: 1px solid #b8e6cc;
+      color: #0a5c32;
+    }
+    .banner.success {
+      background: #e8f4fd;
+      border: 1px solid #b3d9f2;
+      color: #0c4a6e;
+    }
+    .banner.warn {
+      background: #fff4e5;
+      border: 1px solid #f0d9a8;
+      color: #9a6700;
+    }
+    .footer-bar {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 30;
+      background: #fff;
+      border-top: 1px solid #dde2e8;
+      box-shadow: 0 -4px 16px rgba(0,0,0,.08);
+    }
+    .footer-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .gen-progress {
+      width: 100%;
+      margin-bottom: 12px;
+      padding: 14px 16px;
+      background: #f0f9ff;
+      border: 1px solid #b3d9f2;
+      border-radius: 12px;
+    }
+    .gen-progress.hidden { display: none; }
+    .gen-progress-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      font-weight: 700;
+    }
+    .gen-progress-top .count {
+      font-size: 20px;
+      color: #2563eb;
+    }
+    .gen-progress-track {
+      height: 12px;
+      background: #dbeafe;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .gen-progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #03c75a, #22c55e);
+      border-radius: 999px;
+      transition: width 0.35s ease;
+    }
+    .gen-progress-sub {
+      margin-top: 8px;
+      font-size: 13px;
+      color: #555;
+    }
+    .gen-progress.success {
+      background: #eef8f2;
+      border-color: #b8e6cc;
+    }
+    .gen-progress.error {
+      background: #fff4e5;
+      border-color: #f0d9a8;
+    }
+    .gen-progress.stopped {
+      background: #fefce8;
+      border-color: #fde047;
+    }
+    .main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 20px 24px 160px;
+    }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .card {
+      display: flex;
+      gap: 16px;
+      background: #fff;
+      border: 2px solid #e5e7eb;
+      border-radius: 14px;
+      padding: 18px 20px;
+      margin-bottom: 12px;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .card.selectable {
+      cursor: pointer;
+    }
+    .card.selectable:hover {
+      border-color: #b8e6cc;
+      box-shadow: 0 4px 14px rgba(0,0,0,.05);
+    }
+    .card.selected {
+      border-color: #03c75a;
+      background: #f6fdf9;
+      box-shadow: 0 4px 16px rgba(3,199,90,.12);
+    }
+    .card.review-card {
+      display: block;
+      cursor: default;
+    }
+    .card-check {
+      flex-shrink: 0;
+      width: 24px;
+      height: 24px;
+      margin-top: 4px;
+      accent-color: #03c75a;
+      cursor: pointer;
+    }
+    .card-body { flex: 1; min-width: 0; }
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+    .card-id {
+      font-size: 16px;
+      font-weight: 800;
+      color: #0a7a3f;
+    }
+    .card-badges {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: #f3f4f6;
+      color: #555;
+    }
+    .badge.rating {
+      background: #fff8e6;
+      color: #b45309;
+    }
+    .card-product {
+      font-size: 13px;
+      color: #666;
+      margin-bottom: 10px;
+      line-height: 1.4;
+    }
+    .card-content {
+      font-size: 15px;
+      line-height: 1.6;
+      color: #333;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .review-box {
+      background: #f8faf9;
+      border: 1px solid #d8ebe0;
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 12px;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #444;
+      white-space: pre-wrap;
+    }
+    .reply-label {
+      font-weight: 700;
+      margin-bottom: 8px;
+      font-size: 14px;
+      color: #333;
+    }
+    .reply-input {
+      width: 100%;
+      min-height: 96px;
+      padding: 12px 14px;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      font-family: inherit;
+      font-size: 14px;
+      line-height: 1.6;
+      resize: vertical;
+    }
+    .reply-input:focus {
+      outline: none;
+      border-color: #03c75a;
+      box-shadow: 0 0 0 3px rgba(3,199,90,.15);
+    }
+    .char-count {
+      text-align: right;
+      font-size: 12px;
+      color: #888;
+      margin-top: 6px;
+    }
+    .empty {
+      text-align: center;
+      padding: 80px 24px;
+      color: #888;
+      font-size: 16px;
+      line-height: 1.6;
+    }
+    .footer-inner .summary {
+      flex: 1;
+      font-size: 15px;
+      min-width: 200px;
+    }
+    .footer-inner .summary strong {
+      color: #2563eb;
+      font-size: 20px;
+    }
+    .footer-review { display: none; width: 100%; }
+    .footer-review.active { display: contents; }
+    .footer-select { display: contents; }
+    .footer-select.hidden { display: none; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <h1>리뷰 답글 작업</h1>
+      <p class="sub">리뷰 선택 → AI 답변 생성 → 검토·확인을 한 화면에서 진행합니다.</p>
+      <nav class="tabs" role="tablist">
+        <button type="button" class="tab active" id="tabSelect" role="tab" aria-selected="true">1. 리뷰 선택</button>
+        <button type="button" class="tab" id="tabReview" role="tab" aria-selected="false">
+          2. 답글 검토 <span class="badge" id="reviewBadge">0</span>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <div class="panel-toolbar" id="selectToolbar">
+    <div class="stats">
+      <div class="stat-box">
+        <div class="label">전체 리뷰</div>
+        <div class="value" id="totalCount">0</div>
+      </div>
+      <div class="stat-box selected">
+        <div class="label">선택됨</div>
+        <div class="value" id="selectedCount">0</div>
+      </div>
+      <div class="stat-box">
+        <div class="label">파일</div>
+        <div class="value" id="fileName" style="font-size:14px;color:#333;">-</div>
+      </div>
+    </div>
+    <div class="toolbar">
+      <input type="search" class="search" id="searchInput" placeholder="글번호, 상품명, 리뷰 내용 검색..." />
+      <button type="button" class="secondary" id="selectAllBtn">전체 선택</button>
+      <button type="button" class="secondary" id="selectNoneBtn">전체 해제</button>
+      <button type="button" class="secondary" id="selectVisibleBtn">보이는 항목만 선택</button>
+    </div>
+  </div>
+
+  <div class="panel-toolbar" id="reviewToolbar" hidden>
+    <div class="stats">
+      <div class="stat-box">
+        <div class="label">생성된 답글</div>
+        <div class="value" id="draftTotal">0</div>
+      </div>
+      <div class="stat-box selected">
+        <div class="label">작성 완료</div>
+        <div class="value" id="draftFilled">0</div>
+      </div>
+      <div class="stat-box warn" id="applyStatBox">
+        <div class="label">적용 상태</div>
+        <div class="value" id="applyStatus" style="font-size:14px;color:#333;">미확인</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="banner" class="banner info" hidden></div>
+
+  <main class="main">
+    <section class="panel active" id="panelSelect" role="tabpanel">
+      <div id="selectList"></div>
+    </section>
+    <section class="panel" id="panelReview" role="tabpanel">
+      <div id="reviewList"></div>
+    </section>
+  </main>
+
+  <footer class="footer-bar">
+    <div class="footer-inner">
+      <div class="gen-progress hidden" id="genProgress">
+        <div class="gen-progress-top">
+          <span id="genStatusText">답변 생성 중</span>
+          <span class="count" id="genCountText">0 / 0</span>
+        </div>
+        <div class="gen-progress-track">
+          <div class="gen-progress-fill" id="genProgressFill"></div>
+        </div>
+        <div class="gen-progress-sub" id="genSubText"></div>
+      </div>
+
+      <div class="footer-select" id="footerSelect">
+        <div class="summary"><strong id="footerCount">0</strong>건 선택</div>
+        <button type="button" class="stop" id="stopBtn" hidden>생성 중지</button>
+        <button type="button" class="primary" id="generateBtn" disabled>선택한 0건 답변 생성</button>
+      </div>
+
+      <div class="footer-review" id="footerReview">
+        <div class="summary" id="reviewSummary">답글을 확인·수정한 뒤 일괄 확인하세요.</div>
+        <button type="button" class="secondary" id="saveDraftBtn">임시 저장</button>
+        <button type="button" class="primary" id="confirmBtn" disabled>일괄 확인 및 적용 활성화</button>
+      </div>
+    </div>
+  </footer>
+
+  <script src="config.js"></script>
+  <script src="select.js"></script>
+</body>
+</html>

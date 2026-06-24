@@ -1,6 +1,8 @@
 importScripts('config.js');
 
 let isRunning = false;
+let stopRequested = false;
+let abortController = null;
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'START_GENERATE') {
@@ -17,9 +19,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         finishedAt: Date.now(),
       });
       isRunning = false;
+      stopRequested = false;
+      abortController = null;
     });
 
     sendResponse({ ok: true, started: true });
+    return false;
+  }
+
+  if (message.type === 'STOP_GENERATE') {
+    if (!isRunning) {
+      sendResponse({ ok: false, error: '진행 중인 생성 작업이 없습니다.' });
+      return false;
+    }
+    stopRequested = true;
+    abortController?.abort();
+    sendResponse({ ok: true, stopping: true });
     return false;
   }
 
@@ -37,6 +52,9 @@ async function runGenerate(payload) {
   if (!apiKey) throw new Error('API 키가 없습니다.');
 
   isRunning = true;
+  stopRequested = false;
+  abortController = new AbortController();
+  const signal = abortController.signal;
   const total = rows.length;
   let success = 0;
   let failed = 0;
@@ -61,6 +79,8 @@ async function runGenerate(payload) {
   });
 
   for (let i = 0; i < rows.length; i++) {
+    if (stopRequested || signal.aborted) break;
+
     const row = rows[i];
     await updateProgress({
       status: 'running',
@@ -74,7 +94,9 @@ async function runGenerate(payload) {
     });
 
     try {
-      const reply = await generateReply(apiKey, systemPrompt, row, model);
+      const reply = await generateReply(apiKey, systemPrompt, row, model, signal);
+      if (stopRequested || signal.aborted) break;
+
       draftItems.push({
         id: row.id,
         reviewContent: row.content,
@@ -92,12 +114,37 @@ async function runGenerate(payload) {
           updatedAt: Date.now(),
         },
       });
-      await sleep(400);
+
+      if (stopRequested || signal.aborted) break;
+      await sleep(400, signal);
     } catch (err) {
+      if (stopRequested || signal.aborted || err.name === 'AbortError') break;
       failed++;
       lastError = err.message;
       console.error(`글번호 ${row.id} 실패:`, err);
     }
+  }
+
+  if (stopRequested || signal.aborted) {
+    const processed = success + failed;
+    await updateProgress({
+      status: 'stopped',
+      total,
+      current: processed,
+      success,
+      failed,
+      currentId: '',
+      lastError,
+      message:
+        `중지됨: 성공 ${success}건 저장됨 (전체 ${total}건 중 ${processed}건 처리).` +
+        (failed > 0 ? ` 실패 ${failed}건.` : '') +
+        '\n작업 화면의 「2. 답글 검토」 탭에서 확인·수정 후 일괄 확인하세요.',
+      finishedAt: Date.now(),
+    });
+    isRunning = false;
+    stopRequested = false;
+    abortController = null;
+    return;
   }
 
   const errorHint =
@@ -117,15 +164,16 @@ async function runGenerate(payload) {
     lastError,
     message:
       `완료: 성공 ${success}건, 실패 ${failed}건.${errorHint}\n` +
-      `답글 검토 화면에서 확인·수정 후 [일괄 확인]을 눌러주세요.`,
+      `작업 화면 「2. 답글 검토」 탭에서 확인·수정 후 [일괄 확인]을 눌러주세요.`,
     finishedAt: Date.now(),
-    openReview: success > 0,
   });
 
   isRunning = false;
+  stopRequested = false;
+  abortController = null;
 }
 
-async function generateReply(apiKey, systemPrompt, row, model) {
+async function generateReply(apiKey, systemPrompt, row, model, signal) {
   const userContent = [
     row.product && `상품명: ${row.product}`,
     row.reviewType && `리뷰구분: ${row.reviewType}`,
@@ -145,6 +193,7 @@ async function generateReply(apiKey, systemPrompt, row, model) {
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    signal,
     body: JSON.stringify({
       systemInstruction: {
         parts: [{ text: systemPrompt }],
@@ -184,8 +233,23 @@ function normalizeReviewId(id) {
   return String(id).replace(/[^\d]/g, '');
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    if (!signal) return;
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(new DOMException('Aborted', 'AbortError'));
+      },
+      { once: true }
+    );
+  });
 }
 
 function storageGet(keys) {
