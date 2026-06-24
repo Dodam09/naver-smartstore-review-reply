@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>리뷰 답글 도우미</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      width: 380px;
+      margin: 0;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 13px;
+      color: #222;
+      background: #fafafa;
+    }
+    h1 {
+      margin: 0 0 4px;
+      font-size: 16px;
+    }
+    .sub {
+      margin: 0 0 14px;
+      color: #666;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    label {
+      display: block;
+      margin: 10px 0 4px;
+      font-weight: 600;
+    }
+    input[type="file"],
+    input[type="password"],
+    textarea {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      background: #fff;
+    }
+    textarea {
+      min-height: 72px;
+      resize: vertical;
+      font-family: inherit;
+    }
+    .row { margin-bottom: 8px; }
+    .hint {
+      color: #888;
+      font-size: 11px;
+      margin-top: 4px;
+    }
+    button {
+      width: 100%;
+      margin-top: 10px;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      background: #03c75a;
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:disabled {
+      background: #9fd9b8;
+      cursor: not-allowed;
+    }
+    button.secondary {
+      background: #fff;
+      color: #333;
+      border: 1px solid #ccc;
+      margin-top: 6px;
+    }
+    button.review {
+      background: #2563eb;
+      color: #fff;
+    }
+    #status {
+      margin-top: 12px;
+      padding: 10px;
+      border-radius: 6px;
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      min-height: 48px;
+      white-space: pre-wrap;
+      line-height: 1.45;
+    }
+    #preview {
+      margin-top: 8px;
+      max-height: 220px;
+      overflow: auto;
+      font-size: 11px;
+      background: #fff;
+      border: 1px solid #eee;
+      border-radius: 6px;
+      padding: 8px;
+    }
+    .select-toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+    .select-toolbar button {
+      width: auto;
+      margin: 0;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      background: #fff;
+      color: #333;
+      border: 1px solid #ccc;
+    }
+    .select-count {
+      margin-left: auto;
+      color: #666;
+      font-size: 11px;
+    }
+    .review-item {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      padding: 8px 4px;
+      border-bottom: 1px solid #f0f0f0;
+      cursor: pointer;
+    }
+    .review-item:last-child { border-bottom: none; }
+    .review-item input { margin-top: 3px; flex-shrink: 0; cursor: pointer; }
+    .review-item-body { flex: 1; min-width: 0; }
+    .review-item-meta {
+      color: #888;
+      font-size: 10px;
+      margin-top: 2px;
+    }
+    .review-item-text {
+      line-height: 1.4;
+      word-break: break-all;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: #eef8f2;
+      color: #0a7a3f;
+      font-size: 11px;
+      margin-right: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>스마트스토어 리뷰 답글</h1>
+  <p class="sub">엑셀 업로드 → AI 답변 생성 → 검토·수정 → 일괄 확인 후 판매자센터 자동 입력</p>
+
+  <div class="row">
+    <label for="apiKey">Gemini API 키</label>
+    <input type="password" id="apiKey" placeholder="AIza..." autocomplete="off" />
+    <div class="hint">config.js 기본값을 사용하거나 여기서 덮어쓸 수 있습니다.</div>
+  </div>
+
+  <div class="row">
+    <label for="systemPrompt">답글 톤 (선택)</label>
+    <textarea id="systemPrompt" placeholder="예: 친절하고 감사한 톤으로 2~3문장. 상품명을 자연스럽게 언급."></textarea>
+  </div>
+
+  <div class="row">
+    <label for="xlsxFile">리뷰 엑셀 (.xlsx)</label>
+    <input type="file" id="xlsxFile" accept=".xlsx,.xls" />
+    <div class="hint">스마트스토어 공식 엑셀(리뷰글번호·리뷰상세내용·구매자평점 등) 자동 인식. 답글완료(Y) 행은 제외.</div>
+  </div>
+
+  <div id="columnInfo" class="hint"></div>
+  <div id="preview" hidden></div>
+
+  <button id="generateBtn" disabled>선택한 0건 답변 생성</button>
+  <button id="reviewBtn" class="review" type="button">답글 검토하기</button>
+  <button id="clearBtn" class="secondary" type="button">저장 데이터 전체 삭제</button>
+
+  <div id="status">엑셀 파일을 선택하세요.</div>
+
+  <script src="config.js"></script>
+  <script src="lib/xlsx.full.min.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

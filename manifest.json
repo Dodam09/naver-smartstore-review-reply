@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "스마트스토어 리뷰 답글 도우미",
+  "version": "0.2.0",
+  "description": "리뷰 엑셀 업로드 → AI 답변 생성 → 스마트스토어 답글 자동 채우기 (로컬 테스트용)",
+  "permissions": ["storage"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "host_permissions": [
+    "https://sell.smartstore.naver.com/*",
+    "https://generativelanguage.googleapis.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "리뷰 답글 도우미"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://sell.smartstore.naver.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
