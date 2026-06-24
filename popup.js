@@ -528,18 +528,6 @@ function openStylePickPage() {
   chrome.tabs.create({ url: chrome.runtime.getURL('style-pick.html') });
 }
 
-async function getSellerTab() {
-  const tabs = await new Promise((resolve) => {
-    chrome.tabs.query({ url: 'https://sell.smartstore.naver.com/*' }, resolve);
-  });
-  if (!tabs.length) {
-    throw new Error(
-      '판매자센터 탭이 없습니다.\n[sell.smartstore.naver.com] 리뷰 관리 페이지를 연 뒤 다시 시도하세요.'
-    );
-  }
-  return tabs.find((t) => t.active) || tabs[0];
-}
-
 async function onDownloadSampleXlsxTemplate() {
   try {
     const rows = getSampleReplyTemplateRows();
@@ -922,8 +910,7 @@ async function onFetchFromSeller() {
   setStatus(`판매자센터에서 최근 ${days}일 리뷰를 가져오는 중...`);
 
   try {
-    const tab = await getSellerTab();
-    const response = await sendTabMessage(tab.id, {
+    const response = await sendTabMessage(null, {
       type: 'FETCH_REVIEWS',
       payload: { days, onlyUnreplied: true },
     });
@@ -937,7 +924,10 @@ async function onFetchFromSeller() {
     const msg = err.message || String(err);
     if (/Receiving end does not exist|Could not establish connection/i.test(msg)) {
       setStatus(
-        '판매자센터 페이지와 연결되지 않았습니다.\n리뷰 관리 페이지를 새로고침(F5)한 뒤 다시 시도하세요.'
+        '판매자센터 페이지와 연결되지 않았습니다.\n\n' +
+          '1. [리뷰 관리] 페이지(sell.smartstore.naver.com)에서 F5\n' +
+          '2. chrome://extensions 에서 확장 프로그램 [새로고침]\n' +
+          '3. 다시 시도'
       );
     } else {
       setStatus(`오류: ${msg}`);
@@ -947,15 +937,28 @@ async function onFetchFromSeller() {
   }
 }
 
-function sendTabMessage(tabId, message) {
+function sendTabMessage(_tabId, message) {
   return new Promise((resolve, reject) => {
-    chrome.tabs.sendMessage(tabId, message, (response) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
+    chrome.runtime.sendMessage(
+      {
+        type: 'RELAY_SELLER_TAB',
+        payload: {
+          messageType: message.type,
+          payload: message.payload || {},
+        },
+      },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        if (!response?.ok) {
+          reject(new Error(response?.error || '요청 실패'));
+          return;
+        }
+        resolve(response);
       }
-      resolve(response);
-    });
+    );
   });
 }
 

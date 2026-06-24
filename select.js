@@ -440,25 +440,12 @@ async function onBulkSubmit() {
     return;
   }
 
-  const tabs = await new Promise((resolve) => {
-    chrome.tabs.query({ url: 'https://sell.smartstore.naver.com/*' }, resolve);
-  });
-
-  if (!tabs.length) {
-    showBanner(
-      '판매자센터 탭이 없습니다. sell.smartstore.naver.com 리뷰 관리 페이지를 연 뒤 다시 시도하세요.',
-      'warn'
-    );
-    return;
-  }
-
-  const tab = tabs.find((t) => t.active) || tabs[0];
   isBulkSubmitting = true;
   updateReviewStats();
   showSubmitProgress(0, pending.length, '일괄 등록 준비 중...');
 
   try {
-    const response = await sendTabMessage(tab.id, {
+    const response = await sendTabMessage(null, {
       type: 'BULK_SUBMIT_REPLIES',
       payload: {
         items: pending.map((item) => ({ id: item.id, reply: item.reply.trim() })),
@@ -508,15 +495,28 @@ async function onBulkSubmit() {
   }
 }
 
-function sendTabMessage(tabId, message) {
+function sendTabMessage(_tabId, message) {
   return new Promise((resolve, reject) => {
-    chrome.tabs.sendMessage(tabId, message, (response) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
+    chrome.runtime.sendMessage(
+      {
+        type: 'RELAY_SELLER_TAB',
+        payload: {
+          messageType: message.type,
+          payload: message.payload || {},
+        },
+      },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        if (!response?.ok) {
+          reject(new Error(response?.error || '요청 실패'));
+          return;
+        }
+        resolve(response);
       }
-      resolve(response);
-    });
+    );
   });
 }
 

@@ -2,6 +2,9 @@
  * 판매자센터 리뷰 답글 일괄 등록 (내부 API)
  */
 (function () {
+  if (globalThis.__ssReviewSubmitLoaded) return;
+  globalThis.__ssReviewSubmitLoaded = true;
+
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type !== 'BULK_SUBMIT_REPLIES') return false;
 

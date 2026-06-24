@@ -3,6 +3,9 @@
  * 글번호를 인식해 chrome.storage 에 저장된 답변을 textarea 에 채웁니다.
  */
 (function () {
+  if (globalThis.__ssReviewContentLoaded) return;
+  globalThis.__ssReviewContentLoaded = true;
+
   const STORAGE_KEY = 'smartstoreReviewReplies';
   const APPLY_ENABLED_KEY = 'smartstoreReviewApplyEnabled';
   const FILLED_ATTR = 'data-ss-reply-filled';

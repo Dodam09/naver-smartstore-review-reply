@@ -2,9 +2,19 @@
  * 판매자센터 리뷰 search API
  */
 (function () {
+  if (globalThis.__ssReviewImportLoaded) return;
+  globalThis.__ssReviewImportLoaded = true;
+
+  const MAX_CATALOG_DAYS = 730;
+
   injectPageHook();
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message.type === 'SS_REVIEW_PING') {
+      sendResponse({ ok: true });
+      return false;
+    }
+
     if (message.type === 'FETCH_REVIEWS') {
       fetchReviews(message.payload || {})
         .then((result) => sendResponse({ ok: true, ...result }))
@@ -112,54 +122,110 @@
     };
   }
 
-  async function fetchSellerReplyCatalog(options) {
-    const days = Math.max(7, Math.min(90, Number(options.days) || 90));
-    const maxItems = Math.max(10, Math.min(100, Number(options.maxItems) || 80));
-    const { catalog, totalScanned, withBodyCount } = await fetchRepliedReviewPages(days, {
-      maxItems,
-      maxPages: 6,
-    });
+  function clampCatalogDays(days, fallback = 365) {
+    return Math.max(7, Math.min(MAX_CATALOG_DAYS, Number(days) || fallback));
+  }
 
-    if (!catalog.length) {
-      throw new Error(`최근 ${days}일 내 답글 등록 리뷰가 없습니다.`);
+  function buildSearchDaySteps(maxDays) {
+    const steps = [90, 180, 365, MAX_CATALOG_DAYS].filter((step) => step <= maxDays);
+    if (!steps.length || steps[steps.length - 1] !== maxDays) {
+      steps.push(maxDays);
+    }
+    return [...new Set(steps)].sort((a, b) => a - b);
+  }
+
+  function maxPagesForRepliedSearch(days) {
+    if (days >= 365) return 30;
+    if (days >= 180) return 20;
+    if (days >= 90) return 12;
+    return 8;
+  }
+
+  async function fetchSellerReplyCatalog(options) {
+    const maxDays = clampCatalogDays(options.days, MAX_CATALOG_DAYS);
+    const maxItems = Math.max(10, Math.min(150, Number(options.maxItems) || 100));
+    const daySteps = buildSearchDaySteps(maxDays);
+    let lastResult = null;
+
+    for (const days of daySteps) {
+      const result = await fetchRepliedReviewPages(days, {
+        maxItems,
+        maxPages: maxPagesForRepliedSearch(days),
+      });
+      lastResult = result;
+
+      if (result.catalog.length > 0) {
+        return {
+          catalog: result.catalog,
+          totalScanned: result.totalScanned,
+          withBodyCount: result.withBodyCount,
+          days,
+          maxDays,
+          searchedDays: days,
+          expandedFrom: daySteps[0] !== days ? daySteps[0] : null,
+        };
+      }
     }
 
-    return {
-      catalog,
-      totalScanned,
-      withBodyCount,
-      days,
-    };
+    const scannedDays = lastResult?.days || maxDays;
+    throw new Error(
+      `최근 ${scannedDays}일(약 ${formatDaysAsYears(scannedDays)}) 내 답글 등록 리뷰가 없습니다.\n\n` +
+        '리뷰 관리에서 답글을 작성한 뒤 다시 시도하거나,\n' +
+        '「엑셀 양식」·직접 입력으로 샘플을 등록해 주세요.'
+    );
   }
 
   async function fetchSellerReplySamples(options) {
-    const days = Math.max(7, Math.min(90, Number(options.days) || 30));
+    const maxDays = clampCatalogDays(options.days, 180);
     const maxSamples = Math.max(2, Math.min(20, Number(options.maxSamples) || 15));
-    const { catalog, totalScanned, withBodyCount } = await fetchRepliedReviewPages(days, {
-      maxItems: maxSamples * 3,
-      maxPages: 4,
-    });
+    const daySteps = buildSearchDaySteps(maxDays);
+    let lastResult = null;
 
-    const samples = catalog.filter((item) => item.hasBody).map((item) => item.comment);
-    const unique = normalizeSampleList(samples).slice(0, maxSamples);
-    const repliedCount = catalog.length;
+    for (const days of daySteps) {
+      const result = await fetchRepliedReviewPages(days, {
+        maxItems: maxSamples * 3,
+        maxPages: maxPagesForRepliedSearch(days),
+      });
+      lastResult = result;
 
-    if (unique.length < 2) {
+      const samples = result.catalog.filter((item) => item.hasBody).map((item) => item.comment);
+      const unique = normalizeSampleList(samples).slice(0, maxSamples);
+      if (unique.length >= 2) {
+        return {
+          samples: unique,
+          sampleCount: unique.length,
+          repliedCount: result.catalog.length,
+          totalScanned: result.totalScanned,
+          days,
+          maxDays,
+          searchedDays: days,
+        };
+      }
+    }
+
+    const totalScanned = lastResult?.totalScanned || 0;
+    const withBodyCount = lastResult?.withBodyCount || 0;
+    const scannedDays = lastResult?.days || maxDays;
+
+    if (withBodyCount > 0) {
       throw new Error(
-        withBodyCount > 0
-          ? `답글 ${withBodyCount}건을 찾았지만 본문을 읽지 못했습니다.\n` +
-              '「답글 선택 · 스타일 분석」 화면에서 직접 고르거나, 엑셀/직접 입력을 사용해 주세요.'
-          : `최근 ${days}일 내 답글 본문을 읽을 수 있는 리뷰가 2건 미만입니다(${totalScanned}건 검색).\n기간을 늘리거나 직접 샘플을 입력해 주세요.`
+        `답글 ${withBodyCount}건을 찾았지만 본문을 읽지 못했습니다.\n` +
+          '「답글 선택 · 스타일 분석」 화면에서 직접 고르거나, 엑셀/직접 입력을 사용해 주세요.'
       );
     }
 
-    return {
-      samples: unique,
-      sampleCount: unique.length,
-      repliedCount,
-      totalScanned,
-      days,
-    };
+    throw new Error(
+      `최근 ${scannedDays}일(약 ${formatDaysAsYears(scannedDays)}) 내 답글 본문을 읽을 수 있는 리뷰가 2건 미만입니다(${totalScanned}건 검색).\n` +
+        '기간을 늘리거나 직접 샘플을 입력해 주세요.'
+    );
+  }
+
+  function formatDaysAsYears(days) {
+    if (days >= 365) {
+      const years = Math.round((days / 365) * 10) / 10;
+      return years === 1 ? '1년' : `${years}년`;
+    }
+    return `${days}일`;
   }
 
   async function fetchRepliedReviewPages(days, options = {}) {
@@ -183,11 +249,12 @@
       totalScanned += contents.length;
 
       if (page === 0 && contents.length === 0) {
-        throw new Error(
-          `최근 ${days}일 내 답글 등록 리뷰가 없습니다.\n\n` +
-            '리뷰 관리에서 답글을 작성한 뒤 다시 시도하거나,\n' +
-            '「엑셀 양식」·직접 입력으로 샘플을 등록해 주세요.'
-        );
+        return {
+          catalog,
+          totalScanned,
+          withBodyCount: 0,
+          days,
+        };
       }
 
       for (const item of contents) {

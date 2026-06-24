@@ -38,9 +38,9 @@ async function loadCatalog() {
   isLoading = true;
   els.reloadBtn.disabled = true;
   els.reloadBtn.textContent = '불러오는 중...';
-  setBanner('판매자센터에서 답글 등록 리뷰를 불러오는 중...', 'info');
+  setBanner('판매자센터에서 답글 등록 리뷰를 불러오는 중... (최대 2분)', 'info');
 
-  const days = Number(els.daysSelect.value) || 90;
+  const days = Number(els.daysSelect.value) || 730;
 
   try {
     const response = await sendRuntimeMessage({
@@ -56,8 +56,14 @@ async function loadCatalog() {
       readable.slice(0, Math.min(5, readable.length)).forEach((item) => selectedIds.add(item.id));
     }
 
+    const searchedDays = response.searchedDays || days;
+    const rangeNote =
+      response.expandedFrom && searchedDays > response.expandedFrom
+        ? `90일부터 검색해 ${formatSearchRange(searchedDays)} 구간에서 발견`
+        : formatSearchRange(searchedDays);
+
     setBanner(
-      `답글 등록 ${catalog.length}건 · 본문 ${response.withBodyCount || readable.length}건 (최근 ${days}일)\n` +
+      `답글 등록 ${catalog.length}건 · 본문 ${response.withBodyCount || readable.length}건 (${rangeNote})\n` +
         '원하는 답글 2개 이상을 선택한 뒤 [선택한 답글로 스타일 분석]을 누르세요.',
       'success'
     );
@@ -239,10 +245,24 @@ function setBanner(message, variant) {
   els.banner.className = `banner ${variant || 'info'}`;
 }
 
+function formatSearchRange(days) {
+  const value = Number(days) || 0;
+  if (value >= 365) {
+    const years = Math.round((value / 365) * 10) / 10;
+    return years === 1 ? '최근 1년' : `최근 ${years}년`;
+  }
+  return `최근 ${value}일`;
+}
+
 function formatFetchError(message) {
   const msg = String(message || '가져오기 실패');
   if (/Receiving end does not exist|Could not establish connection/i.test(msg)) {
-    return '판매자센터 페이지와 연결되지 않았습니다.\n리뷰 관리 페이지를 새로고침(F5)한 뒤 다시 시도하세요.';
+    return (
+      '판매자센터 페이지와 연결되지 않았습니다.\n\n' +
+      '1. [리뷰 관리] 페이지(sell.smartstore.naver.com)에서 F5\n' +
+      '2. chrome://extensions 에서 확장 프로그램 [새로고침]\n' +
+      '3. 다시 시도'
+    );
   }
   return msg;
 }

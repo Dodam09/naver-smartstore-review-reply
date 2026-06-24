@@ -60,7 +60,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === 'FETCH_SELLER_REPLY_CATALOG_JOB') {
-    relaySellerTabMessage('FETCH_SELLER_REPLY_CATALOG', message.payload || {})
+    const catalogDays = Math.max(7, Math.min(730, Number(message.payload?.days) || 730));
+    relaySellerTabMessage(
+      'FETCH_SELLER_REPLY_CATALOG',
+      { ...(message.payload || {}), days: catalogDays },
+      catalogFetchTimeoutMs(catalogDays)
+    )
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((err) => sendResponse({ ok: false, error: err.message || String(err) }));
+    return true;
+  }
+
+  if (message.type === 'RELAY_SELLER_TAB') {
+    const { messageType, payload } = message.payload || {};
+    relaySellerTabMessage(messageType, payload || {})
       .then((result) => sendResponse({ ok: true, ...result }))
       .catch((err) => sendResponse({ ok: false, error: err.message || String(err) }));
     return true;
@@ -408,23 +421,78 @@ async function patchSampleFlow(flowPatch, sampleReplies) {
 function formatSampleFetchError(message) {
   const msg = String(message || '가져오기 실패');
   if (/Receiving end does not exist|Could not establish connection/i.test(msg)) {
-    return '판매자센터 페이지와 연결되지 않았습니다.\n리뷰 관리 페이지를 새로고침(F5)한 뒤 다시 시도하세요.';
+    return (
+      '판매자센터 페이지와 연결되지 않았습니다.\n\n' +
+      '1. [리뷰 관리] 페이지(sell.smartstore.naver.com)에서 F5\n' +
+      '2. chrome://extensions 에서 확장 프로그램 [새로고침]\n' +
+      '3. 다시 시도'
+    );
   }
   return msg;
 }
 
+const SELLER_TAB_URL = 'https://sell.smartstore.naver.com/*';
+const SELLER_CONTENT_SCRIPT_FILES = ['config.js', 'content.js', 'content-import.js', 'content-submit.js'];
+
+function scoreSellerTab(tab) {
+  const url = String(tab.url || '');
+  let score = 0;
+  if (/review/i.test(url)) score += 20;
+  if (/sell\.smartstore\.naver\.com/i.test(url)) score += 5;
+  if (tab.active) score += 3;
+  return score;
+}
+
 async function getSellerTab() {
-  const tabs = await chrome.tabs.query({ url: 'https://sell.smartstore.naver.com/*' });
+  const tabs = await chrome.tabs.query({ url: SELLER_TAB_URL });
   if (!tabs.length) {
     throw new Error(
       '판매자센터 탭이 없습니다.\n[sell.smartstore.naver.com] 리뷰 관리 페이지를 연 뒤 다시 시도하세요.'
     );
   }
-  return tabs.find((t) => t.active) || tabs[0];
+  return tabs.slice().sort((a, b) => scoreSellerTab(b) - scoreSellerTab(a))[0];
+}
+
+function pingSellerTab(tabId) {
+  return new Promise((resolve) => {
+    chrome.tabs.sendMessage(tabId, { type: 'SS_REVIEW_PING' }, (response) => {
+      resolve(!chrome.runtime.lastError && response?.ok === true);
+    });
+  });
+}
+
+async function injectSellerContentScripts(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId, allFrames: false },
+    files: SELLER_CONTENT_SCRIPT_FILES,
+  });
+}
+
+async function ensureSellerTabReady(tabId) {
+  if (await pingSellerTab(tabId)) return;
+
+  try {
+    await injectSellerContentScripts(tabId);
+  } catch (err) {
+    throw new Error(formatSampleFetchError(String(err.message || err)));
+  }
+
+  await sleep(200);
+  if (await pingSellerTab(tabId)) return;
+
+  throw new Error(formatSampleFetchError('Could not establish connection'));
+}
+
+function catalogFetchTimeoutMs(days) {
+  if (days >= 365) return 180000;
+  if (days >= 180) return 120000;
+  return 90000;
 }
 
 async function relaySellerTabMessage(messageType, payload, timeoutMs = 90000) {
   const tab = await getSellerTab();
+  await ensureSellerTabReady(tab.id);
+
   return new Promise((resolve, reject) => {
     let settled = false;
     const timer = setTimeout(() => {
@@ -439,11 +507,11 @@ async function relaySellerTabMessage(messageType, payload, timeoutMs = 90000) {
       clearTimeout(timer);
 
       if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
+        reject(new Error(formatSampleFetchError(chrome.runtime.lastError.message)));
         return;
       }
       if (!response?.ok) {
-        reject(new Error(response?.error || '가져오기 실패'));
+        reject(new Error(response?.error || '요청 실패'));
         return;
       }
       resolve(response);
@@ -452,7 +520,7 @@ async function relaySellerTabMessage(messageType, payload, timeoutMs = 90000) {
 }
 
 async function runFetchSellerSamplesJob(payload) {
-  const days = Math.max(Number(payload.days) || 30, 14);
+  const days = Math.max(7, Math.min(730, Number(payload.days) || 180));
   const maxSamples = Math.max(2, Math.min(20, Number(payload.maxSamples) || 15));
 
   await patchSampleFlow({
@@ -464,10 +532,11 @@ async function runFetchSellerSamplesJob(payload) {
   });
 
   try {
-    const response = await relaySellerTabMessage('FETCH_SELLER_REPLY_SAMPLES', {
-      days,
-      maxSamples,
-    });
+    const response = await relaySellerTabMessage(
+      'FETCH_SELLER_REPLY_SAMPLES',
+      { days, maxSamples },
+      catalogFetchTimeoutMs(days)
+    );
     const sampleText = (response.samples || []).join('\n\n---\n\n');
 
     await patchSampleFlow(
