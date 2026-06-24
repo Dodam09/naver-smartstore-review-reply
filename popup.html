@@ -7,76 +7,109 @@
   <style>
     * { box-sizing: border-box; }
     body {
-      width: 380px;
+      width: 360px;
       margin: 0;
-      padding: 16px;
+      padding: 0;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       font-size: 13px;
       color: #222;
-      background: #fafafa;
+      background: #f4f5f7;
+    }
+    .header {
+      padding: 14px 16px 0;
+      background: #fff;
+      border-bottom: 1px solid #e5e7eb;
     }
     h1 {
-      margin: 0 0 4px;
+      margin: 0 0 2px;
       font-size: 16px;
     }
     .sub {
-      margin: 0 0 14px;
+      margin: 0 0 12px;
       color: #666;
-      font-size: 12px;
+      font-size: 11px;
       line-height: 1.4;
     }
+    .tabs {
+      display: flex;
+      gap: 4px;
+    }
+    .tab {
+      flex: 1;
+      padding: 10px 8px;
+      border: none;
+      border-radius: 8px 8px 0 0;
+      background: transparent;
+      color: #666;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+    .tab.active {
+      color: #0a7a3f;
+      background: #f4f5f7;
+      border-bottom-color: #03c75a;
+    }
+    .panel {
+      display: none;
+      padding: 14px 16px 16px;
+    }
+    .panel.active { display: block; }
     label {
       display: block;
-      margin: 10px 0 4px;
+      margin: 0 0 4px;
       font-weight: 600;
+      font-size: 12px;
     }
     input[type="file"],
     input[type="password"],
+    select,
     textarea {
       width: 100%;
       padding: 8px;
       border: 1px solid #ccc;
       border-radius: 6px;
       background: #fff;
+      font-family: inherit;
     }
     textarea {
       min-height: 72px;
       resize: vertical;
-      font-family: inherit;
     }
-    .row { margin-bottom: 8px; }
     .hint {
       color: #888;
       font-size: 11px;
       margin-top: 4px;
+      line-height: 1.4;
     }
     button {
       width: 100%;
-      margin-top: 10px;
+      margin-top: 8px;
       padding: 10px;
       border: none;
-      border-radius: 6px;
+      border-radius: 8px;
       background: #03c75a;
       color: #fff;
       font-weight: 700;
       cursor: pointer;
+      font-size: 13px;
     }
     button:disabled {
-      background: #9fd9b8;
+      opacity: .55;
       cursor: not-allowed;
     }
     button.secondary {
       background: #fff;
       color: #333;
       border: 1px solid #ccc;
-      margin-top: 6px;
     }
     button.select {
       background: #2563eb;
-      color: #fff;
       padding: 14px;
       font-size: 15px;
-      margin-top: 14px;
+      margin-top: 12px;
     }
     button.select.highlight {
       box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35);
@@ -86,90 +119,242 @@
       0%, 100% { transform: scale(1); }
       50% { transform: scale(1.02); }
     }
-    button.fetch {
-      background: #03c75a;
-      color: #fff;
-      margin-top: 6px;
-    }
-    button.fetch:disabled {
-      background: #9fd9b8;
-    }
-    .divider {
-      text-align: center;
-      color: #aaa;
-      font-size: 11px;
-      margin: 12px 0 8px;
-    }
-    .file-summary {
-      margin-top: 10px;
-      padding: 12px;
+    button.fetch { margin-top: 8px; }
+    button.fetch-samples { background: #0369a1; }
+    button.analyze { background: #7c3aed; }
+    .card {
       background: #fff;
       border: 1px solid #e5e7eb;
-      border-radius: 8px;
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+    .card-title {
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+    .row-inline {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .row-inline select { flex: 1; margin: 0; }
+    .row-inline button { flex: 1.2; margin-top: 0; white-space: nowrap; }
+    details {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+    details[open] { margin-bottom: 10px; }
+    summary {
+      padding: 11px 12px;
+      font-weight: 600;
+      font-size: 12px;
+      cursor: pointer;
+      list-style: none;
+      color: #444;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::after {
+      content: '▸';
+      float: right;
+      color: #999;
+    }
+    details[open] summary::after { content: '▾'; }
+    .details-body {
+      padding: 0 12px 12px;
+      border-top: 1px solid #f0f0f0;
+    }
+    .preset-note, .sample-count {
+      font-size: 11px;
+      color: #666;
+      margin-top: 6px;
+      line-height: 1.4;
+    }
+    .sample-flow {
+      margin-bottom: 10px;
+      padding: 10px 12px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+    }
+    .sample-steps {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .sample-step {
+      flex: 1;
+      padding: 6px 4px;
+      border-radius: 999px;
+      background: #e5e7eb;
+      color: #6b7280;
+      font-size: 10px;
+      font-weight: 700;
+      text-align: center;
+      line-height: 1.3;
+    }
+    .sample-step.done {
+      background: #dcfce7;
+      color: #166534;
+    }
+    .sample-step.active {
+      background: #dbeafe;
+      color: #1d4ed8;
+    }
+    .sample-step.stale {
+      background: #fef3c7;
+      color: #92400e;
+    }
+    .sample-flow-status {
+      font-size: 11px;
+      line-height: 1.5;
+      color: #475569;
+      white-space: pre-wrap;
+    }
+    .sample-flow-status.success { color: #166534; }
+    .sample-flow-status.error { color: #b91c1c; }
+    .sample-flow-status.warn { color: #92400e; }
+    .sample-flow-status.loading { color: #1d4ed8; }
+    button.fetch-samples.loading,
+    button.analyze.loading {
+      opacity: .75;
+      cursor: wait;
+    }
+    button.analyze.done {
+      background: #059669;
+    }
+    .file-summary {
+      padding: 12px;
+      background: #eef8f2;
+      border: 1px solid #b8e6cc;
+      border-radius: 10px;
       font-size: 12px;
       line-height: 1.5;
+      margin-bottom: 10px;
       display: none;
     }
     .file-summary.visible { display: block; }
     .file-summary strong { color: #0a7a3f; font-size: 18px; }
     .file-summary .next-step {
-      margin-top: 8px;
-      padding-top: 8px;
-      border-top: 1px dashed #e5e7eb;
+      margin-top: 6px;
       color: #2563eb;
       font-weight: 600;
     }
     #status {
-      margin-top: 12px;
+      margin-top: 10px;
       padding: 10px;
-      border-radius: 6px;
+      border-radius: 8px;
       background: #fff;
       border: 1px solid #e5e5e5;
-      min-height: 48px;
+      min-height: 40px;
       white-space: pre-wrap;
       line-height: 1.45;
+      font-size: 12px;
+    }
+    .danger-zone {
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px dashed #e5e7eb;
     }
   </style>
 </head>
 <body>
-  <h1>스마트스토어 리뷰 답글</h1>
-  <p class="sub">판매자센터 또는 엑셀 → 작업 화면에서 선택·생성·검토 → 자동 입력</p>
+  <header class="header">
+    <h1>리뷰 답글</h1>
+    <p class="sub">가져오기 → 생성 → 일괄 등록</p>
+    <nav class="tabs">
+      <button type="button" class="tab active" data-tab="work">작업</button>
+      <button type="button" class="tab" data-tab="style">스타일</button>
+      <button type="button" class="tab" data-tab="settings">설정</button>
+    </nav>
+  </header>
 
-  <div class="row">
-    <label for="apiKey">Gemini API 키</label>
-    <input type="password" id="apiKey" placeholder="AIza..." autocomplete="off" />
-  </div>
+  <!-- 작업 -->
+  <section id="panelWork" class="panel active">
+    <div id="fileSummary" class="file-summary"></div>
 
-  <div class="row">
-    <label for="systemPrompt">답글 톤 (선택)</label>
-    <textarea id="systemPrompt" placeholder="예: 친절하고 감사한 톤으로 2~3문장."></textarea>
-  </div>
+    <div class="card">
+      <div class="card-title">리뷰 가져오기</div>
+      <div class="row-inline">
+        <select id="fetchDays">
+          <option value="7" selected>최근 7일</option>
+          <option value="14">최근 14일</option>
+          <option value="30">최근 30일</option>
+        </select>
+        <button id="fetchBtn" class="fetch" type="button">판매자센터</button>
+      </div>
+      <div class="hint">sell.smartstore.naver.com 리뷰 관리 탭 필요</div>
+    </div>
 
-  <div class="row">
-    <label for="fetchDays">판매자센터에서 가져오기</label>
-    <select id="fetchDays" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;background:#fff;">
-      <option value="7" selected>최근 7일</option>
-      <option value="14">최근 14일</option>
-      <option value="30">최근 30일</option>
-    </select>
-    <button id="fetchBtn" class="fetch" type="button">판매자센터에서 가져오기</button>
-    <div class="hint">리뷰 관리 페이지(sell.smartstore.naver.com)에 로그인된 탭이 있어야 합니다.</div>
-  </div>
+    <details>
+      <summary>엑셀 파일로 가져오기</summary>
+      <div class="details-body">
+        <input type="file" id="xlsxFile" accept=".xlsx,.xls" />
+        <div class="hint">다운로드한 리뷰 엑셀 (.xlsx)</div>
+      </div>
+    </details>
 
-  <div class="divider">— 또는 엑셀 파일 —</div>
+    <button id="selectBtn" class="select" type="button" disabled>리뷰 답글 작업 열기</button>
+    <div id="status">리뷰를 가져온 뒤 작업 화면을 여세요.</div>
+  </section>
 
-  <div class="row">
-    <label for="xlsxFile">리뷰 엑셀 (.xlsx)</label>
-    <input type="file" id="xlsxFile" accept=".xlsx,.xls" />
-    <div class="hint">엑셀 다운로드 후 업로드해도 됩니다.</div>
-  </div>
+  <!-- 스타일 -->
+  <section id="panelStyle" class="panel">
+    <div class="card">
+      <label for="tonePreset">답글 톤 프리셋</label>
+      <select id="tonePreset"></select>
+      <div class="preset-note" id="presetNote">프리셋을 선택하면 AI 답글 톤이 적용됩니다.</div>
+    </div>
 
-  <div id="fileSummary" class="file-summary"></div>
+    <details>
+      <summary>답글 지침 직접 수정 (고급)</summary>
+      <div class="details-body">
+        <textarea id="systemPrompt" placeholder="프리셋 선택 시 자동 입력됩니다."></textarea>
+      </div>
+    </details>
 
-  <button id="selectBtn" class="select" type="button" disabled>리뷰 답글 작업 열기</button>
-  <button id="clearBtn" class="secondary" type="button">저장 데이터 전체 삭제</button>
+    <details>
+      <summary>샘플 답글로 내 스타일 만들기</summary>
+      <div class="details-body">
+        <div class="sample-flow" id="sampleFlow">
+          <div class="sample-steps">
+            <span class="sample-step" id="sampleStepLoad" data-step="load">① 샘플 준비</span>
+            <span class="sample-step" id="sampleStepAnalyze" data-step="analyze">② 분석</span>
+            <span class="sample-step" id="sampleStepApply" data-step="apply">③ 적용</span>
+          </div>
+          <div class="sample-flow-status" id="sampleFlowStatus">답글 샘플 2개 이상을 준비한 뒤 [샘플 분석]을 누르세요.</div>
+        </div>
+        <textarea id="sampleReplies" placeholder="답글 2개 이상 붙여넣기 (빈 줄 또는 --- 로 구분)"></textarea>
+        <div class="sample-count" id="sampleCount">샘플 0개</div>
+        <div class="row-inline" style="margin-top:8px;">
+          <button id="downloadSampleXlsxBtn" class="secondary" type="button">엑셀 양식</button>
+          <button id="downloadSampleTxtBtn" class="secondary" type="button">텍스트 양식</button>
+        </div>
+        <input type="file" id="sampleFile" accept=".txt,.xlsx,.xls" style="margin-top:8px;" />
+        <div class="hint">양식을 받아 답글 2개 이상 작성 후 업로드 · .txt · 엑셀(판매자답글 컬럼)</div>
+        <button id="fetchSamplesBtn" class="fetch-samples" type="button">판매자센터 기존 답글 가져오기</button>
+        <button id="analyzeBtn" class="analyze" type="button">샘플 분석 → 프롬프트 생성</button>
+      </div>
+    </details>
+  </section>
 
-  <div id="status">판매자센터에서 가져오거나 엑셀 파일을 선택하세요.</div>
+  <!-- 설정 -->
+  <section id="panelSettings" class="panel">
+    <div class="card">
+      <label for="apiKey">Gemini API 키</label>
+      <input type="password" id="apiKey" placeholder="AIza..." autocomplete="off" />
+      <div class="hint">AI 답변 생성에 사용됩니다. 로컬에만 저장됩니다.</div>
+    </div>
+
+    <div class="danger-zone">
+      <button id="clearBtn" class="secondary" type="button">저장 데이터 전체 삭제</button>
+      <div class="hint">리뷰·답글·진행 상태가 모두 지워집니다.</div>
+    </div>
+  </section>
 
   <script>
     (function () {
@@ -185,6 +370,8 @@
     })();
   </script>
   <script src="config.js"></script>
+  <script src="lib/tone-presets.js"></script>
+  <script src="lib/sample-replies.js"></script>
   <script src="lib/xlsx.full.min.js"></script>
   <script src="popup.js"></script>
 </body>

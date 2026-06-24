@@ -44,6 +44,27 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     });
     return true;
   }
+
+  if (message.type === 'ANALYZE_TONE_SAMPLES') {
+    analyzeToneSamples(message.payload)
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((err) => sendResponse({ ok: false, error: err.message || String(err) }));
+    return true;
+  }
+
+  if (message.type === 'FETCH_SELLER_SAMPLES_JOB') {
+    runFetchSellerSamplesJob(message.payload || {})
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((err) => sendResponse({ ok: false, error: err.message || String(err) }));
+    return true;
+  }
+
+  if (message.type === 'ANALYZE_TONE_SAMPLES_JOB') {
+    runAnalyzeToneJob(message.payload || {})
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((err) => sendResponse({ ok: false, error: err.message || String(err) }));
+    return true;
+  }
 });
 
 async function runGenerate(payload) {
@@ -173,6 +194,88 @@ async function runGenerate(payload) {
   abortController = null;
 }
 
+async function analyzeToneSamples(payload) {
+  const { apiKey, samples, model } = payload;
+  if (!apiKey) throw new Error('API 키가 없습니다.');
+  const normalized = normalizeAnalysisSamples(samples);
+  if (normalized.length < 2) {
+    throw new Error('분석할 샘플 답글이 2개 이상 필요합니다.');
+  }
+
+  const sampleBlock = normalized.map((s, i) => `[${i + 1}]\n${s}`).join('\n\n');
+  const metaPrompt = `당신은 네이버 스마트스토어 판매자 답글 스타일 분석 전문가입니다.
+아래는 실제 사장님이 작성한 판매자 답글 샘플입니다. 말투, 문장 길이, 인사·감사 표현, 이모지 사용, 종결어미, 자주 쓰는 표현, 피해야 할 표현을 분석한 뒤, 같은 스타일로 고객 리뷰 답글을 작성하게 할 **시스템 지시문(system instruction)** 을 한국어로 작성하세요.
+
+규칙:
+- 출력은 시스템 지시문 본문만 (설명·제목·따옴표·마크다운 없이)
+- 5~12문장 분량
+- "복붙 티 나지 않게", "리뷰 내용에 구체적으로 반응"을 반드시 포함
+- 샘플에 없는 이모지·유행어를 무리하게 추가하지 말 것
+- 스마트스토어 판매자 답글임을 명시
+
+샘플 답글:
+${sampleBlock}`;
+
+  const prompt = await callGeminiText(apiKey, metaPrompt, model, { temperature: 0.35 });
+  if (!prompt || prompt.length < 30) {
+    throw new Error('스타일 분석 결과가 너무 짧습니다. 샘플을 더 추가해 보세요.');
+  }
+
+  return {
+    prompt: prompt.trim(),
+    sampleCount: normalized.length,
+  };
+}
+
+function normalizeAnalysisSamples(samples) {
+  const unique = [];
+  const seen = new Set();
+  for (const raw of samples || []) {
+    const s = String(raw).replace(/\r\n/g, '\n').trim();
+    if (s.length < 8) continue;
+    const key = s.slice(0, 120);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(s);
+  }
+  return unique.slice(0, 20);
+}
+
+async function callGeminiText(apiKey, userText, model, options = {}) {
+  const geminiModel = model || CONFIG.GEMINI_MODEL;
+  const url =
+    `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: userText }] }],
+      generationConfig: {
+        temperature: options.temperature ?? 0.7,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const errBody = await response.text();
+    let message = errBody.slice(0, 300);
+    try {
+      const parsed = JSON.parse(errBody);
+      message = parsed.error?.message || message;
+    } catch (_) {}
+    throw new Error(`Gemini ${response.status}: ${message}`);
+  }
+
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts
+    ?.map((p) => p.text)
+    .join('')
+    .trim();
+  if (!text) throw new Error('빈 응답');
+  return text;
+}
+
 async function generateReply(apiKey, systemPrompt, row, model, signal) {
   const userContent = [
     row.product && `상품명: ${row.product}`,
@@ -262,4 +365,185 @@ function storageSet(data) {
 
 async function updateProgress(progress) {
   await storageSet({ [CONFIG.PROGRESS_KEY]: progress });
+}
+
+function emptySampleFlow() {
+  return {
+    source: null,
+    sourceLabel: '',
+    loadedAt: null,
+    loadedCount: 0,
+    analyzedAt: null,
+    analyzedCount: 0,
+    analyzedFingerprint: '',
+    fetching: false,
+    fetchStartedAt: null,
+    analyzing: false,
+    analyzeStartedAt: null,
+    lastError: '',
+    lastErrorAt: null,
+  };
+}
+
+async function patchSampleFlow(flowPatch, sampleReplies) {
+  const data = await storageGet([CONFIG.SETTINGS_KEY]);
+  const settings = data[CONFIG.SETTINGS_KEY] || {};
+  const sampleFlow = { ...emptySampleFlow(), ...(settings.sampleFlow || {}), ...flowPatch };
+  await storageSet({
+    [CONFIG.SETTINGS_KEY]: {
+      ...settings,
+      sampleFlow,
+      ...(sampleReplies != null ? { sampleReplies } : {}),
+    },
+  });
+}
+
+function formatSampleFetchError(message) {
+  const msg = String(message || '가져오기 실패');
+  if (/Receiving end does not exist|Could not establish connection/i.test(msg)) {
+    return '판매자센터 페이지와 연결되지 않았습니다.\n리뷰 관리 페이지를 새로고침(F5)한 뒤 다시 시도하세요.';
+  }
+  return msg;
+}
+
+async function getSellerTab() {
+  const tabs = await chrome.tabs.query({ url: 'https://sell.smartstore.naver.com/*' });
+  if (!tabs.length) {
+    throw new Error(
+      '판매자센터 탭이 없습니다.\n[sell.smartstore.naver.com] 리뷰 관리 페이지를 연 뒤 다시 시도하세요.'
+    );
+  }
+  return tabs.find((t) => t.active) || tabs[0];
+}
+
+async function relaySellerTabMessage(messageType, payload, timeoutMs = 90000) {
+  const tab = await getSellerTab();
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error('판매자센터 응답 시간이 초과되었습니다.\n리뷰 관리 페이지를 새로고침(F5)한 뒤 다시 시도하세요.'));
+    }, timeoutMs);
+
+    chrome.tabs.sendMessage(tab.id, { type: messageType, payload }, (response) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      if (!response?.ok) {
+        reject(new Error(response?.error || '가져오기 실패'));
+        return;
+      }
+      resolve(response);
+    });
+  });
+}
+
+async function runFetchSellerSamplesJob(payload) {
+  const days = Math.max(Number(payload.days) || 30, 14);
+  const maxSamples = Math.max(2, Math.min(20, Number(payload.maxSamples) || 15));
+
+  await patchSampleFlow({
+    fetching: true,
+    fetchStartedAt: Date.now(),
+    analyzing: false,
+    lastError: '',
+    lastErrorAt: null,
+  });
+
+  try {
+    const response = await relaySellerTabMessage('FETCH_SELLER_REPLY_SAMPLES', {
+      days,
+      maxSamples,
+    });
+    const sampleText = (response.samples || []).join('\n\n---\n\n');
+
+    await patchSampleFlow(
+      {
+        fetching: false,
+        fetchStartedAt: null,
+        lastError: '',
+        lastErrorAt: null,
+        source: 'seller',
+        sourceLabel: `판매자센터 (최근 ${days}일)`,
+        loadedAt: Date.now(),
+        loadedCount: response.sampleCount || response.samples?.length || 0,
+        analyzedAt: null,
+        analyzedCount: 0,
+        analyzedFingerprint: '',
+      },
+      sampleText
+    );
+
+    return response;
+  } catch (err) {
+    await patchSampleFlow({
+      fetching: false,
+      fetchStartedAt: null,
+      lastError: formatSampleFetchError(err.message),
+      lastErrorAt: Date.now(),
+    });
+    throw err;
+  }
+}
+
+async function runAnalyzeToneJob(payload) {
+  await patchSampleFlow({
+    analyzing: true,
+    analyzeStartedAt: Date.now(),
+    lastError: '',
+    lastErrorAt: null,
+  });
+
+  try {
+    const result = await analyzeToneSamples(payload);
+    const data = await storageGet([CONFIG.SETTINGS_KEY]);
+    const settings = data[CONFIG.SETTINGS_KEY] || {};
+    const learned = {
+      id: 'learned',
+      name: `내 스타일 (샘플 ${result.sampleCount}개)`,
+      prompt: result.prompt,
+      updatedAt: Date.now(),
+    };
+    const customPresets = [
+      learned,
+      ...(settings.customPresets || []).filter((p) => p.id !== 'learned'),
+    ];
+
+    await storageSet({
+      [CONFIG.SETTINGS_KEY]: {
+        ...settings,
+        customPresets,
+        tonePresetId: 'learned',
+        systemPrompt: result.prompt,
+        sampleFlow: {
+          ...emptySampleFlow(),
+          ...(settings.sampleFlow || {}),
+          analyzing: false,
+          analyzeStartedAt: null,
+          analyzedAt: Date.now(),
+          analyzedCount: result.sampleCount,
+          lastError: '',
+          lastErrorAt: null,
+        },
+      },
+    });
+
+    return result;
+  } catch (err) {
+    const data = await storageGet([CONFIG.SETTINGS_KEY]);
+    const settings = data[CONFIG.SETTINGS_KEY] || {};
+    await patchSampleFlow({
+      analyzing: false,
+      analyzeStartedAt: null,
+      lastError: String(err.message || '분석 실패'),
+      lastErrorAt: Date.now(),
+    });
+    throw err;
+  }
 }

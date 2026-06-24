@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "스마트스토어 리뷰 답글 도우미",
-  "version": "0.2.6",
-  "description": "리뷰 엑셀/판매자센터 가져오기 → 선택·생성·검토 → 답글 자동 채우기",
+  "version": "0.3.8",
+  "description": "리뷰 가져오기·AI 생성·일괄 등록·톤 프리셋",
   "permissions": ["storage", "tabs"],
   "background": {
     "service_worker": "background.js"
@@ -18,8 +18,14 @@
   "content_scripts": [
     {
       "matches": ["https://sell.smartstore.naver.com/*"],
-      "js": ["config.js", "content.js", "content-import.js"],
-      "run_at": "document_idle"
+      "js": ["config.js", "content.js", "content-import.js", "content-submit.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["page-hook.js"],
+      "matches": ["https://sell.smartstore.naver.com/*"]
     }
   ]
 }

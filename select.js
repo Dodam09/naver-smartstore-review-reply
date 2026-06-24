@@ -24,6 +24,7 @@ const els = {
   stopBtn: document.getElementById('stopBtn'),
   saveDraftBtn: document.getElementById('saveDraftBtn'),
   confirmBtn: document.getElementById('confirmBtn'),
+  bulkSubmitBtn: document.getElementById('bulkSubmitBtn'),
   genProgress: document.getElementById('genProgress'),
   genStatusText: document.getElementById('genStatusText'),
   genCountText: document.getElementById('genCountText'),
@@ -46,6 +47,8 @@ let draftItems = [];
 let applyEnabled = false;
 let saveTimer = null;
 let activeTab = 'select';
+let isBulkSubmitting = false;
+let submittedIds = new Set();
 
 init();
 
@@ -75,6 +78,7 @@ async function init() {
   els.tabReview.addEventListener('click', () => switchTab('review'));
   els.saveDraftBtn.addEventListener('click', () => saveDraft(true));
   els.confirmBtn.addEventListener('click', onConfirmAll);
+  els.bulkSubmitBtn.addEventListener('click', onBulkSubmit);
 
   chrome.storage.onChanged.addListener(onStorageChanged);
   await loadData();
@@ -144,6 +148,7 @@ async function loadData() {
 async function loadDraftAndRender() {
   const data = await storageGet([CONFIG.DRAFT_KEY, CONFIG.APPLY_ENABLED_KEY]);
   draftItems = data[CONFIG.DRAFT_KEY]?.items || [];
+  submittedIds = new Set(data[CONFIG.DRAFT_KEY]?.submittedIds || []);
   applyEnabled = !!data[CONFIG.APPLY_ENABLED_KEY];
   updateReviewBadge();
   renderReview();
@@ -217,17 +222,20 @@ function renderReview() {
     els.reviewList.innerHTML =
       '<div class="empty">생성된 답글이 없습니다.<br>「1. 리뷰 선택」 탭에서 답변을 생성하세요.</div>';
     els.confirmBtn.disabled = true;
+    els.bulkSubmitBtn.disabled = true;
     updateReviewStats();
     return;
   }
 
   els.reviewList.innerHTML = draftItems
-    .map(
-      (item) => `
-    <article class="card review-card" data-id="${escapeHtml(item.id)}">
+    .map((item) => {
+      const isSubmitted = submittedIds.has(String(item.id));
+      return `
+    <article class="card review-card ${isSubmitted ? 'submitted' : ''}" data-id="${escapeHtml(item.id)}">
       <div class="card-top">
         <div class="card-id">#${escapeHtml(item.id)}</div>
         <div class="card-badges">
+          ${isSubmitted ? '<span class="badge done">등록됨</span>' : ''}
           ${item.rating ? `<span class="badge rating">★ ${escapeHtml(item.rating)}</span>` : ''}
           ${item.reviewType ? `<span class="badge">${escapeHtml(item.reviewType)}</span>` : ''}
         </div>
@@ -235,10 +243,10 @@ function renderReview() {
       ${item.product ? `<div class="card-product">${escapeHtml(item.product)}</div>` : ''}
       <div class="review-box">${escapeHtml(item.reviewContent || '')}</div>
       <div class="reply-label">판매자 답글</div>
-      <textarea class="reply-input" data-id="${escapeHtml(item.id)}" maxlength="1000">${escapeHtml(item.reply || '')}</textarea>
+      <textarea class="reply-input" data-id="${escapeHtml(item.id)}" maxlength="1000" ${isSubmitted ? 'disabled' : ''}>${escapeHtml(item.reply || '')}</textarea>
       <div class="char-count">${(item.reply || '').length} / 1000</div>
-    </article>`
-    )
+    </article>`;
+    })
     .join('');
 
   els.reviewList.querySelectorAll('.reply-input').forEach((ta) => {
@@ -253,6 +261,15 @@ function renderReview() {
   els.confirmBtn.disabled = false;
   updateReviewStats();
   updateReviewBanner();
+}
+
+function getPendingSubmitItems() {
+  const items = els.reviewList.querySelectorAll('.reply-input').length
+    ? collectItemsFromUi()
+    : draftItems;
+  return items.filter(
+    (item) => item.reply?.trim() && !submittedIds.has(String(item.id))
+  );
 }
 
 function toggleId(id, forceChecked) {
@@ -289,14 +306,28 @@ function updateReviewBadge() {
 function updateReviewStats() {
   const total = draftItems.length;
   const filled = draftItems.filter((i) => i.reply?.trim()).length;
+  const registered = submittedIds.size;
+  const pending = getPendingSubmitItems().length;
+
   els.draftTotal.textContent = String(total);
   els.draftFilled.textContent = String(filled);
-  els.applyStatus.textContent = applyEnabled ? '적용됨' : '미확인';
-  els.applyStatus.style.color = applyEnabled ? '#0a7a3f' : '#333';
-  els.applyStatBox.classList.toggle('selected', applyEnabled);
-  els.reviewSummary.textContent = applyEnabled
-    ? '적용 활성화됨 — 판매자센터 답글창에서 자동 입력됩니다.'
-    : '답글을 확인·수정한 뒤 일괄 확인하세요.';
+  els.applyStatus.textContent = registered ? `${registered}건 등록` : '0건';
+  els.applyStatus.style.color = registered ? '#0a7a3f' : '#333';
+  els.applyStatBox.classList.toggle('selected', registered > 0);
+
+  if (isBulkSubmitting) {
+    els.reviewSummary.textContent = '판매자센터에 답글을 등록하는 중...';
+  } else if (registered === total && total > 0) {
+    els.reviewSummary.textContent = '모든 답글이 등록되었습니다.';
+  } else if (pending > 0) {
+    els.reviewSummary.textContent = `${pending}건 일괄 등록 가능 · 판매자센터 탭 필요`;
+  } else {
+    els.reviewSummary.textContent = '답글을 작성한 뒤 [판매자센터에 일괄 등록]을 누르세요.';
+  }
+
+  els.bulkSubmitBtn.disabled = isBulkSubmitting || pending === 0;
+  els.bulkSubmitBtn.textContent =
+    pending > 0 ? `판매자센터에 일괄 등록 (${pending}건)` : '판매자센터에 일괄 등록';
 }
 
 function updateReviewStatsFromUi() {
@@ -322,6 +353,7 @@ async function saveDraft(showMessage = false) {
   const updates = {
     [CONFIG.DRAFT_KEY]: {
       items: draftItems,
+      submittedIds: [...submittedIds],
       updatedAt: Date.now(),
     },
   };
@@ -377,24 +409,140 @@ async function onConfirmAll() {
 
   await storageSet({
     [CONFIG.STORAGE_KEY]: replies,
-    [CONFIG.DRAFT_KEY]: { items: draftItems, updatedAt: Date.now() },
+    [CONFIG.DRAFT_KEY]: {
+      items: draftItems,
+      submittedIds: [...submittedIds],
+      updatedAt: Date.now(),
+    },
     [CONFIG.APPLY_ENABLED_KEY]: true,
   });
 
   applyEnabled = true;
   updateReviewStats();
   showBanner(
-    `${draftItems.length}건 일괄 확인 완료. 이제 스마트스토어에서 리뷰 답글 팝업을 열면 자동으로 채워집니다.`,
-    'success'
+    `${draftItems.length}건 자동 입력 모드 활성화. 답글 팝업을 열면 textarea에 채워집니다. (일괄 등록은 [판매자센터에 일괄 등록] 사용)`,
+    'info'
   );
+}
+
+async function onBulkSubmit() {
+  draftItems = collectItemsFromUi();
+  const pending = getPendingSubmitItems();
+
+  if (!pending.length) {
+    showBanner('등록할 답글이 없습니다. 답글을 작성하거나 미등록 항목을 확인하세요.', 'warn');
+    return;
+  }
+
+  const empty = draftItems.filter((item) => !item.reply?.trim());
+  if (empty.length) {
+    showBanner(`답글이 비어 있는 항목이 ${empty.length}건 있습니다.`, 'warn');
+    return;
+  }
+
+  const tabs = await new Promise((resolve) => {
+    chrome.tabs.query({ url: 'https://sell.smartstore.naver.com/*' }, resolve);
+  });
+
+  if (!tabs.length) {
+    showBanner(
+      '판매자센터 탭이 없습니다. sell.smartstore.naver.com 리뷰 관리 페이지를 연 뒤 다시 시도하세요.',
+      'warn'
+    );
+    return;
+  }
+
+  const tab = tabs.find((t) => t.active) || tabs[0];
+  isBulkSubmitting = true;
+  updateReviewStats();
+  showSubmitProgress(0, pending.length, '일괄 등록 준비 중...');
+
+  try {
+    const response = await sendTabMessage(tab.id, {
+      type: 'BULK_SUBMIT_REPLIES',
+      payload: {
+        items: pending.map((item) => ({ id: item.id, reply: item.reply.trim() })),
+      },
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || '일괄 등록 실패');
+    }
+
+    for (const id of response.success || []) {
+      submittedIds.add(String(id));
+    }
+
+    await storageSet({
+      [CONFIG.DRAFT_KEY]: {
+        items: draftItems,
+        submittedIds: [...submittedIds],
+        updatedAt: Date.now(),
+      },
+      [CONFIG.APPLY_ENABLED_KEY]: false,
+    });
+    applyEnabled = false;
+
+    renderReview();
+
+    const ok = (response.success || []).length;
+    const fail = (response.failed || []).length;
+    let msg = `${ok}건 등록 완료`;
+    if (fail > 0) {
+      const firstErr = response.failed[0]?.error || '';
+      msg += ` · 실패 ${fail}건${firstErr ? `\n${firstErr}` : ''}`;
+    }
+    showBanner(msg, fail > 0 && ok === 0 ? 'warn' : 'success');
+    showSubmitProgress(ok + fail, pending.length, msg, fail > 0 && ok === 0);
+  } catch (err) {
+    const msg = err.message || String(err);
+    if (/Receiving end does not exist|Could not establish connection/i.test(msg)) {
+      showBanner('판매자센터 페이지를 새로고침(F5)한 뒤 다시 시도하세요.', 'warn');
+    } else {
+      showBanner(msg, 'warn');
+    }
+    showSubmitProgress(0, pending.length, msg, true);
+  } finally {
+    isBulkSubmitting = false;
+    updateReviewStats();
+  }
+}
+
+function sendTabMessage(tabId, message) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(tabId, message, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(response);
+    });
+  });
+}
+
+function showSubmitProgress(current, total, message, isError = false) {
+  els.genProgress.classList.remove('hidden', 'success', 'error', 'stopped');
+  if (isError) els.genProgress.classList.add('error');
+  else els.genProgress.classList.add('success');
+
+  els.genStatusText.textContent = '일괄 등록';
+  els.genCountText.textContent = total ? `${current} / ${total}` : '';
+  const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+  els.genProgressFill.style.width = `${pct}%`;
+  els.genSubText.textContent = message;
 }
 
 function updateReviewBanner() {
   if (activeTab !== 'review') return;
-  if (applyEnabled) {
-    showBanner('적용이 활성화되어 있습니다. 판매자센터 답글창에서 자동 입력됩니다.', 'success');
+  if (submittedIds.size === draftItems.length && draftItems.length) {
+    showBanner('모든 답글이 판매자센터에 등록되었습니다.', 'success');
+  } else if (applyEnabled) {
+    showBanner('자동 입력 모드 — 답글 팝업을 열면 textarea에 채워집니다.', 'info');
   } else if (draftItems.length) {
-    showBanner('답글을 검토·수정한 뒤 [일괄 확인 및 적용 활성화]를 눌러주세요.', 'info');
+    showBanner(
+      '답글 확인 후 [판매자센터에 일괄 등록]을 누르면 하나씩 열지 않고 등록됩니다. (최초 1회는 판매자센터에서 답글 1건을 직접 등록해야 API를 학습합니다)',
+      'info'
+    );
   }
 }
 

@@ -148,6 +148,16 @@
       font-size: 16px;
       padding: 14px 24px;
     }
+    button.submit-bulk {
+      background: #0a7a3f;
+      color: #fff;
+      font-size: 15px;
+      padding: 14px 20px;
+    }
+    button.submit-bulk:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+    }
     button.stop {
       background: #fff;
       color: #dc2626;
@@ -372,7 +382,15 @@
       border-color: #03c75a;
       box-shadow: 0 0 0 3px rgba(3,199,90,.15);
     }
-    .char-count {
+    .card.review-card.submitted {
+      border-color: #93c5fd;
+      background: #f8fafc;
+      opacity: .85;
+    }
+    .badge.done {
+      background: #dbeafe;
+      color: #1d4ed8;
+    }
       text-align: right;
       font-size: 12px;
       color: #888;
@@ -448,7 +466,7 @@
         <div class="value" id="draftFilled">0</div>
       </div>
       <div class="stat-box warn" id="applyStatBox">
-        <div class="label">적용 상태</div>
+        <div class="label">등록 완료</div>
         <div class="value" id="applyStatus" style="font-size:14px;color:#333;">미확인</div>
       </div>
     </div>
@@ -485,9 +503,10 @@
       </div>
 
       <div class="footer-review" id="footerReview">
-        <div class="summary" id="reviewSummary">답글을 확인·수정한 뒤 일괄 확인하세요.</div>
+        <div class="summary" id="reviewSummary">답글을 확인·수정한 뒤 일괄 등록하세요.</div>
         <button type="button" class="secondary" id="saveDraftBtn">임시 저장</button>
-        <button type="button" class="primary" id="confirmBtn" disabled>일괄 확인 및 적용 활성화</button>
+        <button type="button" class="secondary" id="confirmBtn" disabled>자동 입력 모드</button>
+        <button type="button" class="submit-bulk" id="bulkSubmitBtn" disabled>판매자센터에 일괄 등록</button>
       </div>
     </div>
   </footer>
