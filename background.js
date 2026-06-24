@@ -59,6 +59,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'FETCH_SELLER_REPLY_CATALOG_JOB') {
+    relaySellerTabMessage('FETCH_SELLER_REPLY_CATALOG', message.payload || {})
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((err) => sendResponse({ ok: false, error: err.message || String(err) }));
+    return true;
+  }
+
   if (message.type === 'ANALYZE_TONE_SAMPLES_JOB') {
     runAnalyzeToneJob(message.payload || {})
       .then((result) => sendResponse({ ok: true, ...result }))

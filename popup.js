@@ -29,7 +29,7 @@ const els = {
   sampleFile: document.getElementById('sampleFile'),
   downloadSampleXlsxBtn: document.getElementById('downloadSampleXlsxBtn'),
   downloadSampleTxtBtn: document.getElementById('downloadSampleTxtBtn'),
-  fetchSamplesBtn: document.getElementById('fetchSamplesBtn'),
+  openStylePickBtn: document.getElementById('openStylePickBtn'),
   analyzeBtn: document.getElementById('analyzeBtn'),
   fetchDays: document.getElementById('fetchDays'),
   fetchBtn: document.getElementById('fetchBtn'),
@@ -67,7 +67,7 @@ async function init() {
   els.tonePreset.addEventListener('change', onPresetChange);
   els.systemPrompt.addEventListener('input', onSystemPromptInput);
   els.analyzeBtn.addEventListener('click', onAnalyzeSamples);
-  els.fetchSamplesBtn.addEventListener('click', onFetchSamplesFromSeller);
+  els.openStylePickBtn.addEventListener('click', openStylePickPage);
   els.sampleFile.addEventListener('change', onSampleFileSelected);
   els.downloadSampleXlsxBtn.addEventListener('click', onDownloadSampleXlsxTemplate);
   els.downloadSampleTxtBtn.addEventListener('click', onDownloadSampleTxtTemplate);
@@ -313,12 +313,16 @@ function updateSampleFlowUI() {
   }`;
 
   if (isFetchingSamples || sampleFlow.fetching) {
-    els.fetchSamplesBtn.disabled = true;
-    els.fetchSamplesBtn.textContent = '가져오는 중...';
-    els.fetchSamplesBtn.classList.add('loading');
+    els.openStylePickBtn.disabled = true;
+    els.openStylePickBtn.textContent = '가져오는 중...';
+    els.openStylePickBtn.classList.add('loading');
     setSampleFlowStatus('판매자센터에서 답글이 달린 리뷰를 찾는 중...', 'loading');
     return;
   }
+
+  els.openStylePickBtn.disabled = false;
+  els.openStylePickBtn.textContent = '판매자센터 답글 선택 · 스타일 분석';
+  els.openStylePickBtn.classList.remove('loading');
 
   if (isAnalyzingSamples || sampleFlow.analyzing) {
     els.analyzeBtn.disabled = true;
@@ -328,9 +332,6 @@ function updateSampleFlowUI() {
     return;
   }
 
-  els.fetchSamplesBtn.disabled = false;
-  els.fetchSamplesBtn.textContent = '판매자센터 기존 답글 가져오기';
-  els.fetchSamplesBtn.classList.remove('loading');
   els.analyzeBtn.disabled = false;
   els.analyzeBtn.classList.remove('loading');
 
@@ -375,12 +376,12 @@ function updateSampleFlowUI() {
   }
 
   if (count > 0 && count < 2) {
-    setSampleFlowStatus('샘플이 1개뿐입니다. 1개 더 추가하거나 [판매자센터 기존 답글 가져오기]를 사용하세요.', 'warn');
+    setSampleFlowStatus('샘플이 1개뿐입니다. 1개 더 추가하거나 [답글 선택 · 스타일 분석]을 사용하세요.', 'warn');
     return;
   }
 
   setSampleFlowStatus(
-    '답글 샘플 2개 이상을 준비한 뒤 [샘플 분석]을 누르세요.\n직접 입력 · 파일 업로드 · 판매자센터 가져오기 중 하나를 사용할 수 있습니다.'
+    '답글 샘플 2개 이상을 준비한 뒤 [샘플 분석]을 누르세요.\n판매자센터 답글은 [답글 선택 · 스타일 분석] 별도 화면을 사용하세요.'
   );
 }
 
@@ -523,6 +524,10 @@ async function collectSampleReplies() {
   return fromText;
 }
 
+function openStylePickPage() {
+  chrome.tabs.create({ url: chrome.runtime.getURL('style-pick.html') });
+}
+
 async function getSellerTab() {
   const tabs = await new Promise((resolve) => {
     chrome.tabs.query({ url: 'https://sell.smartstore.naver.com/*' }, resolve);
@@ -535,56 +540,7 @@ async function getSellerTab() {
   return tabs.find((t) => t.active) || tabs[0];
 }
 
-async function onFetchSamplesFromSeller() {
-  isFetchingSamples = true;
-  sampleFlow.fetching = true;
-  sampleFlow.fetchStartedAt = Date.now();
-  sampleFlow.lastError = '';
-  sampleFlow.lastErrorAt = null;
-  await saveSampleFlowNow();
-  updateSampleFlowUI();
-
-  const days = Math.max(Number(els.fetchDays?.value) || 30, 14);
-
-  try {
-    const response = await new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage(
-        {
-          type: 'FETCH_SELLER_SAMPLES_JOB',
-          payload: { days, maxSamples: 15 },
-        },
-        (res) => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-            return;
-          }
-          if (!res?.ok) {
-            reject(new Error(res?.error || '가져오기 실패'));
-            return;
-          }
-          resolve(res);
-        }
-      );
-    });
-
-    const settings = (await storageGet([CONFIG.SETTINGS_KEY]))[CONFIG.SETTINGS_KEY] || {};
-    restoreSampleFlow(settings);
-    isFetchingSamples = false;
-    updateSampleCount();
-    updateSampleFlowUI();
-    setSampleFlowStatus(
-      `✓ 판매자센터에서 답글 ${response.sampleCount}개를 가져왔습니다. (${response.repliedCount || '?'}건 중)\n다음: [샘플 분석 → 프롬프트 생성]을 누르세요.`,
-      'success'
-    );
-  } catch (err) {
-    const settings = (await storageGet([CONFIG.SETTINGS_KEY]))[CONFIG.SETTINGS_KEY] || {};
-    restoreSampleFlow(settings);
-    isFetchingSamples = false;
-    updateSampleFlowUI();
-  }
-}
-
-function onDownloadSampleXlsxTemplate() {
+async function onDownloadSampleXlsxTemplate() {
   try {
     const rows = getSampleReplyTemplateRows();
     const sheet = XLSX.utils.aoa_to_sheet(rows);
@@ -674,7 +630,7 @@ async function onAnalyzeSamples() {
     samples = await collectSampleReplies();
     if (samples.length < 2) {
       throw new Error(
-        '샘플 답글이 2개 이상 필요합니다.\n직접 입력, 파일 업로드, 또는 [판매자센터에서 기존 답글 가져오기]를 사용하세요.'
+        '샘플 답글이 2개 이상 필요합니다.\n직접 입력, 파일 업로드, 또는 [답글 선택 · 스타일 분석]을 사용하세요.'
       );
     }
   } catch (err) {

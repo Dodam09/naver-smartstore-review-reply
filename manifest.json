@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "스마트스토어 리뷰 답글 도우미",
-  "version": "0.3.8",
+  "version": "0.4.0",
   "description": "리뷰 가져오기·AI 생성·일괄 등록·톤 프리셋",
   "permissions": ["storage", "tabs"],
   "background": {

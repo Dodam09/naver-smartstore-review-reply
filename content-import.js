@@ -19,6 +19,13 @@
       return true;
     }
 
+    if (message.type === 'FETCH_SELLER_REPLY_CATALOG') {
+      fetchSellerReplyCatalog(message.payload || {})
+        .then((result) => sendResponse({ ok: true, ...result }))
+        .catch((err) => sendResponse({ ok: false, error: err.message || String(err) }));
+      return true;
+    }
+
     return false;
   });
 
@@ -32,14 +39,14 @@
     (document.head || document.documentElement).appendChild(script);
   }
 
-  async function fetchAllReviewItems(days) {
+  async function fetchAllReviewItems(days, options = {}) {
     const searchUrl = await resolveSearchUrl();
     const allItems = [];
     let page = 0;
     let hasMore = true;
 
     while (hasMore) {
-      const payload = buildSearchPayload(page, days);
+      const payload = buildSearchPayload(page, days, options);
       const json = await postSearch(searchUrl, payload);
       const contents = json?.contents || json?.data?.contents || [];
 
@@ -59,7 +66,7 @@
   async function fetchReviews(options) {
     const days = Math.max(1, Math.min(90, Number(options.days) || 7));
     const onlyUnreplied = options.onlyUnreplied !== false;
-    const allItems = await fetchAllReviewItems(days);
+    const allItems = await fetchAllReviewItems(days, { onlyUnreplied });
 
     let skippedReplied = 0;
     let skippedEmpty = 0;
@@ -74,7 +81,7 @@
         continue;
       }
 
-      if (onlyUnreplied && item.hasComment === true) {
+      if (onlyUnreplied && itemHasSellerComment(item)) {
         skippedReplied++;
         continue;
       }
@@ -105,63 +112,44 @@
     };
   }
 
+  async function fetchSellerReplyCatalog(options) {
+    const days = Math.max(7, Math.min(90, Number(options.days) || 90));
+    const maxItems = Math.max(10, Math.min(100, Number(options.maxItems) || 80));
+    const { catalog, totalScanned, withBodyCount } = await fetchRepliedReviewPages(days, {
+      maxItems,
+      maxPages: 6,
+    });
+
+    if (!catalog.length) {
+      throw new Error(`최근 ${days}일 내 답글 등록 리뷰가 없습니다.`);
+    }
+
+    return {
+      catalog,
+      totalScanned,
+      withBodyCount,
+      days,
+    };
+  }
+
   async function fetchSellerReplySamples(options) {
     const days = Math.max(7, Math.min(90, Number(options.days) || 30));
     const maxSamples = Math.max(2, Math.min(20, Number(options.maxSamples) || 15));
-    const searchUrl = await resolveSearchUrl();
+    const { catalog, totalScanned, withBodyCount } = await fetchRepliedReviewPages(days, {
+      maxItems: maxSamples * 3,
+      maxPages: 4,
+    });
 
-    const samples = [];
-    let repliedCount = 0;
-    let commentMissingCount = 0;
-    let totalScanned = 0;
-    let page = 0;
-    let hasMore = true;
-
-    while (hasMore && samples.length < maxSamples && page < 8) {
-      const payload = buildSearchPayload(page, days);
-      const json = await postSearch(searchUrl, payload);
-      const contents = json?.contents || json?.data?.contents || [];
-
-      if (!Array.isArray(contents)) {
-        throw new Error('리뷰 목록 형식을 인식하지 못했습니다.');
-      }
-
-      totalScanned += contents.length;
-      let pageRepliedCount = 0;
-
-      for (const item of contents) {
-        if (item.hasComment !== true) continue;
-        pageRepliedCount++;
-        repliedCount++;
-        const comment = extractSellerComment(item);
-        if (!comment) {
-          commentMissingCount++;
-          continue;
-        }
-        samples.push(comment);
-        if (samples.length >= maxSamples) break;
-      }
-
-      if (page === 0 && contents.length > 0 && pageRepliedCount === 0) {
-        throw new Error(
-          `최근 ${days}일 리뷰 ${contents.length}건을 확인했지만, 판매자 답글이 달린 리뷰(hasComment)가 없습니다.\n\n` +
-            '리뷰 관리에서 답글을 2건 이상 직접 작성한 뒤 다시 시도하거나,\n' +
-            '「엑셀 양식」·직접 입력으로 샘플을 등록해 주세요.'
-        );
-      }
-
-      hasMore = contents.length >= payload.size;
-      page += 1;
-    }
-
-    const unique = normalizeSampleList(samples);
+    const samples = catalog.filter((item) => item.hasBody).map((item) => item.comment);
+    const unique = normalizeSampleList(samples).slice(0, maxSamples);
+    const repliedCount = catalog.length;
 
     if (unique.length < 2) {
       throw new Error(
-        repliedCount > 0
-          ? `답글 완료 ${repliedCount}건을 찾았지만 본문을 읽지 못했습니다(${commentMissingCount}건).\n` +
-              'Network 응답에 sellerComment 필드가 없을 수 있습니다.\n엑셀(판매자답글 컬럼) 업로드 또는 직접 입력을 사용해 주세요.'
-          : `최근 ${days}일 내 답글 완료 리뷰가 2건 미만입니다(${totalScanned}건 검색).\n기간을 늘리거나 직접 샘플을 입력해 주세요.`
+        withBodyCount > 0
+          ? `답글 ${withBodyCount}건을 찾았지만 본문을 읽지 못했습니다.\n` +
+              '「답글 선택 · 스타일 분석」 화면에서 직접 고르거나, 엑셀/직접 입력을 사용해 주세요.'
+          : `최근 ${days}일 내 답글 본문을 읽을 수 있는 리뷰가 2건 미만입니다(${totalScanned}건 검색).\n기간을 늘리거나 직접 샘플을 입력해 주세요.`
       );
     }
 
@@ -174,18 +162,91 @@
     };
   }
 
+  async function fetchRepliedReviewPages(days, options = {}) {
+    const maxItems = Math.max(2, Number(options.maxItems) || 80);
+    const maxPages = Math.max(1, Number(options.maxPages) || 5);
+    const searchUrl = await resolveSearchUrl();
+    const catalog = [];
+    let totalScanned = 0;
+    let page = 0;
+    let hasMore = true;
+
+    while (hasMore && catalog.length < maxItems && page < maxPages) {
+      const payload = buildSearchPayload(page, days, { onlyReplied: true });
+      const json = await postSearch(searchUrl, payload);
+      const contents = json?.contents || json?.data?.contents || [];
+
+      if (!Array.isArray(contents)) {
+        throw new Error('리뷰 목록 형식을 인식하지 못했습니다.');
+      }
+
+      totalScanned += contents.length;
+
+      if (page === 0 && contents.length === 0) {
+        throw new Error(
+          `최근 ${days}일 내 답글 등록 리뷰가 없습니다.\n\n` +
+            '리뷰 관리에서 답글을 작성한 뒤 다시 시도하거나,\n' +
+            '「엑셀 양식」·직접 입력으로 샘플을 등록해 주세요.'
+        );
+      }
+
+      for (const item of contents) {
+        if (!itemHasSellerComment(item)) continue;
+        const comment = extractSellerComment(item);
+        catalog.push({
+          id: String(item.id ?? '').trim(),
+          comment: comment || '',
+          hasBody: !!comment,
+          productName: item.productName || '',
+          createDate: item.createDate || '',
+          reviewScore: item.reviewScore != null ? String(item.reviewScore) : '',
+          reviewPreview: normalizeReviewContent(item.reviewContent || '').slice(0, 100),
+        });
+        if (catalog.length >= maxItems) break;
+      }
+
+      hasMore = contents.length >= payload.size;
+      page += 1;
+    }
+
+    return {
+      catalog,
+      totalScanned,
+      withBodyCount: catalog.filter((item) => item.hasBody).length,
+      days,
+    };
+  }
+
+  function itemHasSellerComment(item) {
+    if (!item || typeof item !== 'object') return false;
+    const flag = item.hasComment;
+    return flag === true || flag === 'true';
+  }
+
   function extractSellerComment(item) {
     if (!item || typeof item !== 'object') return '';
+
+    const blockedKeys = new Set([
+      'reviewContent',
+      'parentReviewContent',
+      'escapeHtmlParentReviewContent',
+      'productName',
+      'maskedWriterId',
+      'writerIdNo',
+    ]);
 
     const direct = [
       item.sellerComment,
       item.sellerCommentContent,
+      item.sellerCommentText,
       item.commentContent,
       item.sellerReply,
       item.sellerReplyContent,
       item.replyContent,
-      item.comment,
-      item.contents,
+      item.storeComment,
+      item.storeCommentContent,
+      item.reviewSellerComment,
+      item.answerContent,
     ];
 
     for (const value of direct) {
@@ -201,6 +262,23 @@
     if (item.comment && typeof item.comment === 'object') {
       const nested = extractSellerComment(item.comment);
       if (nested) return nested;
+    }
+
+    if (item.comment && typeof item.comment === 'string') {
+      const text = normalizeSampleText(item.comment);
+      if (text) return text;
+    }
+
+    for (const [key, value] of Object.entries(item)) {
+      if (blockedKeys.has(key)) continue;
+      if (!/comment|reply|답글|answer/i.test(key)) continue;
+      if (typeof value === 'string') {
+        const text = normalizeSampleText(value);
+        if (text) return text;
+      } else if (value && typeof value === 'object') {
+        const nested = extractSellerComment(value);
+        if (nested) return nested;
+      }
     }
 
     if (Array.isArray(item.comments)) {
@@ -318,12 +396,12 @@
     return json;
   }
 
-  function buildSearchPayload(page, days) {
+  function buildSearchPayload(page, days, options = {}) {
     const now = new Date();
     const from = new Date(now);
     from.setDate(from.getDate() - days);
 
-    return {
+    const payload = {
       reviewSearchSortType: 'REVIEW_CREATE_DATE_DESC',
       searchKeywordType: 'IDS',
       benefitKindTypeStringList: [],
@@ -340,6 +418,14 @@
       storeTypes: [],
       useSelectedDate: false,
     };
+
+    if (options.onlyReplied) {
+      payload.hasComment = 'true';
+    } else if (options.onlyUnreplied) {
+      payload.hasComment = 'false';
+    }
+
+    return payload;
   }
 
   function formatKstIso(date, endOfDay) {
