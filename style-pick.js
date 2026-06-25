@@ -1,3 +1,5 @@
+const MAX_SEARCH_WINDOW_DAYS = 90;
+
 const els = {
   daysSelect: document.getElementById('daysSelect'),
   reloadBtn: document.getElementById('reloadBtn'),
@@ -22,6 +24,18 @@ let isAnalyzing = false;
 init();
 
 async function init() {
+  renderLookupDayOptions(els.daysSelect, { includeLong: true, selected: 7 });
+  for (const item of [
+    { value: 180, label: '6개월' },
+    { value: 365, label: '1년' },
+    { value: 730, label: '최대 2년' },
+  ]) {
+    const opt = document.createElement('option');
+    opt.value = String(item.value);
+    opt.textContent = item.label;
+    els.daysSelect.appendChild(opt);
+  }
+
   els.reloadBtn.addEventListener('click', loadCatalog);
   els.daysSelect.addEventListener('change', loadCatalog);
   els.searchInput.addEventListener('input', () => {
@@ -38,9 +52,9 @@ async function loadCatalog() {
   isLoading = true;
   els.reloadBtn.disabled = true;
   els.reloadBtn.textContent = '불러오는 중...';
-  setBanner('판매자센터에서 답글 등록 리뷰를 불러오는 중... (최대 2분)', 'info');
+  setBanner('답글 등록 리뷰 검색 후, 답글 본문을 불러오는 중...', 'info');
 
-  const days = Number(els.daysSelect.value) || 730;
+  const days = clampLookupDays(els.daysSelect.value, { min: 0, max: 730, fallback: 7 });
 
   try {
     const response = await sendRuntimeMessage({
@@ -58,14 +72,16 @@ async function loadCatalog() {
 
     const searchedDays = response.searchedDays || days;
     const rangeNote =
-      response.expandedFrom && searchedDays > response.expandedFrom
-        ? `90일부터 검색해 ${formatSearchRange(searchedDays)} 구간에서 발견`
+      searchedDays > MAX_SEARCH_WINDOW_DAYS
+        ? `최근 ${formatSearchRange(searchedDays)} · 90일씩 나눠 검색`
         : formatSearchRange(searchedDays);
 
     setBanner(
       `답글 등록 ${catalog.length}건 · 본문 ${response.withBodyCount || readable.length}건 (${rangeNote})\n` +
-        '원하는 답글 2개 이상을 선택한 뒤 [선택한 답글로 스타일 분석]을 누르세요.',
-      'success'
+        (readable.length
+          ? '원하는 답글 2개 이상을 선택한 뒤 [선택한 답글로 스타일 분석]을 누르세요.'
+          : '목록 search에는 답글 본문이 없어 상세 API로도 읽지 못했습니다.\n판매자센터 [리뷰 관리]에서 리뷰 1건을 클릭한 뒤 다시 시도해 주세요.'),
+      readable.length ? 'success' : 'warn'
     );
     renderList();
   } catch (err) {
@@ -113,8 +129,15 @@ function renderList() {
               </div>
             </div>
             ${item.productName ? `<div class="product">${escapeHtml(item.productName)}</div>` : ''}
-            <div class="reply-text">${escapeHtml(item.comment || '(답글 본문을 API에서 읽지 못했습니다)')}</div>
-            ${item.reviewPreview ? `<div class="review-preview">고객 리뷰: ${escapeHtml(item.reviewPreview)}</div>` : ''}
+            <div class="reply-label">판매자 답글</div>
+            <div class="reply-text ${
+              item.hasBody ? '' : 'missing'
+            }">${escapeHtml(
+              item.hasBody
+                ? item.comment
+                : '답글 본문을 불러오지 못했습니다. 판매자센터에서 리뷰 1건을 클릭한 뒤 다시 [답글 목록 불러오기]를 눌러 주세요.'
+            )}</div>
+            ${item.reviewPreview ? `<div class="review-preview"><span class="review-label">고객 리뷰</span>${escapeHtml(item.reviewPreview)}</div>` : ''}
           </div>
         </article>`;
     })
@@ -203,6 +226,7 @@ async function onAnalyzeSelected() {
         apiKey,
         samples,
         model: CONFIG.GEMINI_MODEL,
+        context: 'review',
       },
     });
 
@@ -229,7 +253,7 @@ async function onAnalyzeSelected() {
 
     setBanner(
       `✓ 분석 완료 · 선택 ${response.sampleCount || selected.length}개로 「내 스타일」 프리셋을 만들었습니다.\n` +
-        '확장 팝업 [스타일] 탭에서 확인하거나, [리뷰 답글 작업]으로 돌아가 답변을 생성하세요.',
+        '확장 팝업 [리뷰] 탭 → 「리뷰 답글 스타일」에서 확인하거나, [리뷰 답글 작업]으로 돌아가 답변을 생성하세요.',
       'success'
     );
   } catch (err) {
@@ -246,12 +270,12 @@ function setBanner(message, variant) {
 }
 
 function formatSearchRange(days) {
-  const value = Number(days) || 0;
-  if (value >= 365) {
-    const years = Math.round((value / 365) * 10) / 10;
-    return years === 1 ? '최근 1년' : `최근 ${years}년`;
+  const d = clampLookupDays(days, { min: 0, max: 730, fallback: 7 });
+  if (d >= 365) {
+    const years = Math.round((d / 365) * 10) / 10;
+    return years === 1 ? '1년' : `${years}년`;
   }
-  return `최근 ${value}일`;
+  return formatLookupDaysLabel(d);
 }
 
 function formatFetchError(message) {

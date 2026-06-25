@@ -8,6 +8,41 @@
 
   var SEARCH_KEY = '__ss_review_search_url';
   var SUBMIT_KEY = '__ss_review_submit_template';
+  var DETAIL_KEY = '__ss_review_detail_url_template';
+  var INQUIRY_LIST_KEY = '__ss_inquiry_list_url_base';
+  var INQUIRY_OPEN_ID_KEY = '__ss_inquiry_open_id';
+
+  function rememberInquiryListUrl(url, method) {
+    try {
+      if (!url || String(method).toUpperCase() !== 'GET') return;
+      if (url.indexOf('/comments/pages') < 0) return;
+      localStorage.setItem(INQUIRY_LIST_KEY, String(url).split('?')[0]);
+    } catch (e) {}
+  }
+
+  function rememberInquiryOpenId(url, method) {
+    try {
+      if (!url || String(method).toUpperCase() !== 'GET') return;
+      var u = String(url);
+      if (u.indexOf('/comments/pages') >= 0) return;
+      var m = u.match(/\/comments\/(\d+)(?:\/replies|\/detail)?(?:\?|$|\/)/);
+      if (!m) return;
+      localStorage.setItem(INQUIRY_OPEN_ID_KEY, m[1]);
+      window.postMessage({ type: 'SS_INQUIRY_OPEN_ID', id: m[1] }, '*');
+    } catch (e) {}
+  }
+
+  function rememberDetailUrl(url, method) {
+    try {
+      if (!url || String(method).toUpperCase() !== 'GET') return;
+      if (url.indexOf('smartstore.naver.com') < 0) return;
+      if (url.indexOf('/review') < 0) return;
+      if (/\/search/i.test(url)) return;
+      var template = String(url).replace(/\/(\d+)(?=\/|$|\?)/, '/{id}');
+      if (template.indexOf('{id}') < 0) return;
+      localStorage.setItem(DETAIL_KEY, template);
+    } catch (e) {}
+  }
 
   function rememberSearchUrl(url, method, body) {
     try {
@@ -66,6 +101,9 @@
         var body = (init && init.body) || '';
         rememberSearchUrl(url, method, body);
         rememberSubmitTemplate(url, method, body);
+        rememberDetailUrl(url, method);
+        rememberInquiryListUrl(url, method);
+        rememberInquiryOpenId(url, method);
       } catch (e) {}
       return origFetch.apply(this, arguments);
     };
@@ -81,6 +119,9 @@
       try {
         rememberSearchUrl(this.__ssUrl, this.__ssMethod, body);
         rememberSubmitTemplate(this.__ssUrl, this.__ssMethod, body);
+        rememberDetailUrl(this.__ssUrl, this.__ssMethod);
+        rememberInquiryListUrl(this.__ssUrl, this.__ssMethod);
+        rememberInquiryOpenId(this.__ssUrl, this.__ssMethod);
       } catch (e) {}
       return origSend.apply(this, arguments);
     };
@@ -103,6 +144,25 @@
         { type: 'SS_SUBMIT_TEMPLATE', template: localStorage.getItem(SUBMIT_KEY) },
         '*'
       );
+    }
+
+    if (event.data.type === 'SS_REVIEW_GET_DETAIL_TEMPLATE') {
+      window.postMessage(
+        { type: 'SS_REVIEW_DETAIL_TEMPLATE', template: localStorage.getItem(DETAIL_KEY) || null },
+        '*'
+      );
+    }
+
+    if (event.data.type === 'SS_INQUIRY_GET_LIST_BASE') {
+      window.postMessage(
+        { type: 'SS_INQUIRY_LIST_BASE', url: localStorage.getItem(INQUIRY_LIST_KEY) || null },
+        '*'
+      );
+    }
+
+    if (event.data.type === 'SS_INQUIRY_GET_OPEN_ID') {
+      var openId = localStorage.getItem(INQUIRY_OPEN_ID_KEY) || null;
+      window.postMessage({ type: 'SS_INQUIRY_OPEN_ID', id: openId }, '*');
     }
   });
 })();

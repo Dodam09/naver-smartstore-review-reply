@@ -74,7 +74,7 @@
   }
 
   async function fetchReviews(options) {
-    const days = Math.max(1, Math.min(90, Number(options.days) || 7));
+    const days = clampLookupDays(options.days, { min: 0, max: 90, fallback: 7 });
     const onlyUnreplied = options.onlyUnreplied !== false;
     const allItems = await fetchAllReviewItems(days, { onlyUnreplied });
 
@@ -118,94 +118,98 @@
       skippedReplied,
       skippedEmpty,
       totalFetched: allItems.length,
-      sourceLabel: `판매자센터 (최근 ${days}일)`,
+      sourceLabel: `판매자센터 (${formatLookupDaysLabel(days)})`,
     };
   }
 
   function clampCatalogDays(days, fallback = 365) {
-    return Math.max(7, Math.min(MAX_CATALOG_DAYS, Number(days) || fallback));
+    return clampLookupDays(days, { min: 0, max: MAX_CATALOG_DAYS, fallback });
   }
 
-  function buildSearchDaySteps(maxDays) {
-    const steps = [90, 180, 365, MAX_CATALOG_DAYS].filter((step) => step <= maxDays);
-    if (!steps.length || steps[steps.length - 1] !== maxDays) {
-      steps.push(maxDays);
+  /** 네이버 search API는 한 번에 약 90일까지만 허용하는 경우가 많음 */
+  const MAX_SEARCH_WINDOW_DAYS = 90;
+
+  function buildLookbackWindows(maxLookbackDays, windowDays = MAX_SEARCH_WINDOW_DAYS) {
+    const total = clampLookupDays(maxLookbackDays, { min: 0, max: MAX_CATALOG_DAYS, fallback: 0 });
+    if (total === 0) {
+      return [{ startDaysAgo: 0, endDaysAgo: 0, windowDays: 0 }];
     }
-    return [...new Set(steps)].sort((a, b) => a - b);
+
+    const windows = [];
+    let covered = 0;
+
+    while (covered < total) {
+      const size = Math.min(windowDays, total - covered);
+      windows.push({
+        startDaysAgo: covered + size,
+        endDaysAgo: covered,
+        windowDays: size,
+      });
+      covered += size;
+    }
+
+    return windows;
   }
 
-  function maxPagesForRepliedSearch(days) {
-    if (days >= 365) return 30;
-    if (days >= 180) return 20;
-    if (days >= 90) return 12;
-    return 8;
+  function maxPagesForRepliedSearch(maxLookbackDays) {
+    if (maxLookbackDays >= 365) return 5;
+    if (maxLookbackDays >= 180) return 4;
+    return 3;
   }
 
   async function fetchSellerReplyCatalog(options) {
     const maxDays = clampCatalogDays(options.days, MAX_CATALOG_DAYS);
     const maxItems = Math.max(10, Math.min(150, Number(options.maxItems) || 100));
-    const daySteps = buildSearchDaySteps(maxDays);
-    let lastResult = null;
+    const result = await fetchRepliedReviewPages(maxDays, {
+      maxItems,
+      maxPagesPerWindow: maxPagesForRepliedSearch(maxDays),
+    });
 
-    for (const days of daySteps) {
-      const result = await fetchRepliedReviewPages(days, {
-        maxItems,
-        maxPages: maxPagesForRepliedSearch(days),
-      });
-      lastResult = result;
-
-      if (result.catalog.length > 0) {
-        return {
-          catalog: result.catalog,
-          totalScanned: result.totalScanned,
-          withBodyCount: result.withBodyCount,
-          days,
-          maxDays,
-          searchedDays: days,
-          expandedFrom: daySteps[0] !== days ? daySteps[0] : null,
-        };
-      }
+    if (!result.catalog.length) {
+      throw new Error(
+        `최근 ${formatLookupDaysLabel(maxDays)} 내 답글 등록 리뷰가 없습니다.\n\n` +
+          '리뷰 관리에서 답글을 작성한 뒤 다시 시도하거나,\n' +
+          '「엑셀 양식」·직접 입력으로 샘플을 등록해 주세요.'
+      );
     }
 
-    const scannedDays = lastResult?.days || maxDays;
-    throw new Error(
-      `최근 ${scannedDays}일(약 ${formatDaysAsYears(scannedDays)}) 내 답글 등록 리뷰가 없습니다.\n\n` +
-        '리뷰 관리에서 답글을 작성한 뒤 다시 시도하거나,\n' +
-        '「엑셀 양식」·직접 입력으로 샘플을 등록해 주세요.'
-    );
+    return {
+      catalog: result.catalog,
+      totalScanned: result.totalScanned,
+      withBodyCount: result.withBodyCount,
+      days: result.searchedDays || maxDays,
+      maxDays,
+      searchedDays: result.searchedDays || maxDays,
+      windowsScanned: result.windowsScanned,
+    };
   }
 
   async function fetchSellerReplySamples(options) {
     const maxDays = clampCatalogDays(options.days, 180);
     const maxSamples = Math.max(2, Math.min(20, Number(options.maxSamples) || 15));
-    const daySteps = buildSearchDaySteps(maxDays);
-    let lastResult = null;
+    const result = await fetchRepliedReviewPages(maxDays, {
+      maxItems: maxSamples * 3,
+      maxPagesPerWindow: maxPagesForRepliedSearch(maxDays),
+    });
 
-    for (const days of daySteps) {
-      const result = await fetchRepliedReviewPages(days, {
-        maxItems: maxSamples * 3,
-        maxPages: maxPagesForRepliedSearch(days),
-      });
-      lastResult = result;
+    const samples = result.catalog.filter((item) => item.hasBody).map((item) => item.comment);
+    const unique = normalizeSampleList(samples).slice(0, maxSamples);
 
-      const samples = result.catalog.filter((item) => item.hasBody).map((item) => item.comment);
-      const unique = normalizeSampleList(samples).slice(0, maxSamples);
-      if (unique.length >= 2) {
-        return {
-          samples: unique,
-          sampleCount: unique.length,
-          repliedCount: result.catalog.length,
-          totalScanned: result.totalScanned,
-          days,
-          maxDays,
-          searchedDays: days,
-        };
-      }
+    if (unique.length >= 2) {
+      return {
+        samples: unique,
+        sampleCount: unique.length,
+        repliedCount: result.catalog.length,
+        totalScanned: result.totalScanned,
+        days: result.searchedDays || maxDays,
+        maxDays,
+        searchedDays: result.searchedDays || maxDays,
+      };
     }
 
-    const totalScanned = lastResult?.totalScanned || 0;
-    const withBodyCount = lastResult?.withBodyCount || 0;
-    const scannedDays = lastResult?.days || maxDays;
+    const totalScanned = result.totalScanned || 0;
+    const withBodyCount = result.withBodyCount || 0;
+    const scannedDays = result.searchedDays || maxDays;
 
     if (withBodyCount > 0) {
       throw new Error(
@@ -228,129 +232,300 @@
     return `${days}일`;
   }
 
-  async function fetchRepliedReviewPages(days, options = {}) {
+  async function fetchRepliedReviewPages(maxLookbackDays, options = {}) {
     const maxItems = Math.max(2, Number(options.maxItems) || 80);
-    const maxPages = Math.max(1, Number(options.maxPages) || 5);
+    const maxPagesPerWindow = Math.max(1, Number(options.maxPagesPerWindow) || 3);
     const searchUrl = await resolveSearchUrl();
     const catalog = [];
+    const seenIds = new Set();
     let totalScanned = 0;
-    let page = 0;
-    let hasMore = true;
+    let windowsScanned = 0;
+    let searchedDays = 0;
+    const windows = buildLookbackWindows(maxLookbackDays);
 
-    while (hasMore && catalog.length < maxItems && page < maxPages) {
-      const payload = buildSearchPayload(page, days, { onlyReplied: true });
-      const json = await postSearch(searchUrl, payload);
-      const contents = json?.contents || json?.data?.contents || [];
+    for (const window of windows) {
+      if (catalog.length >= maxItems) break;
 
-      if (!Array.isArray(contents)) {
-        throw new Error('리뷰 목록 형식을 인식하지 못했습니다.');
+      let page = 0;
+      let hasMore = true;
+      let windowHadResults = false;
+
+      while (hasMore && catalog.length < maxItems && page < maxPagesPerWindow) {
+        const payload = buildSearchPayload(page, window, { onlyReplied: true });
+        let json;
+
+        try {
+          json = await postSearch(searchUrl, payload);
+        } catch (err) {
+          if (page === 0 && isRecoverableSearchError(err)) break;
+          throw err;
+        }
+
+        const contents = json?.contents || json?.data?.contents || [];
+
+        if (!Array.isArray(contents)) {
+          throw new Error('리뷰 목록 형식을 인식하지 못했습니다.');
+        }
+
+        totalScanned += contents.length;
+        if (contents.length > 0) windowHadResults = true;
+
+        for (const item of contents) {
+          if (!itemHasSellerComment(item)) continue;
+          const id = String(item.id ?? '').trim();
+          if (!id || seenIds.has(id)) continue;
+
+          const reviewFull = normalizeReviewContent(item.reviewContent || '');
+          const comment = extractSellerComment(item, reviewFull);
+          seenIds.add(id);
+          catalog.push({
+            id,
+            comment: comment || '',
+            hasBody: !!comment,
+            productName: item.productName || '',
+            createDate: item.createDate || '',
+            reviewScore: item.reviewScore != null ? String(item.reviewScore) : '',
+            reviewFull,
+            reviewPreview: reviewFull.slice(0, 100),
+          });
+          if (catalog.length >= maxItems) break;
+        }
+
+        hasMore = contents.length >= payload.size;
+        page += 1;
       }
 
-      totalScanned += contents.length;
+      windowsScanned += 1;
+      searchedDays = window.startDaysAgo;
 
-      if (page === 0 && contents.length === 0) {
-        return {
-          catalog,
-          totalScanned,
-          withBodyCount: 0,
-          days,
-        };
-      }
-
-      for (const item of contents) {
-        if (!itemHasSellerComment(item)) continue;
-        const comment = extractSellerComment(item);
-        catalog.push({
-          id: String(item.id ?? '').trim(),
-          comment: comment || '',
-          hasBody: !!comment,
-          productName: item.productName || '',
-          createDate: item.createDate || '',
-          reviewScore: item.reviewScore != null ? String(item.reviewScore) : '',
-          reviewPreview: normalizeReviewContent(item.reviewContent || '').slice(0, 100),
-        });
-        if (catalog.length >= maxItems) break;
-      }
-
-      hasMore = contents.length >= payload.size;
-      page += 1;
+      if (windowHadResults && catalog.length >= maxItems) break;
     }
+
+    await enrichCatalogComments(catalog, searchUrl);
 
     return {
       catalog,
       totalScanned,
       withBodyCount: catalog.filter((item) => item.hasBody).length,
-      days,
+      searchedDays,
+      windowsScanned,
+      detailFetchedCount: catalog.filter((item) => item.detailFetched).length,
     };
+  }
+
+  const DETAIL_FETCH_CONCURRENCY = 8;
+
+  async function enrichCatalogComments(catalog, searchUrl) {
+    const pending = catalog.filter((entry) => !entry.hasBody);
+    if (!pending.length) return;
+
+    let cursor = 0;
+
+    async function worker() {
+      while (cursor < pending.length) {
+        const entry = pending[cursor];
+        cursor += 1;
+
+        const detail = await fetchReviewDetailItem(entry.id, searchUrl);
+        if (!detail) continue;
+
+        entry.detailFetched = true;
+        const comment = extractSellerComment(detail, entry.reviewFull || entry.reviewPreview || '');
+        if (!comment) continue;
+
+        entry.comment = comment;
+        entry.hasBody = true;
+      }
+    }
+
+    const workers = Math.min(DETAIL_FETCH_CONCURRENCY, pending.length);
+    await Promise.all(Array.from({ length: workers }, () => worker()));
+  }
+
+  async function fetchReviewDetailItem(reviewId, searchUrl) {
+    const detailTemplate = await readCapturedDetailTemplate();
+    const candidates = buildDetailUrlCandidates(reviewId, searchUrl, detailTemplate);
+
+    for (const url of candidates) {
+      try {
+        const res = await fetch(url, {
+          method: 'GET',
+          credentials: 'include',
+          headers: { Accept: 'application/json' },
+        });
+        if (!res.ok) continue;
+
+        const json = await res.json();
+        const data = json?.content || json?.data?.content || json?.data || json;
+        if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
+
+        if (String(data.id ?? reviewId) === String(reviewId) || hasReviewCommentBody(data.reviewComment)) {
+          return data;
+        }
+      } catch (_) {}
+    }
+
+    return null;
+  }
+
+  function buildDetailUrlCandidates(reviewId, searchUrl, capturedTemplate) {
+    const candidates = [];
+
+    if (capturedTemplate) {
+      candidates.push(String(capturedTemplate).replace('{id}', reviewId));
+    }
+
+    if (searchUrl) {
+      candidates.push(searchUrl.replace(/\/search(\?.*)?$/i, `/${reviewId}`));
+
+      try {
+        const parsed = new URL(searchUrl);
+        const basePath = parsed.pathname.replace(/\/search(\?.*)?$/i, '');
+        candidates.push(`${parsed.origin}${basePath}/${reviewId}`);
+      } catch (_) {}
+    }
+
+    const configured =
+      typeof CONFIG !== 'undefined' && CONFIG.REVIEW_DETAIL_URL
+        ? String(CONFIG.REVIEW_DETAIL_URL).trim()
+        : '';
+    if (configured) {
+      candidates.push(configured.replace('{id}', reviewId).replace('{reviewId}', reviewId));
+    }
+
+    return [...new Set(candidates.filter(Boolean).map((url) => toAbsoluteUrl(url)))];
+  }
+
+  function readCapturedDetailTemplate() {
+    return new Promise((resolve) => {
+      const handler = (event) => {
+        if (event.source !== window || event.data?.type !== 'SS_REVIEW_DETAIL_TEMPLATE') return;
+        window.removeEventListener('message', handler);
+        resolve(event.data.template || null);
+      };
+      window.addEventListener('message', handler);
+      window.postMessage({ type: 'SS_REVIEW_GET_DETAIL_TEMPLATE' }, '*');
+      setTimeout(() => {
+        window.removeEventListener('message', handler);
+        resolve(null);
+      }, 300);
+    });
+  }
+
+  function isRecoverableSearchError(err) {
+    const msg = String(err?.message || err || '');
+    return /유효하지|invalid|validation|bad request|400/i.test(msg);
   }
 
   function itemHasSellerComment(item) {
     if (!item || typeof item !== 'object') return false;
+    if (hasReviewCommentBody(item.reviewComment)) return true;
     const flag = item.hasComment;
     return flag === true || flag === 'true';
   }
 
-  function extractSellerComment(item) {
+  function hasReviewCommentBody(reviewComment) {
+    if (!reviewComment || typeof reviewComment !== 'object') return false;
+    const text = reviewComment.unescapeCommentContent || reviewComment.commentContent;
+    return !!String(text ?? '').trim();
+  }
+
+  function extractSellerComment(item, reviewContent = '') {
     if (!item || typeof item !== 'object') return '';
 
-    const blockedKeys = new Set([
-      'reviewContent',
-      'parentReviewContent',
-      'escapeHtmlParentReviewContent',
-      'productName',
-      'maskedWriterId',
-      'writerIdNo',
-    ]);
+    const reviewNorm = normalizeReviewContent(reviewContent || item.reviewContent || '');
 
-    const direct = [
-      item.sellerComment,
-      item.sellerCommentContent,
-      item.sellerCommentText,
-      item.commentContent,
-      item.sellerReply,
-      item.sellerReplyContent,
-      item.replyContent,
+    const fromReviewComment = extractFromCommentBundle(item.reviewComment, reviewNorm);
+    if (fromReviewComment) return fromReviewComment;
+
+    const bundles = [
+      item.sellerCommentInfo,
+      item.commentInfo,
       item.storeComment,
-      item.storeCommentContent,
-      item.reviewSellerComment,
-      item.answerContent,
+      item.reply,
+      item.sellerCommentDetail,
+      item.sellerReplyInfo,
+      item.comment,
     ];
 
-    for (const value of direct) {
-      const text = normalizeSampleText(value);
+    for (const bundle of bundles) {
+      const text = extractFromCommentBundle(bundle, reviewNorm);
       if (text) return text;
     }
 
-    if (item.sellerCommentInfo && typeof item.sellerCommentInfo === 'object') {
-      const nested = extractSellerComment(item.sellerCommentInfo);
-      if (nested) return nested;
-    }
-
-    if (item.comment && typeof item.comment === 'object') {
-      const nested = extractSellerComment(item.comment);
-      if (nested) return nested;
-    }
-
-    if (item.comment && typeof item.comment === 'string') {
-      const text = normalizeSampleText(item.comment);
-      if (text) return text;
-    }
-
-    for (const [key, value] of Object.entries(item)) {
-      if (blockedKeys.has(key)) continue;
-      if (!/comment|reply|답글|answer/i.test(key)) continue;
-      if (typeof value === 'string') {
-        const text = normalizeSampleText(value);
+    if (Array.isArray(item.sellerComments)) {
+      for (const entry of item.sellerComments) {
+        const text =
+          typeof entry === 'string'
+            ? acceptCommentText(entry, reviewNorm)
+            : extractFromCommentBundle(entry, reviewNorm);
         if (text) return text;
-      } else if (value && typeof value === 'object') {
-        const nested = extractSellerComment(value);
-        if (nested) return nested;
       }
     }
 
-    if (Array.isArray(item.comments)) {
-      for (const c of item.comments) {
-        const text = typeof c === 'string' ? normalizeSampleText(c) : extractSellerComment(c);
+    const directKeys = [
+      'commentContent',
+      'sellerCommentContent',
+      'sellerCommentText',
+      'sellerReplyContent',
+      'replyContent',
+      'storeCommentContent',
+      'reviewSellerComment',
+      'answerContent',
+      'escapeHtmlSellerCommentContent',
+      'escapeHtmlCommentContent',
+      'commentText',
+      'replyText',
+      'answerText',
+    ];
+
+    for (const key of directKeys) {
+      const text = acceptCommentText(item[key], reviewNorm);
+      if (text) return text;
+    }
+
+    return '';
+  }
+
+  function extractFromCommentBundle(bundle, reviewNorm) {
+    if (!bundle) return '';
+    if (typeof bundle === 'string') {
+      return acceptCommentText(bundle, reviewNorm);
+    }
+    if (typeof bundle !== 'object' || Array.isArray(bundle)) return '';
+
+    const contentKeys = [
+      'unescapeCommentContent',
+      'commentContent',
+      'content',
+      'text',
+      'body',
+      'message',
+      'commentText',
+      'replyContent',
+      'replyText',
+      'sellerCommentContent',
+      'sellerCommentText',
+      'answerContent',
+      'answerText',
+      'escapeHtmlSellerCommentContent',
+      'escapeHtmlCommentContent',
+      'storeCommentContent',
+    ];
+
+    for (const key of contentKeys) {
+      const text = acceptCommentText(bundle[key], reviewNorm);
+      if (text) return text;
+    }
+
+    for (const listKey of ['contents', 'commentContents', 'sellerCommentContents', 'comments']) {
+      const list = bundle[listKey];
+      if (!Array.isArray(list)) continue;
+      for (const entry of list) {
+        const text =
+          typeof entry === 'string'
+            ? acceptCommentText(entry, reviewNorm)
+            : extractFromCommentBundle(entry, reviewNorm);
         if (text) return text;
       }
     }
@@ -358,13 +533,53 @@
     return '';
   }
 
+  function acceptCommentText(value, reviewNorm) {
+    const text = normalizeSampleText(value);
+    if (!text) return '';
+    if (reviewNorm && textsLikelySame(text, reviewNorm)) return '';
+    return text;
+  }
+
+  function isLikelyDateOrMetaText(value) {
+    const text = String(value ?? '').trim();
+    if (!text) return true;
+    if (/^\d{4}-\d{2}-\d{2}(?:[T\s]\d{2}:\d{2}|$)/.test(text)) return true;
+    if (/^\d{4}[./-]\d{1,2}[./-]\d{1,2}$/.test(text)) return true;
+    if (/^\d+$/.test(text)) return true;
+    if (/^[0-9a-f-]{36}$/i.test(text)) return true;
+    return false;
+  }
+
+  function textsLikelySame(a, b) {
+    const left = normalizeReviewContent(a);
+    const right = normalizeReviewContent(b);
+    if (!left || !right) return false;
+    if (left === right) return true;
+    if (left.length >= 12 && right.length >= 12) {
+      if (left.includes(right) || right.includes(left)) return true;
+    }
+    return false;
+  }
+
   function normalizeSampleText(value) {
-    const cleaned = String(value ?? '')
+    const cleaned = stripHtml(String(value ?? ''))
       .replace(/\r\n/g, '\n')
       .trim();
     if (cleaned.length < 8) return '';
     if (/^https?:\/\//i.test(cleaned)) return '';
+    if (isLikelyDateOrMetaText(cleaned)) return '';
     return cleaned;
+  }
+
+  function stripHtml(value) {
+    return String(value ?? '')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>');
   }
 
   function normalizeSampleList(samples) {
@@ -463,10 +678,18 @@
     return json;
   }
 
-  function buildSearchPayload(page, days, options = {}) {
+  function buildSearchPayload(page, range, options = {}) {
+    const startDaysAgo =
+      typeof range === 'number'
+        ? range
+        : Number(range?.startDaysAgo) || MAX_SEARCH_WINDOW_DAYS;
+    const endDaysAgo = typeof range === 'number' ? 0 : Number(range?.endDaysAgo) || 0;
+
     const now = new Date();
+    const to = new Date(now);
+    to.setDate(to.getDate() - endDaysAgo);
     const from = new Date(now);
-    from.setDate(from.getDate() - days);
+    from.setDate(from.getDate() - startDaysAgo);
 
     const payload = {
       reviewSearchSortType: 'REVIEW_CREATE_DATE_DESC',
@@ -474,7 +697,7 @@
       benefitKindTypeStringList: [],
       contentsStatusTypes: [],
       fromDate: formatKstIso(from, false),
-      toDate: formatKstIso(now, true),
+      toDate: formatKstIso(to, true),
       page,
       reviewContentClassTypes: [],
       reviewScores: [],

@@ -52,6 +52,10 @@
       background: #f4f5f7;
       border-bottom-color: #03c75a;
     }
+    .tab.inquiry.active {
+      color: #1d4ed8;
+      border-bottom-color: #2563eb;
+    }
     .panel {
       display: none;
       padding: 14px 16px 16px;
@@ -265,10 +269,10 @@
 <body>
   <header class="header">
     <h1>리뷰 답글</h1>
-    <p class="sub">가져오기 → 생성 → 일괄 등록</p>
+    <p class="sub">리뷰 · 상품문의 답글 도우미</p>
     <nav class="tabs">
-      <button type="button" class="tab active" data-tab="work">작업</button>
-      <button type="button" class="tab" data-tab="style">스타일</button>
+      <button type="button" class="tab active" data-tab="work">리뷰</button>
+      <button type="button" class="tab inquiry" data-tab="inquiry">문의</button>
       <button type="button" class="tab" data-tab="settings">설정</button>
     </nav>
   </header>
@@ -280,11 +284,7 @@
     <div class="card">
       <div class="card-title">리뷰 가져오기</div>
       <div class="row-inline">
-        <select id="fetchDays">
-          <option value="7" selected>최근 7일</option>
-          <option value="14">최근 14일</option>
-          <option value="30">최근 30일</option>
-        </select>
+        <select id="fetchDays"></select>
         <button id="fetchBtn" class="fetch" type="button">판매자센터</button>
       </div>
       <div class="hint">sell.smartstore.naver.com 리뷰 관리 탭 필요</div>
@@ -299,48 +299,109 @@
     </details>
 
     <button id="selectBtn" class="select" type="button" disabled>리뷰 답글 작업 열기</button>
+
+    <details style="margin-top:10px;">
+      <summary>리뷰 답글 스타일</summary>
+      <div class="details-body">
+        <label for="tonePreset">톤 프리셋</label>
+        <select id="tonePreset"></select>
+        <div class="preset-note" id="presetNote">프리셋을 선택하면 AI 답글 톤이 적용됩니다.</div>
+        <details style="margin-top:8px;">
+          <summary>답글 지침 직접 수정 (고급)</summary>
+          <div class="details-body" style="padding-top:8px;">
+            <textarea id="systemPrompt" placeholder="프리셋 선택 시 자동 입력됩니다."></textarea>
+          </div>
+        </details>
+        <details style="margin-top:8px;">
+          <summary>샘플 답글로 내 스타일 만들기</summary>
+          <div class="details-body">
+            <div class="sample-flow" id="sampleFlow">
+              <div class="sample-steps">
+                <span class="sample-step" id="sampleStepLoad">① 샘플 준비</span>
+                <span class="sample-step" id="sampleStepAnalyze">② 분석</span>
+                <span class="sample-step" id="sampleStepApply">③ 적용</span>
+              </div>
+              <div class="sample-flow-status" id="sampleFlowStatus">답글 샘플 2개 이상을 준비한 뒤 [샘플 분석]을 누르세요.</div>
+            </div>
+            <textarea id="sampleReplies" placeholder="리뷰 답글 2개 이상 붙여넣기 (빈 줄 또는 --- 로 구분)"></textarea>
+            <div class="sample-count" id="sampleCount">샘플 0개</div>
+            <div class="row-inline" style="margin-top:8px;">
+              <button id="downloadSampleXlsxBtn" class="secondary" type="button">엑셀 양식</button>
+              <button id="downloadSampleTxtBtn" class="secondary" type="button">텍스트 양식</button>
+            </div>
+            <input type="file" id="sampleFile" accept=".txt,.xlsx,.xls" style="margin-top:8px;" />
+            <button id="openStylePickBtn" class="fetch-samples" type="button">판매자센터 답글 선택 · 스타일 분석</button>
+            <div class="hint">별도 화면에서 기존 리뷰 답글을 골라 분석합니다.</div>
+            <button id="analyzeBtn" class="analyze" type="button">샘플 분석 → 프롬프트 생성</button>
+          </div>
+        </details>
+      </div>
+    </details>
+
     <div id="status">리뷰를 가져온 뒤 작업 화면을 여세요.</div>
   </section>
 
-  <!-- 스타일 -->
-  <section id="panelStyle" class="panel">
+  <!-- 상품문의 -->
+  <section id="panelInquiry" class="panel">
+    <div id="inquirySummary" class="file-summary"></div>
+
     <div class="card">
-      <label for="tonePreset">답글 톤 프리셋</label>
-      <select id="tonePreset"></select>
-      <div class="preset-note" id="presetNote">프리셋을 선택하면 AI 답글 톤이 적용됩니다.</div>
+      <div class="card-title">미답변 상품문의 가져오기</div>
+      <div class="row-inline">
+        <select id="inquiryFetchDays"></select>
+        <button id="inquiryFetchBtn" class="fetch" type="button">판매자센터</button>
+      </div>
+      <div class="hint">상품문의 관리 페이지(sell.smartstore.naver.com) 탭 필요</div>
     </div>
 
-    <details>
-      <summary>답글 지침 직접 수정 (고급)</summary>
+    <button id="inquirySelectBtn" class="select" type="button" disabled>문의 답글 작업 열기</button>
+
+    <div class="card" style="margin-top:10px;">
+      <label class="row-inline" style="margin:0;cursor:pointer;">
+        <input type="checkbox" id="inquiryApplyToggle" style="width:auto;margin:0;" />
+        <span>답글 버튼 클릭 시 자동 입력</span>
+      </label>
+      <div class="hint">생성 완료 후 활성화됩니다. 판매자센터에서 [답글]을 누르면 textarea에 채워집니다.</div>
+    </div>
+
+    <details style="margin-top:10px;">
+      <summary>상품문의 답글 스타일</summary>
       <div class="details-body">
-        <textarea id="systemPrompt" placeholder="프리셋 선택 시 자동 입력됩니다."></textarea>
+        <label for="inquiryTonePreset">톤 프리셋</label>
+        <select id="inquiryTonePreset"></select>
+        <div class="preset-note" id="inquiryPresetNote">문의 답글 전용 프리셋입니다. 리뷰 스타일과 별도로 저장됩니다.</div>
+        <details style="margin-top:8px;">
+          <summary>답글 지침 직접 수정 (고급)</summary>
+          <div class="details-body" style="padding-top:8px;">
+            <textarea id="inquirySystemPrompt" placeholder="프리셋 선택 시 자동 입력됩니다."></textarea>
+          </div>
+        </details>
+        <details style="margin-top:8px;">
+          <summary>샘플 답글로 내 스타일 만들기</summary>
+          <div class="details-body">
+            <div class="sample-flow" id="inquirySampleFlow">
+              <div class="sample-steps">
+                <span class="sample-step" id="inquirySampleStepLoad">① 샘플 준비</span>
+                <span class="sample-step" id="inquirySampleStepAnalyze">② 분석</span>
+                <span class="sample-step" id="inquirySampleStepApply">③ 적용</span>
+              </div>
+              <div class="sample-flow-status" id="inquirySampleFlowStatus">상품문의 답글 샘플 2개 이상을 붙여넣은 뒤 [샘플 분석]을 누르세요.</div>
+            </div>
+            <textarea id="inquirySampleReplies" placeholder="상품문의 답글 2개 이상 붙여넣기 (빈 줄 또는 --- 로 구분)"></textarea>
+            <div class="sample-count" id="inquirySampleCount">샘플 0개</div>
+            <div class="row-inline" style="margin-top:8px;">
+              <button id="inquiryDownloadSampleXlsxBtn" class="secondary" type="button">엑셀 양식</button>
+              <button id="inquiryDownloadSampleTxtBtn" class="secondary" type="button">텍스트 양식</button>
+            </div>
+            <input type="file" id="inquirySampleFile" accept=".txt,.xlsx,.xls" style="margin-top:8px;" />
+            <div class="hint">기존 상품문의 답글을 복사해 붙여넣거나 파일로 업로드하세요.</div>
+            <button id="inquiryAnalyzeBtn" class="analyze" type="button">샘플 분석 → 프롬프트 생성</button>
+          </div>
+        </details>
       </div>
     </details>
 
-    <details>
-      <summary>샘플 답글로 내 스타일 만들기</summary>
-      <div class="details-body">
-        <div class="sample-flow" id="sampleFlow">
-          <div class="sample-steps">
-            <span class="sample-step" id="sampleStepLoad" data-step="load">① 샘플 준비</span>
-            <span class="sample-step" id="sampleStepAnalyze" data-step="analyze">② 분석</span>
-            <span class="sample-step" id="sampleStepApply" data-step="apply">③ 적용</span>
-          </div>
-          <div class="sample-flow-status" id="sampleFlowStatus">답글 샘플 2개 이상을 준비한 뒤 [샘플 분석]을 누르세요.</div>
-        </div>
-        <textarea id="sampleReplies" placeholder="답글 2개 이상 붙여넣기 (빈 줄 또는 --- 로 구분)"></textarea>
-        <div class="sample-count" id="sampleCount">샘플 0개</div>
-        <div class="row-inline" style="margin-top:8px;">
-          <button id="downloadSampleXlsxBtn" class="secondary" type="button">엑셀 양식</button>
-          <button id="downloadSampleTxtBtn" class="secondary" type="button">텍스트 양식</button>
-        </div>
-        <input type="file" id="sampleFile" accept=".txt,.xlsx,.xls" style="margin-top:8px;" />
-        <div class="hint">직접 입력 · 파일 업로드용 (엑셀/텍스트 양식)</div>
-        <button id="openStylePickBtn" class="fetch-samples" type="button">판매자센터 답글 선택 · 스타일 분석</button>
-        <div class="hint">별도 화면에서 기존 답글을 골라 원하는 톤만 분석합니다.</div>
-        <button id="analyzeBtn" class="analyze" type="button">샘플 분석 → 프롬프트 생성</button>
-      </div>
-    </details>
+    <div id="inquiryStatus">상품문의 페이지에서 미답변 목록을 가져온 뒤 [문의 답글 작업 열기]를 누르세요.</div>
   </section>
 
   <!-- 설정 -->
@@ -353,26 +414,16 @@
 
     <div class="danger-zone">
       <button id="clearBtn" class="secondary" type="button">저장 데이터 전체 삭제</button>
-      <div class="hint">리뷰·답글·진행 상태가 모두 지워집니다.</div>
+      <div class="hint">리뷰·문의 답글·진행 상태가 모두 지워집니다.</div>
     </div>
   </section>
 
-  <script>
-    (function () {
-      const noise = /Bad (un)?compressed size:/;
-      ['error', 'warn'].forEach((method) => {
-        const native = console[method].bind(console);
-        console[method] = function (...args) {
-          const msg = args.map((a) => String(a)).join(' ');
-          if (noise.test(msg)) return;
-          return native(...args);
-        };
-      });
-    })();
-  </script>
+  <script src="lib/console-filter.js"></script>
   <script src="config.js"></script>
+  <script src="lib/lookup-days.js"></script>
   <script src="lib/tone-presets.js"></script>
   <script src="lib/sample-replies.js"></script>
+  <script src="lib/style-channel.js"></script>
   <script src="lib/xlsx.full.min.js"></script>
   <script src="popup.js"></script>
 </body>

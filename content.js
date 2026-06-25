@@ -25,21 +25,32 @@
     if (changes[APPLY_ENABLED_KEY]) {
       applyEnabled = !!changes[APPLY_ENABLED_KEY].newValue;
     }
+    syncWatchState();
   });
 
   chrome.storage.local.get([STORAGE_KEY, APPLY_ENABLED_KEY], (data) => {
     cachedReplies = data[STORAGE_KEY] || {};
     applyEnabled = !!data[APPLY_ENABLED_KEY];
-    startWatching();
+    syncWatchState();
   });
 
-  function startWatching() {
-    scanPopups();
+  function syncWatchState() {
+    const active =
+      applyEnabled && cachedReplies && Object.keys(cachedReplies).length > 0;
+    if (active) {
+      ensureWatching();
+      scanPopups();
+    } else {
+      teardownWatching();
+    }
+  }
+
+  function ensureWatching() {
     if (observer) return;
 
     observer = new MutationObserver(() => {
       clearTimeout(scanTimer);
-      scanTimer = setTimeout(scanPopups, 200);
+      scanTimer = setTimeout(scanPopups, 300);
     });
 
     observer.observe(document.documentElement, {
@@ -50,7 +61,22 @@
     });
 
     window.addEventListener('popstate', scanPopups);
-    document.addEventListener('click', () => setTimeout(scanPopups, 300), true);
+    document.addEventListener('click', onDocumentClick, true);
+  }
+
+  function teardownWatching() {
+    if (observer) {
+      observer.disconnect();
+      observer = null;
+    }
+    clearTimeout(scanTimer);
+    scanTimer = null;
+    document.removeEventListener('click', onDocumentClick, true);
+    window.removeEventListener('popstate', scanPopups);
+  }
+
+  function onDocumentClick() {
+    setTimeout(scanPopups, 300);
   }
 
   function scanPopups() {

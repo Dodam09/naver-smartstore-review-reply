@@ -128,20 +128,44 @@
     .badge.rating { background: #fef3c7; color: #92400e; }
     .badge.missing { background: #fee2e2; color: #b91c1c; }
     .product { font-size: 12px; color: #666; margin-bottom: 8px; }
+    .reply-label {
+      font-size: 11px;
+      font-weight: 800;
+      color: #7c3aed;
+      letter-spacing: 0.02em;
+      margin-bottom: 4px;
+    }
     .reply-text {
       font-size: 14px;
       line-height: 1.6;
       white-space: pre-wrap;
       word-break: break-word;
       color: #111;
+      background: #f5f3ff;
+      border: 1px solid #ddd6fe;
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .reply-text.missing {
+      color: #92400e;
+      background: #fffbeb;
+      border-color: #fde68a;
+      font-size: 13px;
     }
     .review-preview {
-      margin-top: 8px;
-      padding-top: 8px;
+      margin-top: 10px;
+      padding-top: 10px;
       border-top: 1px dashed #e5e7eb;
       font-size: 12px;
-      color: #888;
+      color: #666;
       line-height: 1.5;
+    }
+    .review-label {
+      display: block;
+      font-size: 11px;
+      font-weight: 700;
+      color: #888;
+      margin-bottom: 4px;
     }
     .empty {
       text-align: center;
@@ -179,17 +203,12 @@
   <header class="header">
     <div class="header-inner">
       <h1>답글 스타일 선택</h1>
-      <p class="sub">판매자센터에 등록한 답글 중 원하는 것만 골라 AI 톤(내 스타일)을 만듭니다. 답글이 적으면 최대 2년까지 자동으로 기간을 넓혀 검색합니다.</p>
+      <p class="sub">판매자센터에 등록한 답글 중 원하는 것만 골라 AI 톤(내 스타일)을 만듭니다. 답글 등록 목록을 찾은 뒤, 각 답글 본문을 불러옵니다. (최대 2년, 90일씩 검색)</p>
     </div>
   </header>
 
   <div class="toolbar">
-    <select id="daysSelect" aria-label="조회 기간">
-      <option value="90">최근 90일</option>
-      <option value="180">최근 180일</option>
-      <option value="365">최근 1년</option>
-      <option value="730" selected>최대 2년 (나올 때까지)</option>
-    </select>
+    <select id="daysSelect" aria-label="조회 기간"></select>
     <button type="button" class="reload" id="reloadBtn">답글 목록 불러오기</button>
     <input type="search" class="search" id="searchInput" placeholder="답글·상품명 검색" />
     <button type="button" class="secondary" id="selectAllBtn">본문 있는 답글 전체 선택</button>
@@ -214,6 +233,7 @@
   </footer>
 
   <script src="config.js"></script>
+  <script src="lib/lookup-days.js"></script>
   <script src="style-pick.js"></script>
 </body>
 </html>
