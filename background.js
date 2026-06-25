@@ -120,26 +120,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === 'FETCH_INQUIRY_REPLY_CATALOG_JOB') {
-    const catalogDays = clampLookupDays(message.payload?.days, { min: 0, max: 365, fallback: 7 });
-    relaySellerTabMessage(
-      'FETCH_INQUIRY_REPLY_CATALOG',
-      { ...(message.payload || {}), days: catalogDays },
-      catalogFetchTimeoutMs(Math.min(catalogDays, 180))
-    )
-      .then(async (result) => {
-        const cacheKey =
-          CONFIG.INQUIRY_REFERENCE_CACHE_KEY || 'smartstoreInquiryReferenceCache';
-        await storageSet({
-          [cacheKey]: {
-            catalog: result.catalog || [],
-            fetchedAt: Date.now(),
-            days: result.days || catalogDays,
-            withAnswerCount: result.withAnswerCount || result.catalog?.length || 0,
-          },
-        });
-        sendResponse({ ok: true, ...result });
-      })
-      .catch((err) => sendResponse({ ok: false, error: err.message || String(err) }));
+    runFetchInquiryReplyCatalogJob(message.payload || {}, sendResponse);
     return true;
   }
 
@@ -287,163 +268,202 @@ async function runGenerate(payload) {
 }
 
 async function runGenerateInquiries(payload) {
-  const { rows, apiKey, systemPrompt, model, useReference, referenceDays } = payload;
+  const { rows, apiKey, systemPrompt, model, useReference, referenceDays, referenceSelectedIds } =
+    payload;
   if (!rows?.length) throw new Error('처리할 상품문의가 없습니다.');
   if (!apiKey) throw new Error('API 키가 없습니다.');
 
   const storageKey = CONFIG.INQUIRY_STORAGE_KEY || 'smartstoreInquiryReplies';
   const applyKey = CONFIG.INQUIRY_APPLY_ENABLED_KEY || 'smartstoreInquiryApplyEnabled';
   const draftKey = CONFIG.INQUIRY_DRAFT_KEY || 'smartstoreInquiryDraft';
-
-  let referenceCatalog = [];
-  if (useReference !== false) {
-    try {
-      referenceCatalog = await loadInquiryReferenceCatalog(referenceDays || 90);
-    } catch (err) {
-      console.warn('기존 문의 답변 참고 로드 실패:', err);
-    }
-  }
+  const total = rows.length;
 
   isInquiryRunning = true;
   inquiryStopRequested = false;
   inquiryAbortController = new AbortController();
   const signal = inquiryAbortController.signal;
-  const total = rows.length;
-  let success = 0;
-  let failed = 0;
-  let lastError = '';
-  const replyMap = {};
-  const draftItems = [];
 
-  await storageSet({ [applyKey]: false });
-  await storageSet({ [storageKey]: {} });
+  try {
+    await updateInquiryProgress({
+      status: 'running',
+      total,
+      current: 0,
+      success: 0,
+      failed: 0,
+      currentId: '',
+      message: '답변 생성 준비 중...',
+      startedAt: Date.now(),
+      finishedAt: null,
+      lastError: '',
+      useReference: useReference !== false,
+      referenceCount: 0,
+    });
 
-  await updateInquiryProgress({
-    status: 'running',
-    total,
-    current: 0,
-    success: 0,
-    failed: 0,
-    currentId: '',
-    message: `문의 답변 생성 시작 (0/${total})`,
-    startedAt: Date.now(),
-    finishedAt: null,
-    lastError: '',
-    useReference: useReference !== false,
-    referenceCount: referenceCatalog.length,
-  });
+    let referenceCatalog = [];
+    if (useReference !== false) {
+      try {
+        await updateInquiryProgress({
+          status: 'running',
+          total,
+          current: 0,
+          success: 0,
+          failed: 0,
+          currentId: '',
+          message: '참고 답변 불러오는 중...',
+          useReference: true,
+          referenceCount: 0,
+        });
+        referenceCatalog = await loadInquiryReferenceCatalog(referenceDays || 90);
+        if (Array.isArray(referenceSelectedIds) && referenceSelectedIds.length) {
+          const idSet = new Set(referenceSelectedIds.map(String));
+          referenceCatalog = referenceCatalog.filter((item) => idSet.has(String(item.id)));
+        }
+      } catch (err) {
+        console.warn('기존 문의 답변 참고 로드 실패:', err);
+      }
+    }
 
-  for (let i = 0; i < rows.length; i++) {
-    if (inquiryStopRequested || signal.aborted) break;
+    let success = 0;
+    let failed = 0;
+    let lastError = '';
+    const replyMap = {};
+    const draftItems = [];
 
-    const row = rows[i];
-    const references = referenceCatalog.length
-      ? pickSimilarInquiryReferences(row, referenceCatalog, 2)
-      : [];
+    await storageSet({ [applyKey]: false });
+    await storageSet({ [storageKey]: {} });
 
     await updateInquiryProgress({
       status: 'running',
       total,
-      current: i + 1,
-      success,
-      failed,
-      currentId: row.id,
-      message: `문의 답변 생성 중 (${i + 1}/${total}) — 문의번호 ${row.id}`,
-      lastError,
+      current: 0,
+      success: 0,
+      failed: 0,
+      currentId: '',
+      message: `문의 답변 생성 시작 (0/${total})`,
+      lastError: '',
       useReference: useReference !== false,
       referenceCount: referenceCatalog.length,
     });
 
-    try {
-      const reply = await generateInquiryReply(
-        apiKey,
-        systemPrompt,
-        row,
-        model,
-        signal,
-        references
-      );
+    for (let i = 0; i < rows.length; i++) {
       if (inquiryStopRequested || signal.aborted) break;
 
-      replyMap[String(row.id)] = reply;
-      draftItems.push({
-        id: row.id,
-        inquiryContent: row.content,
-        product: row.product || '',
-        writer: row.writer || '',
-        secret: !!row.secret,
-        reply,
-        referenceIds: references.map((ref) => ref.id),
-      });
-      success++;
+      const row = rows[i];
+      const references = referenceCatalog.length
+        ? pickSimilarInquiryReferences(row, referenceCatalog, 2)
+        : [];
 
-      await storageSet({
-        [storageKey]: { ...replyMap },
-        [draftKey]: {
-          items: [...draftItems],
-          updatedAt: Date.now(),
-        },
+      await updateInquiryProgress({
+        status: 'running',
+        total,
+        current: i + 1,
+        success,
+        failed,
+        currentId: row.id,
+        message: `문의 답변 생성 중 (${i + 1}/${total}) — 문의번호 ${row.id}`,
+        lastError,
+        useReference: useReference !== false,
+        referenceCount: referenceCatalog.length,
       });
 
-      if (inquiryStopRequested || signal.aborted) break;
-      await sleep(400, signal);
-    } catch (err) {
-      if (inquiryStopRequested || signal.aborted || err.name === 'AbortError') break;
-      failed++;
-      lastError = err.message;
-      console.error(`문의번호 ${row.id} 실패:`, err);
+      try {
+        const reply = await generateInquiryReply(
+          apiKey,
+          systemPrompt,
+          row,
+          model,
+          signal,
+          references
+        );
+        if (inquiryStopRequested || signal.aborted) break;
+
+        replyMap[String(row.id)] = reply;
+        draftItems.push({
+          id: row.id,
+          inquiryContent: row.content,
+          product: row.product || '',
+          writer: row.writer || '',
+          secret: !!row.secret,
+          reply,
+          referenceIds: references.map((ref) => ref.id),
+        });
+        success++;
+
+        await storageSet({
+          [storageKey]: { ...replyMap },
+          [draftKey]: {
+            items: [...draftItems],
+            updatedAt: Date.now(),
+          },
+        });
+
+        if (inquiryStopRequested || signal.aborted) break;
+        await sleep(400, signal);
+      } catch (err) {
+        if (inquiryStopRequested || signal.aborted || err.name === 'AbortError') break;
+        failed++;
+        lastError = err.message;
+        console.error(`문의번호 ${row.id} 실패:`, err);
+      }
     }
-  }
 
-  if (inquiryStopRequested || signal.aborted) {
-    const processed = success + failed;
+    if (inquiryStopRequested || signal.aborted) {
+      const processed = success + failed;
+      await updateInquiryProgress({
+        status: 'stopped',
+        total,
+        current: processed,
+        success,
+        failed,
+        currentId: '',
+        lastError,
+        message:
+          `중지됨: 성공 ${success}건 저장됨 (전체 ${total}건 중 ${processed}건 처리).` +
+          (failed > 0 ? ` 실패 ${failed}건.` : '') +
+          '\n작업 화면 「2. 답글 검토」 탭에서 확인·수정 후 자동 입력을 활성화하세요.',
+        finishedAt: Date.now(),
+      });
+      if (success > 0) await storageSet({ [applyKey]: true });
+      return;
+    }
+
+    const errorHint =
+      failed > 0 && success === 0 && lastError
+        ? `\n\n원인: ${lastError}`
+        : failed > 0 && lastError
+          ? `\n\n최근 오류: ${lastError}`
+          : '';
+
     await updateInquiryProgress({
-      status: 'stopped',
+      status: 'done',
       total,
-      current: processed,
+      current: total,
       success,
       failed,
       currentId: '',
       lastError,
       message:
-        `중지됨: 성공 ${success}건 저장됨 (전체 ${total}건 중 ${processed}건 처리).` +
-        (failed > 0 ? ` 실패 ${failed}건.` : '') +
-        '\n작업 화면 「2. 답글 검토」 탭에서 확인·수정 후 자동 입력을 활성화하세요.',
+        `완료: 성공 ${success}건, 실패 ${failed}건.${errorHint}\n` +
+        `작업 화면 「2. 답글 검토」 탭에서 확인·수정 후 [자동 입력 모드]를 눌러주세요.`,
       finishedAt: Date.now(),
     });
+
     if (success > 0) await storageSet({ [applyKey]: true });
+  } catch (err) {
+    if (!inquiryStopRequested && err.name !== 'AbortError') {
+      await updateInquiryProgress({
+        status: 'error',
+        message: `오류: ${err.message}`,
+        lastError: err.message,
+        finishedAt: Date.now(),
+      });
+    }
+    throw err;
+  } finally {
     isInquiryRunning = false;
     inquiryStopRequested = false;
     inquiryAbortController = null;
-    return;
   }
-
-  const errorHint =
-    failed > 0 && success === 0 && lastError
-      ? `\n\n원인: ${lastError}`
-      : failed > 0 && lastError
-        ? `\n\n최근 오류: ${lastError}`
-        : '';
-
-  await updateInquiryProgress({
-    status: 'done',
-    total,
-    current: total,
-    success,
-    failed,
-    currentId: '',
-    lastError,
-    message:
-      `완료: 성공 ${success}건, 실패 ${failed}건.${errorHint}\n` +
-      `작업 화면 「2. 답글 검토」 탭에서 확인·수정 후 [자동 입력 모드]를 눌러주세요.`,
-    finishedAt: Date.now(),
-  });
-
-  if (success > 0) await storageSet({ [applyKey]: true });
-
-  isInquiryRunning = false;
-  inquiryStopRequested = false;
-  inquiryAbortController = null;
 }
 
 async function loadInquiryReferenceCatalog(days) {
@@ -462,16 +482,23 @@ async function loadInquiryReferenceCatalog(days) {
     return cache.catalog;
   }
 
-  const response = await relaySellerTabMessage(
+  const response = await relayInquiryTabMessage(
     'FETCH_INQUIRY_REPLY_CATALOG',
     { days: lookupDays, maxItems: 80 },
-    catalogFetchTimeoutMs(Math.min(Math.max(lookupDays, 1), 180))
+    resolveCatalogTimeoutMs(lookupDays)
   );
 
   const catalog = response.catalog || [];
+  const validIds = new Set(catalog.map((item) => String(item.id)));
+  const keptSelected = (cache?.selectedIds || []).map(String).filter((id) => validIds.has(id));
+  const selectedIds = keptSelected.length
+    ? keptSelected
+    : catalog.map((item) => String(item.id));
+
   await storageSet({
     [cacheKey]: {
       catalog,
+      selectedIds,
       fetchedAt: Date.now(),
       days: lookupDays,
       withAnswerCount: catalog.length,
@@ -758,19 +785,34 @@ function emptySampleFlow() {
   };
 }
 
-const STALE_JOB_MS = 60 * 1000;
+const STALE_JOB_MS = 3 * 60 * 1000;
 const STALE_SAMPLE_FLOW_MS = 45 * 1000;
 
 async function healStaleJob(job, activelyRunning, storageKey) {
-  if (!job || job.status !== 'running' || activelyRunning) return job;
+  if (!job || job.status !== 'running') return job;
 
   const started = job.startedAt || job.updatedAt || 0;
-  if (started && Date.now() - started <= STALE_JOB_MS) return job;
+  const ageMs = started ? Date.now() - started : STALE_JOB_MS + 1;
+  const isInquiryJob =
+    storageKey === (CONFIG.INQUIRY_PROGRESS_KEY || 'smartstoreInquiryJobProgress');
+
+  if (activelyRunning) {
+    if (ageMs <= STALE_JOB_MS) return job;
+    if (isInquiryJob) {
+      inquiryStopRequested = true;
+      inquiryAbortController?.abort();
+    } else {
+      stopRequested = true;
+      abortController?.abort();
+    }
+  }
 
   const healed = {
     ...job,
     status: 'error',
-    message: '생성 작업이 중단되었습니다. 다시 시도해 주세요.',
+    message: activelyRunning
+      ? '생성 작업 시간이 초과되었습니다. 다시 시도해 주세요.'
+      : '생성 작업이 중단되었습니다. 다시 시도해 주세요.',
     finishedAt: Date.now(),
   };
   await storageSet({ [storageKey]: healed });
@@ -858,15 +900,57 @@ function formatSampleFetchError(message) {
 }
 
 const SELLER_TAB_URL = 'https://sell.smartstore.naver.com/*';
+const INQUIRY_CONTENT_SCRIPT_FILES = ['content-inquiry-import.js'];
 const SELLER_CONTENT_SCRIPT_FILES = [
-  'config.js',
-  'lib/lookup-days.js',
   'content.js',
   'content-import.js',
   'content-submit.js',
   'content-inquiry-import.js',
   'content-inquiry-fill.js',
 ];
+
+function resolveCatalogTimeoutMs(days) {
+  const clamped = clampLookupDays(days, { min: 0, max: 730, fallback: 7 });
+  if (clamped <= 1) return 90000;
+  return catalogFetchTimeoutMs(clamped);
+}
+
+function runFetchInquiryReplyCatalogJob(payload, sendResponse) {
+  (async () => {
+    try {
+      const catalogDays = clampLookupDays(payload?.days, { min: 0, max: 365, fallback: 7 });
+      const result = await relayInquiryTabMessage(
+        'FETCH_INQUIRY_REPLY_CATALOG',
+        { ...payload, days: catalogDays },
+        resolveCatalogTimeoutMs(catalogDays)
+      );
+      const cacheKey = CONFIG.INQUIRY_REFERENCE_CACHE_KEY || 'smartstoreInquiryReferenceCache';
+      const existingData = await storageGet([cacheKey]);
+      const prevCache = existingData[cacheKey];
+      const catalog = result.catalog || [];
+      const validIds = new Set(catalog.map((item) => String(item.id)));
+      const keptSelected = (prevCache?.selectedIds || [])
+        .map(String)
+        .filter((id) => validIds.has(id));
+      const selectedIds = keptSelected.length
+        ? keptSelected
+        : catalog.map((item) => String(item.id));
+
+      await storageSet({
+        [cacheKey]: {
+          catalog,
+          selectedIds,
+          fetchedAt: Date.now(),
+          days: result.days ?? catalogDays,
+          withAnswerCount: result.withAnswerCount || catalog.length || 0,
+        },
+      });
+      sendResponse({ ok: true, ...result, selectedIds });
+    } catch (err) {
+      sendResponse({ ok: false, error: err.message || String(err) });
+    }
+  })();
+}
 
 function scoreSellerTab(tab) {
   const url = String(tab.url || '');
@@ -886,6 +970,73 @@ async function getSellerTab() {
     );
   }
   return tabs.slice().sort((a, b) => scoreSellerTab(b) - scoreSellerTab(a))[0];
+}
+
+function pingInquiryTab(tabId) {
+  return new Promise((resolve) => {
+    chrome.tabs.sendMessage(tabId, { type: 'SS_INQUIRY_PING' }, (response) => {
+      resolve(!chrome.runtime.lastError && response?.ok === true);
+    });
+  });
+}
+
+async function injectInquiryContentScripts(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId, allFrames: false },
+    files: INQUIRY_CONTENT_SCRIPT_FILES,
+  });
+}
+
+async function ensureInquiryTabReady(tabId) {
+  if (await pingInquiryTab(tabId)) return;
+
+  try {
+    await injectInquiryContentScripts(tabId);
+  } catch (err) {
+    throw new Error(formatSampleFetchError(String(err.message || err)));
+  }
+
+  await sleep(300);
+  if (await pingInquiryTab(tabId)) return;
+
+  throw new Error(
+    formatSampleFetchError(
+      'Could not establish connection.\n상품문의 페이지에서 F5 후 chrome://extensions 새로고침을 해 주세요.'
+    )
+  );
+}
+
+function sendTabMessage(tabId, messageType, payload, timeoutMs = 90000) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error('판매자센터 응답 시간이 초과되었습니다.\n상품문의 페이지를 새로고침(F5)한 뒤 다시 시도하세요.'));
+    }, Math.max(timeoutMs, 30000));
+
+    chrome.tabs.sendMessage(tabId, { type: messageType, payload }, (response) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+
+      if (chrome.runtime.lastError) {
+        reject(new Error(formatSampleFetchError(chrome.runtime.lastError.message)));
+        return;
+      }
+      if (!response?.ok) {
+        reject(new Error(response?.error || '요청 실패'));
+        return;
+      }
+      resolve(response);
+    });
+  });
+}
+
+async function relayInquiryTabMessage(messageType, payload, timeoutMs = 90000) {
+  const tab = await getSellerTab();
+  await ensureInquiryTabReady(tab.id);
+  return sendTabMessage(tab.id, messageType, payload, timeoutMs);
 }
 
 function pingSellerTab(tabId) {
@@ -927,31 +1078,7 @@ function catalogFetchTimeoutMs(days) {
 async function relaySellerTabMessage(messageType, payload, timeoutMs = 90000) {
   const tab = await getSellerTab();
   await ensureSellerTabReady(tab.id);
-
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      reject(new Error('판매자센터 응답 시간이 초과되었습니다.\n리뷰 관리 페이지를 새로고침(F5)한 뒤 다시 시도하세요.'));
-    }, timeoutMs);
-
-    chrome.tabs.sendMessage(tab.id, { type: messageType, payload }, (response) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-
-      if (chrome.runtime.lastError) {
-        reject(new Error(formatSampleFetchError(chrome.runtime.lastError.message)));
-        return;
-      }
-      if (!response?.ok) {
-        reject(new Error(response?.error || '요청 실패'));
-        return;
-      }
-      resolve(response);
-    });
-  });
+  return sendTabMessage(tab.id, messageType, payload, timeoutMs);
 }
 
 async function runFetchSellerSamplesJob(payload) {

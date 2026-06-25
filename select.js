@@ -635,13 +635,15 @@ function refreshJobStatus() {
   chrome.runtime.sendMessage({ type: 'GET_JOB_STATUS' }, async (response) => {
     if (chrome.runtime.lastError) return;
     const job = response?.job;
+    const activelyRunning = response?.isRunning;
+
     if (!job) {
       isGenerating = false;
       updateSelectCounts();
       return;
     }
 
-    if (job.status === 'running') {
+    if (job.status === 'running' && activelyRunning) {
       isGenerating = true;
       const current = job.current || 0;
       const total = job.total || 0;

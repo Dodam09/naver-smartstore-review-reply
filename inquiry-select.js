@@ -44,6 +44,13 @@ const els = {
   referenceCount: document.getElementById('referenceCount'),
   referenceDaysSelect: document.getElementById('referenceDaysSelect'),
   refreshReferenceBtn: document.getElementById('refreshReferenceBtn'),
+  referencePanel: document.getElementById('referencePanel'),
+  referenceSearchInput: document.getElementById('referenceSearchInput'),
+  referenceSelectAllBtn: document.getElementById('referenceSelectAllBtn'),
+  referenceSelectNoneBtn: document.getElementById('referenceSelectNoneBtn'),
+  referenceList: document.getElementById('referenceList'),
+  referenceSelectedCount: document.getElementById('referenceSelectedCount'),
+  referenceTotalCount: document.getElementById('referenceTotalCount'),
 };
 
 let parsedRows = [];
@@ -57,6 +64,12 @@ let applyEnabled = false;
 let saveTimer = null;
 let activeTab = 'select';
 let referenceCount = 0;
+let referenceCatalog = [];
+let selectedReferenceIds = new Set();
+let referenceFilterText = '';
+let generationPending = false;
+let generationPendingTotal = 0;
+let lastReferenceHintCount = null;
 
 init();
 
@@ -86,9 +99,26 @@ async function init() {
   els.tabReview.addEventListener('click', () => switchTab('review'));
   els.saveDraftBtn.addEventListener('click', () => saveDraft(true));
   els.confirmBtn.addEventListener('click', onConfirmAll);
-  els.useReferenceToggle.addEventListener('change', saveReferencePreference);
+  els.useReferenceToggle.addEventListener('change', () => {
+    saveReferencePreference();
+    syncReferencePanelVisibility();
+  });
   els.referenceDaysSelect.addEventListener('change', saveReferencePreference);
   els.refreshReferenceBtn.addEventListener('click', onRefreshReference);
+  els.referenceSearchInput.addEventListener('input', () => {
+    referenceFilterText = els.referenceSearchInput.value.trim().toLowerCase();
+    renderReferenceList();
+  });
+  els.referenceSelectAllBtn.addEventListener('click', () => {
+    referenceCatalog.forEach((item) => selectedReferenceIds.add(String(item.id)));
+    saveReferenceCache();
+    renderReferenceList();
+  });
+  els.referenceSelectNoneBtn.addEventListener('click', () => {
+    selectedReferenceIds.clear();
+    saveReferenceCache();
+    renderReferenceList();
+  });
 
   chrome.storage.onChanged.addListener(onStorageChanged);
   await loadReferenceCount();
@@ -120,6 +150,7 @@ function switchTab(tab) {
     location.hash = 'review';
     loadDraftAndRender();
   }
+  syncReferencePanelVisibility();
 }
 
 async function loadData() {
@@ -134,14 +165,15 @@ async function loadData() {
   const settings = data[SETTINGS_KEY] || {};
 
   draftItems = data[DRAFT_KEY]?.items || [];
-  applyEnabled = !!data[APPLY_ENABLED_KEY];
+  applyEnabled = !!data[APPLY_KEY];
   els.useReferenceToggle.checked = settings.inquiryUseReference !== false;
   renderLookupDayOptions(els.referenceDaysSelect, {
     includeLong: true,
     selected: settings.inquiryReferenceDays ?? 7,
   });
   updateReviewBadge();
-  updateReferenceCountLabel(data[REFERENCE_CACHE_KEY]);
+  applyReferenceCache(data[REFERENCE_CACHE_KEY]);
+  syncReferencePanelVisibility();
 
   if (!cache?.inquiryRows?.length) {
     els.selectList.innerHTML =
@@ -161,19 +193,139 @@ async function loadData() {
 async function loadDraftAndRender() {
   const data = await storageGet([DRAFT_KEY, APPLY_KEY]);
   draftItems = data[DRAFT_KEY]?.items || [];
-  applyEnabled = !!data[APPLY_ENABLED_KEY];
+  applyEnabled = !!data[APPLY_KEY];
   updateReviewBadge();
   renderReview();
 }
 
 async function loadReferenceCount() {
   const data = await storageGet([REFERENCE_CACHE_KEY]);
-  updateReferenceCountLabel(data[REFERENCE_CACHE_KEY]);
+  applyReferenceCache(data[REFERENCE_CACHE_KEY]);
+  syncReferencePanelVisibility();
+}
+
+function applyReferenceCache(cache) {
+  referenceCatalog = Array.isArray(cache?.catalog) ? cache.catalog : [];
+  const validIds = new Set(referenceCatalog.map((item) => String(item.id)));
+  const savedIds = (cache?.selectedIds || []).map(String).filter((id) => validIds.has(id));
+
+  if (savedIds.length) {
+    selectedReferenceIds = new Set(savedIds);
+  } else if (referenceCatalog.length) {
+    selectedReferenceIds = new Set(referenceCatalog.map((item) => String(item.id)));
+  } else {
+    selectedReferenceIds = new Set();
+  }
+
+  updateReferenceCountLabel(cache);
+  renderReferenceList();
+}
+
+function syncReferencePanelVisibility() {
+  const visible =
+    !!els.useReferenceToggle.checked && referenceCatalog.length > 0 && activeTab === 'select';
+  els.referencePanel.hidden = !visible;
 }
 
 function updateReferenceCountLabel(cache) {
-  referenceCount = cache?.catalog?.length || cache?.withAnswerCount || 0;
-  els.referenceCount.textContent = `참고 답변 ${referenceCount}건`;
+  const total = referenceCatalog.length || cache?.catalog?.length || cache?.withAnswerCount || 0;
+  const selected = selectedReferenceIds.size;
+  referenceCount = selected;
+  els.referenceCount.textContent =
+    total > 0 ? `참고 ${selected}/${total}건 선택` : '참고 답변 0건';
+  if (els.referenceSelectedCount) els.referenceSelectedCount.textContent = String(selected);
+  if (els.referenceTotalCount) els.referenceTotalCount.textContent = String(total);
+}
+
+async function saveReferenceCache() {
+  const data = await storageGet([REFERENCE_CACHE_KEY]);
+  const cache = data[REFERENCE_CACHE_KEY] || {};
+  const nextCache = {
+    ...cache,
+    catalog: referenceCatalog,
+    selectedIds: [...selectedReferenceIds],
+    withAnswerCount: referenceCatalog.length,
+  };
+  await storageSet({ [REFERENCE_CACHE_KEY]: nextCache });
+  updateReferenceCountLabel(nextCache);
+}
+
+function getFilteredReferenceRows() {
+  if (!referenceFilterText) return referenceCatalog;
+  return referenceCatalog.filter((item) => {
+    const haystack = [
+      item.id,
+      item.product,
+      item.question,
+      item.content,
+      item.answer,
+      item.reply,
+    ]
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(referenceFilterText);
+  });
+}
+
+function toggleReferenceId(id, checked) {
+  const key = String(id);
+  const shouldSelect = typeof checked === 'boolean' ? checked : !selectedReferenceIds.has(key);
+  if (shouldSelect) selectedReferenceIds.add(key);
+  else selectedReferenceIds.delete(key);
+  saveReferenceCache();
+  renderReferenceList();
+}
+
+function renderReferenceList() {
+  if (!els.referenceList) return;
+
+  const rows = getFilteredReferenceRows();
+  els.referenceSelectedCount.textContent = String(selectedReferenceIds.size);
+  els.referenceTotalCount.textContent = String(referenceCatalog.length);
+
+  if (!referenceCatalog.length) {
+    els.referenceList.innerHTML =
+      '<div class="ref-empty">[기존 답변 불러오기]를 눌러 참고 목록을 가져오세요.</div>';
+    return;
+  }
+
+  if (!rows.length) {
+    els.referenceList.innerHTML = '<div class="ref-empty">검색 결과가 없습니다.</div>';
+    return;
+  }
+
+  els.referenceList.innerHTML = rows
+    .map((item) => {
+      const id = String(item.id);
+      const selected = selectedReferenceIds.has(id);
+      const question = item.question || item.content || '';
+      const answer = item.answer || item.reply || '';
+      return `
+        <article class="ref-card ${selected ? 'selected' : ''}" data-id="${escapeHtml(id)}">
+          <input type="checkbox" class="ref-card-check" data-id="${escapeHtml(id)}" ${selected ? 'checked' : ''} />
+          <div class="ref-card-body">
+            <div class="ref-card-top">
+              <div class="ref-card-id">#${escapeHtml(id)}</div>
+            </div>
+            ${item.product ? `<div class="ref-card-product">${escapeHtml(item.product)}</div>` : ''}
+            <div class="ref-q"><span class="ref-q-label">문의</span>${escapeHtml(question)}</div>
+            <div class="ref-a"><span class="ref-a-label">답변</span>${escapeHtml(answer)}</div>
+          </div>
+        </article>`;
+    })
+    .join('');
+
+  els.referenceList.querySelectorAll('.ref-card').forEach((card) => {
+    card.addEventListener('click', (event) => {
+      if (event.target.classList.contains('ref-card-check')) return;
+      toggleReferenceId(card.dataset.id);
+    });
+  });
+
+  els.referenceList.querySelectorAll('.ref-card-check').forEach((cb) => {
+    cb.addEventListener('click', (event) => event.stopPropagation());
+    cb.addEventListener('change', () => toggleReferenceId(cb.dataset.id, cb.checked));
+  });
 }
 
 async function saveReferencePreference() {
@@ -204,9 +356,14 @@ async function onRefreshReference() {
       type: 'FETCH_INQUIRY_REPLY_CATALOG_JOB',
       payload: { days, maxItems: 80 },
     });
-    referenceCount = response.catalog?.length || response.withAnswerCount || 0;
-    updateReferenceCountLabel({ catalog: response.catalog, withAnswerCount: referenceCount });
-    showBanner(`${formatLookupDaysLabel(days)} 기존 답변 문의 ${referenceCount}건을 불러왔습니다.`, 'success');
+    referenceCatalog = response.catalog || [];
+    selectedReferenceIds = new Set(referenceCatalog.map((item) => String(item.id)));
+    await saveReferenceCache();
+    syncReferencePanelVisibility();
+    showBanner(
+      `${formatLookupDaysLabel(days)} 기존 답변 문의 ${referenceCatalog.length}건을 불러왔습니다. 참고할 항목을 선택하세요.`,
+      'success'
+    );
   } catch (err) {
     showBanner(`기존 답변 불러오기 실패: ${err.message}`, 'warn');
   } finally {
@@ -484,6 +641,11 @@ async function onGenerate() {
     return;
   }
 
+  if (els.useReferenceToggle.checked && referenceCatalog.length && selectedReferenceIds.size === 0) {
+    showBanner('참고할 기존 답변을 1건 이상 선택하세요.', 'warn');
+    return;
+  }
+
   const job = await getJobStatus();
   if (job?.status === 'running') {
     showRunningProgress(job.current || 0, job.total || 0, job.currentId || '', job.message || '이미 생성 중입니다.');
@@ -491,6 +653,9 @@ async function onGenerate() {
   }
 
   isGenerating = true;
+  generationPending = true;
+  generationPendingTotal = selectedRows.length;
+  lastReferenceHintCount = null;
   updateSelectCounts();
   showRunningProgress(0, selectedRows.length, '', '답변 생성을 시작합니다...');
 
@@ -504,10 +669,12 @@ async function onGenerate() {
         model: CONFIG.GEMINI_MODEL,
         useReference: !!els.useReferenceToggle.checked,
         referenceDays: getReferenceDays(),
+        referenceSelectedIds: [...selectedReferenceIds],
       },
     },
     (response) => {
       if (chrome.runtime.lastError || !response?.ok) {
+        generationPending = false;
         isGenerating = false;
         updateSelectCounts();
         showProgress(response?.error || chrome.runtime.lastError?.message || '시작 실패', true);
@@ -533,19 +700,23 @@ function onStopGenerate() {
   });
 }
 
+function resetGenProgressUi() {
+  els.genProgress.classList.add('hidden');
+  els.genProgress.classList.remove('success', 'error', 'stopped');
+  els.genStatusText.textContent = '답변 생성 중';
+  els.genCountText.textContent = '0 / 0';
+  els.genProgressFill.style.width = '0%';
+  els.genSubText.textContent = '';
+}
+
 function refreshJobStatus() {
   chrome.runtime.sendMessage({ type: 'GET_INQUIRY_JOB_STATUS' }, async (response) => {
     if (chrome.runtime.lastError) return;
     const job = response?.job;
     const activelyRunning = response?.isRunning;
 
-    if (!job) {
-      isGenerating = false;
-      updateSelectCounts();
-      return;
-    }
-
-    if (job.status === 'running' && activelyRunning) {
+    if (job?.status === 'running' && activelyRunning) {
+      generationPending = false;
       isGenerating = true;
       showRunningProgress(
         job.current || 0,
@@ -554,9 +725,13 @@ function refreshJobStatus() {
         job.message || '답변 생성 중...'
       );
       if (job.referenceCount != null && els.useReferenceToggle.checked) {
-        els.genSubText.textContent =
-          (els.genSubText.textContent ? `${els.genSubText.textContent}\n` : '') +
-          `기존 답변 참고 ${job.referenceCount}건 로드됨`;
+        if (lastReferenceHintCount !== job.referenceCount) {
+          lastReferenceHintCount = job.referenceCount;
+          const base = job.currentId
+            ? `문의번호 ${job.currentId} 처리 중...`
+            : job.message || '답변 생성 중...';
+          els.genSubText.textContent = `${base}\n선택한 참고 답변 ${job.referenceCount}건 사용`;
+        }
       }
       els.generateBtn.textContent = `생성 중 (${job.current || 0}/${job.total || '?'})`;
       els.generateBtn.disabled = true;
@@ -564,11 +739,29 @@ function refreshJobStatus() {
       return;
     }
 
+    if (generationPending && (!job || job.status !== 'running')) {
+      isGenerating = true;
+      showRunningProgress(
+        0,
+        generationPendingTotal,
+        '',
+        '답변 생성 준비 중...'
+      );
+      els.generateBtn.disabled = true;
+      els.stopBtn.hidden = false;
+      return;
+    }
+
+    generationPending = false;
+    lastReferenceHintCount = null;
     isGenerating = false;
+    resetGenProgressUi();
     els.stopBtn.hidden = true;
     els.stopBtn.disabled = false;
     els.stopBtn.textContent = '생성 중지';
     updateSelectCounts();
+
+    if (!job) return;
 
     if (job.status === 'done' || job.status === 'stopped') {
       if (job.finishedAt !== lastHandledFinishedAt) {
@@ -595,7 +788,8 @@ function onStorageChanged(changes, area) {
     if (activeTab === 'review') renderReview();
   }
   if (changes[REFERENCE_CACHE_KEY]) {
-    updateReferenceCountLabel(changes[REFERENCE_CACHE_KEY].newValue);
+    applyReferenceCache(changes[REFERENCE_CACHE_KEY].newValue);
+    syncReferencePanelVisibility();
   }
   if (changes[PROGRESS_KEY]) refreshJobStatus();
 }
@@ -646,7 +840,17 @@ function sendRuntimeMessage(message) {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(message, (response) => {
       if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
+        const raw = chrome.runtime.lastError.message || '';
+        if (/message port closed/i.test(raw)) {
+          reject(
+            new Error(
+              '확장 프로그램과 판매자센터 탭 연결이 끊어졌습니다.\n' +
+                'chrome://extensions 에서 확장 새로고침 → 상품문의 페이지 F5 후 다시 시도하세요.'
+            )
+          );
+          return;
+        }
+        reject(new Error(raw));
         return;
       }
       if (!response?.ok) {

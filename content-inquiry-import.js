@@ -2,33 +2,94 @@
  * 판매자센터 상품문의 목록 API (GET /api/v3/contents/comments/pages)
  */
 (function () {
+  const INQUIRY_IMPORT_VERSION = 2;
+  if (globalThis.__ssInquiryImportVersion !== INQUIRY_IMPORT_VERSION) {
+    globalThis.__ssInquiryImportVersion = INQUIRY_IMPORT_VERSION;
+    globalThis.__ssInquiryImportListener = false;
+    globalThis.__ssInquiryImportLoaded = false;
+  }
+
+  if (!globalThis.__ssInquiryImportListener) {
+    globalThis.__ssInquiryImportListener = true;
+    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message.type === 'SS_INQUIRY_PING') {
+        sendResponse({ ok: true });
+        return false;
+      }
+
+      if (message.type === 'SS_REVIEW_PING') {
+        sendResponse({ ok: true });
+        return false;
+      }
+
+      if (message.type === 'FETCH_INQUIRIES') {
+        fetchInquiries(message.payload || {})
+          .then((result) => sendResponse({ ok: true, ...result }))
+          .catch((err) => sendResponse({ ok: false, error: err.message || String(err) }));
+        return true;
+      }
+
+      if (message.type === 'FETCH_INQUIRY_REPLY_CATALOG') {
+        fetchAnsweredInquiryCatalog(message.payload || {})
+          .then((result) => sendResponse({ ok: true, ...result }))
+          .catch((err) => sendResponse({ ok: false, error: err.message || String(err) }));
+        return true;
+      }
+      return false;
+    });
+  }
+
   if (globalThis.__ssInquiryImportLoaded) return;
   globalThis.__ssInquiryImportLoaded = true;
 
   const DEFAULT_LIST_PATH = '/api/v3/contents/comments/pages';
-  const MAX_SEARCH_WINDOW_DAYS = 90;
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message.type === 'SS_REVIEW_PING') {
-      sendResponse({ ok: true });
-      return false;
-    }
+  if (typeof clampLookupDays !== 'function') {
+    globalThis.clampLookupDays = function clampLookupDaysFallback(days, options = {}) {
+      const min = options.min ?? 0;
+      const max = options.max ?? 365;
+      const n = Number(days);
+      if (!Number.isFinite(n)) return options.fallback ?? 7;
+      return Math.max(min, Math.min(max, Math.floor(n)));
+    };
+  }
 
-    if (message.type === 'FETCH_INQUIRIES') {
-      fetchInquiries(message.payload || {})
-        .then((result) => sendResponse({ ok: true, ...result }))
-        .catch((err) => sendResponse({ ok: false, error: err.message || String(err) }));
-      return true;
-    }
+  if (typeof formatLookupDaysLabel !== 'function') {
+    globalThis.formatLookupDaysLabel = function formatLookupDaysLabelFallback(days) {
+      const d = clampLookupDays(days);
+      if (d === 0) return '당일';
+      if (d === 1) return '2일';
+      if (d === 2) return '3일';
+      if (d === 7) return '1주일';
+      return `최근 ${d}일`;
+    };
+  }
 
-    if (message.type === 'FETCH_INQUIRY_REPLY_CATALOG') {
-      fetchAnsweredInquiryCatalog(message.payload || {})
-        .then((result) => sendResponse({ ok: true, ...result }))
-        .catch((err) => sendResponse({ ok: false, error: err.message || String(err) }));
-      return true;
-    }
-    return false;
-  });
+  if (typeof buildInquiryLookupDateRange !== 'function') {
+    globalThis.buildInquiryLookupDateRange = function buildInquiryLookupDateRangeFallback(days) {
+      const clamped = clampLookupDays(days, { min: 0, max: 365, fallback: 7 });
+      const now = new Date();
+      const formatKst = (date, endOfDay) => {
+        const parts = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Seoul',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).formatToParts(date);
+        const y = parts.find((p) => p.type === 'year')?.value;
+        const m = parts.find((p) => p.type === 'month')?.value;
+        const dPart = parts.find((p) => p.type === 'day')?.value;
+        const time = endOfDay ? '23:59:59.999' : '00:00:00.000';
+        return `${y}-${m}-${dPart}T${time}+09:00`;
+      };
+      if (clamped === 0) {
+        return { startDate: formatKst(now, false), endDate: formatKst(now, true) };
+      }
+      const from = new Date(now);
+      from.setDate(from.getDate() - clamped);
+      return { startDate: formatKst(from, false), endDate: formatKst(now, true) };
+    };
+  }
 
   async function fetchInquiries(options) {
     const maxDays = clampLookupDays(options.days, { min: 0, max: 365, fallback: 7 });

@@ -1,5 +1,6 @@
 // config.example.js → config.js 로 복사 후 API 키를 입력하세요.
-const CONFIG = {
+if (!globalThis.CONFIG) {
+  globalThis.CONFIG = {
   GEMINI_API_KEY: 'AIzaYOUR_GEMINI_API_KEY_HERE',
   GEMINI_MODEL: 'gemini-2.5-flash',
   STORAGE_KEY: 'smartstoreReviewReplies',
@@ -25,7 +26,10 @@ const CONFIG = {
   // (선택) Network > 상품문의 목록 > Request URL (쿼리 제외)
   INQUIRY_LIST_URL: '',
   // inquiryUseReference, inquiryReferenceDays, reviewLookupDays, inquiryLookupDays
+  // 참고 답변 선택(selectedIds)은 INQUIRY_REFERENCE_CACHE_KEY 캐시에 저장됩니다.
   // 아래 inquiry* 설정은 popup에서 자동 저장됩니다 (리뷰와 별도):
   // inquirySystemPrompt, inquiryTonePresetId, inquiryCustomPresets,
   // inquirySampleReplies, inquirySampleFlow
-};
+  };
+}
+var CONFIG = globalThis.CONFIG;

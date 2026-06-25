@@ -664,6 +664,18 @@ async function applyInquiryJobUi(job, running) {
     return;
   }
 
+  if (job?.status === 'running' && !running) {
+    if (inquiryJobPollTimer) {
+      clearInterval(inquiryJobPollTimer);
+      inquiryJobPollTimer = null;
+    }
+    if (job.message) {
+      setInquiryStatus(`${job.message}\n(작업이 중단되었습니다. 다시 시도해 주세요.)`);
+    }
+    updateInquirySummary();
+    return;
+  }
+
   if (job?.status === 'running') {
     if (inquiryJobPollTimer) {
       clearInterval(inquiryJobPollTimer);
