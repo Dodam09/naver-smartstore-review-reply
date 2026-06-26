@@ -89,15 +89,22 @@ async function init() {
   refreshJobStatus();
   setInterval(refreshJobStatus, 2000);
 
-  if (location.hash === '#review') switchTab('review');
+  if (location.hash === '#review' && draftItems.length) switchTab('review');
+  else els.tabReview.classList.toggle('locked', !draftItems.length);
 }
 
 function switchTab(tab) {
+  if (tab === 'review' && !draftItems.length) {
+    showBanner('먼저 ①에서 문의를 고르고 「AI로 답글 만들기」를 누르세요.', 'warn');
+    return;
+  }
+
   activeTab = tab;
   const isSelect = tab === 'select';
 
   els.tabSelect.classList.toggle('active', isSelect);
   els.tabReview.classList.toggle('active', !isSelect);
+  els.tabReview.classList.toggle('locked', !draftItems.length);
   els.panelSelect.classList.toggle('active', isSelect);
   els.panelReview.classList.toggle('active', !isSelect);
   els.selectToolbar.hidden = !isSelect;
@@ -123,11 +130,12 @@ async function loadData() {
   draftItems = data[DRAFT_KEY]?.items || [];
   applyEnabled = !!data[APPLY_KEY];
   updateReviewBadge();
+  els.tabReview.classList.toggle('locked', !draftItems.length);
   updateInquiryStyleLabel(settings);
 
   if (!cache?.inquiryRows?.length) {
     els.selectList.innerHTML =
-      '<div class="empty">가져온 상품문의가 없습니다.<br>확장 팝업 <strong>문의</strong> 탭에서 <strong>판매자센터 가져오기</strong>를 하세요.</div>';
+      '<div class="empty">아직 문의가 없어요.<br>확장 아이콘 → <strong>상품문의</strong> 탭에서 「가져오기」를 먼저 하세요.</div>';
     updateSelectCounts();
     return;
   }
@@ -145,6 +153,7 @@ async function loadDraftAndRender() {
   draftItems = data[DRAFT_KEY]?.items || [];
   applyEnabled = !!data[APPLY_KEY];
   updateReviewBadge();
+  els.tabReview.classList.toggle('locked', !draftItems.length);
   renderReview();
 }
 
@@ -161,7 +170,7 @@ function renderSelect() {
 
   if (!parsedRows.length) {
     els.selectList.innerHTML =
-      '<div class="empty">가져온 상품문의가 없습니다.<br>확장 팝업 <strong>문의</strong> 탭에서 가져오기를 하세요.</div>';
+      '<div class="empty">아직 문의가 없어요.<br>확장 아이콘 → <strong>상품문의</strong> 탭에서 「가져오기」를 먼저 하세요.</div>';
     updateSelectCounts();
     return;
   }
@@ -211,7 +220,7 @@ function renderSelect() {
 function renderReview() {
   if (!draftItems.length) {
     els.reviewList.innerHTML =
-      '<div class="empty">생성된 답글이 없습니다.<br>「1. 문의 선택」 탭에서 답변을 생성하세요.</div>';
+      '<div class="empty">아직 만든 답글이 없어요.<br>① 「AI로 답글 만들기」를 먼저 누르세요.</div>';
     els.confirmBtn.disabled = true;
     updateReviewStats();
     return;
@@ -265,7 +274,7 @@ function updateSelectCounts() {
     parseMeta.fileName && parseMeta.fileName.length > 18
       ? `${parseMeta.fileName.slice(0, 16)}…`
       : parseMeta.fileName || '-';
-  els.generateBtn.textContent = `선택한 ${selected}건 답변 생성`;
+  els.generateBtn.textContent = selected > 0 ? `AI로 답글 만들기 (${selected}건)` : 'AI로 답글 만들기';
   els.generateBtn.disabled = isGenerating || selected === 0;
   els.stopBtn.hidden = !isGenerating;
   els.stopBtn.disabled = !isGenerating;
@@ -282,15 +291,15 @@ function updateReviewStats() {
   const filled = draftItems.filter((i) => i.reply?.trim()).length;
   els.draftTotal.textContent = String(total);
   els.draftFilled.textContent = String(filled);
-  els.applyStatus.textContent = applyEnabled ? '활성화됨' : '미활성';
+  els.applyStatus.textContent = applyEnabled ? '준비됨' : '아직';
   els.applyStatus.style.color = applyEnabled ? '#0a7a3f' : '#333';
 
   if (applyEnabled) {
-    els.reviewSummary.textContent = '자동 입력 모드 — 판매자센터에서 [답글]을 누르면 textarea에 채워집니다.';
+    els.reviewSummary.textContent = '준비됐어요. 판매자센터 상품문의에서 [답글]만 누르면 자동으로 채워집니다.';
   } else if (filled === total && total > 0) {
-    els.reviewSummary.textContent = '답글 확인 후 [자동 입력 모드 활성화]를 누르세요.';
+    els.reviewSummary.textContent = '답글 확인이 끝났어요. 아래 「판매자센터에 넣기 준비」를 누르세요.';
   } else {
-    els.reviewSummary.textContent = '답글을 확인·수정한 뒤 자동 입력을 활성화하세요.';
+    els.reviewSummary.textContent = '답글을 읽고 필요하면 고친 뒤, 넣기 준비를 하세요.';
   }
 
   updateConfirmButton(filled, total);
@@ -300,14 +309,14 @@ function updateConfirmButton(filled, total) {
   if (!els.confirmBtn) return;
   if (applyEnabled) {
     els.confirmBtn.disabled = true;
-    els.confirmBtn.textContent = '✓ 자동 입력 활성화됨';
+    els.confirmBtn.textContent = '✓ 넣기 준비됨';
     els.confirmBtn.classList.add('is-ready');
     return;
   }
   els.confirmBtn.classList.remove('is-ready');
   const ready = total > 0 && filled === total;
   els.confirmBtn.disabled = !ready;
-  els.confirmBtn.textContent = '자동 입력 모드 활성화';
+  els.confirmBtn.textContent = '판매자센터에 넣기 준비';
 }
 
 function updateReviewStatsFromUi() {
@@ -344,14 +353,14 @@ async function saveDraft(showMessage = false) {
     updates[APPLY_KEY] = false;
     applyEnabled = false;
     if (!showMessage) {
-      showBanner('답글을 수정했습니다. 다시 [자동 입력 모드 활성화]를 눌러주세요.', 'warn');
+      showBanner('답글을 고쳤어요. 다시 「판매자센터에 넣기 준비」를 눌러 주세요.', 'warn');
     }
   }
 
   await storageSet(updates);
   updateReviewStats();
   updateReviewBadge();
-  if (showMessage) showBanner('임시 저장했습니다.', 'info');
+  if (showMessage) showBanner('잠깐 저장했어요.', 'info');
 }
 
 function scheduleSaveDraft() {
@@ -396,7 +405,7 @@ async function onConfirmAll() {
   await syncInquiryApplyFromDraft();
   updateReviewStats();
   showBanner(
-    `${draftItems.length}건 자동 입력 모드 활성화.\n판매자센터 상품문의에서 [답글]을 누르면 textarea에 채워집니다.`,
+    `${draftItems.length}건 준비됐어요.\n판매자센터 상품문의에서 [답글]을 누르면 자동으로 채워집니다.`,
     'info'
   );
 }
@@ -404,9 +413,9 @@ async function onConfirmAll() {
 function updateReviewBanner() {
   if (activeTab !== 'review') return;
   if (applyEnabled) {
-    showBanner('자동 입력 모드 — [답글] 클릭 시 textarea에 채워집니다.', 'info');
+    showBanner('준비됐어요. 판매자센터에서 [답글]만 누르면 자동으로 채워집니다.', 'info');
   } else if (draftItems.length) {
-    showBanner('답글 확인 후 [자동 입력 모드 활성화]를 누르세요.', 'info');
+    showBanner('답글 확인 후 「판매자센터에 넣기 준비」를 누르세요.', 'info');
   }
 }
 
@@ -437,7 +446,7 @@ async function onGenerate() {
   const apiKey = settings.apiKey || CONFIG.GEMINI_API_KEY;
 
   if (!apiKey || apiKey.includes('YOUR_GEMINI')) {
-    showProgress('API 키가 없습니다. 확장 팝업 [설정] 탭에서 입력하세요.', true);
+    showProgress('AI 연결이 필요해요. 확장 아이콘 → 「설정」에서 API 키를 넣어 주세요.', true);
     return;
   }
 
@@ -450,7 +459,7 @@ async function onGenerate() {
 
   isGenerating = true;
   updateSelectCounts();
-  showRunningProgress(0, selectedRows.length, '', '답변 생성을 시작합니다...');
+  showRunningProgress(0, selectedRows.length, '', '답글 만들기 시작…');
 
   const systemPrompt = resolveInquirySystemPrompt(settings);
 
@@ -483,7 +492,7 @@ function onStopGenerate() {
   chrome.runtime.sendMessage({ type: 'STOP_GENERATE_INQUIRIES' }, (response) => {
     if (chrome.runtime.lastError || !response?.ok) {
       els.stopBtn.disabled = false;
-      els.stopBtn.textContent = '생성 중지';
+      els.stopBtn.textContent = '멈추기';
       showProgress(response?.error || chrome.runtime.lastError?.message || '중지 실패', true);
       return;
     }
@@ -494,7 +503,7 @@ function onStopGenerate() {
 function resetGenProgressUi() {
   els.genProgress.classList.add('hidden');
   els.genProgress.classList.remove('success', 'error', 'stopped');
-  els.genStatusText.textContent = '답변 생성 중';
+  els.genStatusText.textContent = '답글 만드는 중';
   els.genCountText.textContent = '0 / 0';
   els.genProgressFill.style.width = '0%';
   els.genSubText.textContent = '';
@@ -517,7 +526,7 @@ function refreshJobStatus() {
         job.current || 0,
         job.total || 0,
         job.currentId || '',
-        job.message || '답변 생성 중...'
+        job.message || '답글 만드는 중...'
       );
       els.generateBtn.textContent = `생성 중 (${job.current || 0}/${job.total || '?'})`;
       els.generateBtn.disabled = true;
@@ -539,7 +548,7 @@ function refreshJobStatus() {
     isGenerating = false;
     els.stopBtn.hidden = true;
     els.stopBtn.disabled = false;
-    els.stopBtn.textContent = '생성 중지';
+    els.stopBtn.textContent = '멈추기';
     updateSelectCounts();
 
     if (job.status === 'done' || job.status === 'stopped') {
@@ -559,7 +568,7 @@ function refreshJobStatus() {
         }
 
         if (success === 0 && failed > 0) {
-          showProgress(job.message || job.lastError || '답변 생성에 실패했습니다.', true);
+          showProgress(job.message || job.lastError || '답글 만들기에 실패했어요.', true);
           return;
         }
 
@@ -593,7 +602,7 @@ function onStorageChanged(changes, area) {
 
 function showRunningProgress(current, total, currentId, message) {
   els.genProgress.classList.remove('hidden', 'success', 'error', 'stopped');
-  els.genStatusText.textContent = '답변 생성 중';
+  els.genStatusText.textContent = '답글 만드는 중';
   els.genCountText.textContent = `${current} / ${total}`;
   els.genProgressFill.style.width = `${total > 0 ? Math.round((current / total) * 100) : 0}%`;
   els.genSubText.textContent = currentId ? `문의번호 ${currentId} 처리 중...` : message;
@@ -618,7 +627,7 @@ function showDoneProgress(job) {
 function showStoppedProgress(job) {
   els.genProgress.classList.remove('hidden', 'error', 'success');
   els.genProgress.classList.add('stopped');
-  els.genStatusText.textContent = '생성 중지됨';
+  els.genStatusText.textContent = '멈추기됨';
   els.genCountText.textContent = `${job.success ?? 0} / ${job.total ?? 0}`;
   els.genSubText.textContent = `저장 ${job.success ?? 0}건 — 검토 탭에서 확인하세요`;
 }
@@ -680,7 +689,7 @@ function isInquiryStyleConfigured(settings = {}) {
 
 function getInquiryStyleHint(settings = {}) {
   if (isInquiryStyleConfigured(settings)) return '';
-  return '팝업 「문의」 탭에서 설정';
+  return '확장 아이콘 → 「설정」에서 말투를 정해 주세요';
 }
 
 function updateInquiryStyleLabel(settings = {}) {

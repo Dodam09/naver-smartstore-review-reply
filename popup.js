@@ -64,6 +64,10 @@ const els = {
   inquiryApplyHint: document.getElementById('inquiryApplyHint'),
   inquiryStatus: document.getElementById('inquiryStatus'),
   inquirySummary: document.getElementById('inquirySummary'),
+  reviewFlow1: document.getElementById('reviewFlow1'),
+  reviewFlow2: document.getElementById('reviewFlow2'),
+  inquiryFlow1: document.getElementById('inquiryFlow1'),
+  inquiryFlow2: document.getElementById('inquiryFlow2'),
 };
 
 let parsedRows = [];
@@ -200,6 +204,24 @@ async function init() {
   refreshInquiryApplyHint();
   refreshJobStatus();
   refreshInquiryJobStatus();
+  updateReviewFlowBar();
+  updateInquiryFlowBar();
+}
+
+function updateReviewFlowBar() {
+  const hasData = parsedRows.length > 0;
+  els.reviewFlow1?.classList.toggle('done', hasData);
+  els.reviewFlow1?.classList.toggle('active', !hasData);
+  els.reviewFlow2?.classList.toggle('active', hasData);
+  els.reviewFlow2?.classList.toggle('done', false);
+}
+
+function updateInquiryFlowBar() {
+  const hasData = inquiryRows.length > 0;
+  els.inquiryFlow1?.classList.toggle('done', hasData);
+  els.inquiryFlow1?.classList.toggle('active', !hasData);
+  els.inquiryFlow2?.classList.toggle('active', hasData);
+  els.inquiryFlow2?.classList.toggle('done', false);
 }
 
 function initTabs() {
@@ -253,13 +275,14 @@ function updateWorkButton(draft) {
   const count = draft?.items?.length || 0;
   if (parsedRows.length) {
     els.selectBtn.textContent = count
-      ? `리뷰 답글 작업 열기 (검토 ${count}건)`
-      : `리뷰 답글 작업 열기 (${parsedRows.length}건)`;
+      ? `② 이어서 답글 만들기 (확인 ${count}건) →`
+      : `② 답글 만들기 시작 (${parsedRows.length}건) →`;
   } else {
     els.selectBtn.textContent = count
-      ? `리뷰 답글 작업 열기 (검토 ${count}건)`
-      : '리뷰 답글 작업 열기';
+      ? `② 이어서 답글 만들기 (확인 ${count}건) →`
+      : '② 답글 만들기 시작 →';
   }
+  updateReviewFlowBar();
 }
 
 
@@ -288,18 +311,20 @@ function updateFileSummary() {
   if (!parsedRows.length) {
     els.fileSummary.classList.remove('visible');
     els.selectBtn.disabled = true;
-    els.selectBtn.textContent = '리뷰 답글 작업 열기';
+    els.selectBtn.textContent = '② 답글 만들기 시작 →';
+    updateReviewFlowBar();
     return;
   }
 
   els.fileSummary.classList.add('visible');
   els.fileSummary.innerHTML = `
-    <div><strong>${parsedRows.length}</strong>건 리뷰 로드됨</div>
-    <div>${parseMeta?.fileName || ''}</div>
-    <div class="next-step">[리뷰 답글 작업 열기] 클릭</div>
+    <div><strong>${parsedRows.length}</strong>건 준비됨</div>
+    <div>${parseMeta?.fileName || '판매자센터'}</div>
+    <div class="next-step">아래 「답글 만들기 시작」을 누르세요</div>
   `;
   els.selectBtn.disabled = false;
   chrome.storage.local.get([CONFIG.DRAFT_KEY], (r) => updateWorkButton(r[CONFIG.DRAFT_KEY]));
+  updateReviewFlowBar();
 }
 
 function highlightSelectButton() {
@@ -542,7 +567,7 @@ async function applyImportedRows(result, sourceLabel) {
   const skipMsg = parseMeta.skippedReplied
     ? ` (답글완료 ${parseMeta.skippedReplied}건 제외)`
     : '';
-  const statusMessage = `${parsedRows.length}건 가져옴${skipMsg}.\n[리뷰 답글 작업 열기]를 눌러주세요.`;
+  const statusMessage = `${parsedRows.length}건 가져왔어요.\n아래 「답글 만들기 시작」을 누르세요.`;
   setStatus(statusMessage);
   updateFileSummary();
   highlightSelectButton();
@@ -566,31 +591,34 @@ function updateInquirySummary(replyCount = 0) {
   if (!inquiryRows.length) {
     els.inquirySummary.classList.remove('visible');
     els.inquirySelectBtn.disabled = true;
-    els.inquirySelectBtn.textContent = '문의 답글 작업 열기';
+    els.inquirySelectBtn.textContent = '② 답글 만들기 시작 →';
+    updateInquiryFlowBar();
     return;
   }
 
   els.inquirySummary.classList.add('visible');
-  const replyHint = replyCount > 0 ? `<div>생성된 답변 ${replyCount}건</div>` : '';
+  const replyHint = replyCount > 0 ? `<div>만든 답글 ${replyCount}건</div>` : '';
   els.inquirySummary.innerHTML = `
-    <div><strong>${inquiryRows.length}</strong>건 미답변 문의</div>
+    <div><strong>${inquiryRows.length}</strong>건 준비됨</div>
     ${replyHint}
-    <div class="next-step">[문의 답글 작업 열기] 클릭</div>
+    <div class="next-step">아래 「답글 만들기 시작」을 누르세요</div>
   `;
+  els.inquirySelectBtn.disabled = false;
   chrome.storage.local.get([INQUIRY_DRAFT_KEY], (r) => updateInquiryWorkButton(r[INQUIRY_DRAFT_KEY]));
+  updateInquiryFlowBar();
 }
 
 function updateInquiryApplyHint(applyEnabled, draftCount = 0) {
   if (!els.inquiryApplyHint) return;
   if (applyEnabled && draftCount > 0) {
     els.inquiryApplyHint.textContent =
-      '자동 입력 활성화됨 · 판매자센터 상품문의에서 [답글]을 누르면 textarea에 채워집니다.';
+      '✓ 판매자센터에 넣기 준비됨 — 상품문의에서 [답글]만 누르면 자동으로 채워집니다.';
     els.inquiryApplyHint.style.color = '#0a7a3f';
     els.inquiryApplyHint.style.fontWeight = '600';
     return;
   }
   els.inquiryApplyHint.textContent =
-    '자동 입력은 [문의 답글 작업] → 「2. 답글 검토」에서 활성화합니다.';
+    '답글을 만든 뒤, 작업 화면에서 「판매자센터에 넣기 준비」를 누르면 [답글] 클릭 시 자동으로 채워집니다.';
   els.inquiryApplyHint.style.color = '';
   els.inquiryApplyHint.style.fontWeight = '';
 }
@@ -608,14 +636,15 @@ function updateInquiryWorkButton(draft) {
   const draftCount = draft?.items?.length || 0;
   if (inquiryRows.length) {
     els.inquirySelectBtn.textContent = draftCount
-      ? `문의 답글 작업 열기 (검토 ${draftCount}건)`
-      : `문의 답글 작업 열기 (${inquiryRows.length}건)`;
+      ? `② 이어서 답글 만들기 (확인 ${draftCount}건) →`
+      : `② 답글 만들기 시작 (${inquiryRows.length}건) →`;
   } else {
     els.inquirySelectBtn.textContent = draftCount
-      ? `문의 답글 작업 열기 (검토 ${draftCount}건)`
-      : '문의 답글 작업 열기';
+      ? `② 이어서 답글 만들기 (확인 ${draftCount}건) →`
+      : '② 답글 만들기 시작 →';
   }
   els.inquirySelectBtn.disabled = !inquiryRows.length && !draftCount;
+  updateInquiryFlowBar();
 }
 
 async function saveInquiryCache(statusMessage, replies, sourceLabel) {
@@ -697,7 +726,7 @@ async function applyInquiryJobUi(job, running) {
     }
     updateInquirySummary();
     if (job.message) {
-      setInquiryStatus(`${job.message}\n(작업이 중단되었습니다. [문의 답글 작업]에서 다시 생성하세요.)`);
+      setInquiryStatus(`${job.message}\n(중간에 멈췄어요. 작업 화면에서 다시 만들기를 누르세요.)`);
     }
     return;
   }
@@ -831,7 +860,7 @@ function applyJobUi(job, activelyRunning) {
       const count = data[CONFIG.DRAFT_KEY]?.items?.length || 0;
       if (count > 0) {
         const apply = data[CONFIG.APPLY_ENABLED_KEY] ? ' (적용 활성화됨)' : ' (검토 필요)';
-        setStatus(`생성된 답글 ${count}건${apply}. [리뷰 답글 작업 열기]에서 검토 탭을 확인하세요.`);
+        setStatus(`만든 답글 ${count}건. 작업 화면 「확인하고 올리기」에서 이어서 하세요.`);
       }
     });
     return;
@@ -864,9 +893,9 @@ function applyJobUi(job, activelyRunning) {
   }
 
   if (job.status === 'done') {
-    setStatus(`${job.message}\n\n작업 화면의 「2. 답글 검토」 탭에서 확인·수정 후 일괄 확인하세요.`);
+    setStatus(`${job.message}\n\n작업 화면 「확인하고 올리기」에서 답글을 확인하세요.`);
   } else if (job.status === 'stopped') {
-    setStatus(`${job.message}\n\n작업 화면의 「2. 답글 검토」 탭에서 확인·수정 후 일괄 확인하세요.`);
+    setStatus(`${job.message}\n\n작업 화면 「확인하고 올리기」에서 이어서 확인하세요.`);
   }
 }
 
@@ -911,8 +940,8 @@ async function onClearStorage() {
   refreshInquiryApplyHint();
   updateFileSummary();
   updateInquirySummary();
-  setStatus('저장된 답변·검토 데이터를 삭제했습니다.\n다시 가져오거나 엑셀을 업로드하세요.');
-  setInquiryStatus('상품문의 데이터를 삭제했습니다.');
+  setStatus('저장된 내용을 모두 지웠어요.\n다시 가져오기부터 시작하세요.');
+  setInquiryStatus('저장된 내용을 모두 지웠어요.\n다시 가져오기부터 시작하세요.');
 }
 
 function normalizeReviewContent(text) {

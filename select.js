@@ -85,12 +85,19 @@ async function init() {
   refreshJobStatus();
   setInterval(refreshJobStatus, 2000);
 
-  if (location.hash === '#review') {
+  if (location.hash === '#review' && draftItems.length) {
     switchTab('review');
+  } else {
+    els.tabReview.classList.toggle('locked', !draftItems.length);
   }
 }
 
 function switchTab(tab) {
+  if (tab === 'review' && !draftItems.length) {
+    showBanner('먼저 ①에서 리뷰를 고르고 「AI로 답글 만들기」를 누르세요.', 'warn');
+    return;
+  }
+
   activeTab = tab;
   const isSelect = tab === 'select';
 
@@ -98,6 +105,7 @@ function switchTab(tab) {
   els.tabReview.classList.toggle('active', !isSelect);
   els.tabSelect.setAttribute('aria-selected', String(isSelect));
   els.tabReview.setAttribute('aria-selected', String(!isSelect));
+  els.tabReview.classList.toggle('locked', !draftItems.length);
 
   els.panelSelect.classList.toggle('active', isSelect);
   els.panelReview.classList.toggle('active', !isSelect);
@@ -128,10 +136,11 @@ async function loadData() {
   draftItems = data[CONFIG.DRAFT_KEY]?.items || [];
   applyEnabled = !!data[CONFIG.APPLY_ENABLED_KEY];
   updateReviewBadge();
+  els.tabReview.classList.toggle('locked', !draftItems.length);
 
   if (!cache?.parsedRows?.length) {
     els.selectList.innerHTML =
-      '<div class="empty">업로드된 리뷰가 없습니다.<br>확장 팝업에서 <strong>판매자센터 가져오기</strong> 또는 엑셀 업로드를 하세요.</div>';
+      '<div class="empty">아직 리뷰가 없어요.<br>확장 아이콘 → <strong>리뷰</strong> 탭에서 「가져오기」를 먼저 하세요.</div>';
     updateSelectCounts();
     return;
   }
@@ -151,6 +160,7 @@ async function loadDraftAndRender() {
   submittedIds = new Set(data[CONFIG.DRAFT_KEY]?.submittedIds || []);
   applyEnabled = !!data[CONFIG.APPLY_ENABLED_KEY];
   updateReviewBadge();
+  els.tabReview.classList.toggle('locked', !draftItems.length);
   renderReview();
 }
 
@@ -169,7 +179,7 @@ function renderSelect() {
 
   if (!parsedRows.length) {
     els.selectList.innerHTML =
-      '<div class="empty">업로드된 리뷰가 없습니다.<br>확장 팝업에서 <strong>판매자센터 가져오기</strong> 또는 엑셀 업로드를 하세요.</div>';
+      '<div class="empty">아직 리뷰가 없어요.<br>확장 아이콘 → <strong>리뷰</strong> 탭에서 「가져오기」를 먼저 하세요.</div>';
     updateSelectCounts();
     return;
   }
@@ -220,7 +230,7 @@ function renderSelect() {
 function renderReview() {
   if (!draftItems.length) {
     els.reviewList.innerHTML =
-      '<div class="empty">생성된 답글이 없습니다.<br>「1. 리뷰 선택」 탭에서 답변을 생성하세요.</div>';
+      '<div class="empty">아직 만든 답글이 없어요.<br>① 「AI로 답글 만들기」를 먼저 누르세요.</div>';
     els.confirmBtn.disabled = true;
     els.bulkSubmitBtn.disabled = true;
     updateReviewStats();
@@ -258,7 +268,6 @@ function renderReview() {
     });
   });
 
-  els.confirmBtn.disabled = false;
   updateReviewStats();
   updateReviewBanner();
 }
@@ -291,7 +300,7 @@ function updateSelectCounts() {
       ? parseMeta.fileName.slice(0, 16) + '…'
       : parseMeta.fileName
     : '-';
-  els.generateBtn.textContent = `선택한 ${selected}건 답변 생성`;
+  els.generateBtn.textContent = selected > 0 ? `AI로 답글 만들기 (${selected}건)` : 'AI로 답글 만들기';
   els.generateBtn.disabled = isGenerating || selected === 0;
   els.stopBtn.hidden = !isGenerating;
   els.stopBtn.disabled = !isGenerating;
@@ -316,24 +325,39 @@ function updateReviewStats() {
   els.applyStatBox.classList.toggle('selected', registered > 0);
 
   if (isBulkSubmitting) {
-    els.reviewSummary.textContent = '판매자센터에 답글을 등록하는 중...';
+    els.reviewSummary.textContent = '판매자센터에 올리는 중…';
   } else if (registered === total && total > 0) {
-    els.reviewSummary.textContent = '모든 답글이 등록되었습니다.';
+    els.reviewSummary.textContent = '모든 답글을 올렸어요.';
   } else if (pending > 0) {
-    els.reviewSummary.textContent = `${pending}건 일괄 등록 가능 · 판매자센터 탭 필요`;
+    els.reviewSummary.textContent = `${pending}건을 한 번에 올릴 수 있어요. 판매자센터 탭이 열려 있어야 합니다.`;
   } else {
-    els.reviewSummary.textContent = '답글을 작성한 뒤 [판매자센터에 일괄 등록]을 누르세요.';
+    els.reviewSummary.textContent = '답글을 읽고 필요하면 고친 뒤, 아래 버튼으로 올리세요.';
   }
 
   els.bulkSubmitBtn.disabled = isBulkSubmitting || pending === 0;
   els.bulkSubmitBtn.textContent =
-    pending > 0 ? `판매자센터에 일괄 등록 (${pending}건)` : '판매자센터에 일괄 등록';
+    pending > 0 ? `한 번에 올리기 (${pending}건)` : '한 번에 올리기';
+
+  updateConfirmButton(filled, total);
+}
+
+function updateConfirmButton(filled, total) {
+  if (!els.confirmBtn) return;
+  if (applyEnabled) {
+    els.confirmBtn.disabled = true;
+    els.confirmBtn.textContent = '✓ 채우기 준비됨';
+    return;
+  }
+  const ready = total > 0 && filled === total;
+  els.confirmBtn.disabled = !ready;
+  els.confirmBtn.textContent = '판매자센터에 채우기 준비';
 }
 
 function updateReviewStatsFromUi() {
   const inputs = els.reviewList.querySelectorAll('.reply-input');
   const filled = [...inputs].filter((ta) => ta.value.trim()).length;
   els.draftFilled.textContent = String(filled);
+  updateConfirmButton(filled, draftItems.length);
 }
 
 function collectItemsFromUi() {
@@ -362,7 +386,7 @@ async function saveDraft(showMessage = false) {
     updates[CONFIG.APPLY_ENABLED_KEY] = false;
     applyEnabled = false;
     if (!showMessage) {
-      showBanner('답글을 수정했습니다. 다시 [일괄 확인]을 눌러 적용하세요.', 'warn');
+      showBanner('답글을 고쳤어요. 다시 「판매자센터에 채우기 준비」를 눌러 주세요.', 'warn');
     }
   }
 
@@ -371,7 +395,7 @@ async function saveDraft(showMessage = false) {
   updateReviewBadge();
 
   if (showMessage) {
-    showBanner('임시 저장했습니다.', 'info');
+    showBanner('잠깐 저장했어요.', 'info');
   }
 }
 
@@ -420,7 +444,7 @@ async function onConfirmAll() {
   applyEnabled = true;
   updateReviewStats();
   showBanner(
-    `${draftItems.length}건 자동 입력 모드 활성화. 답글 팝업을 열면 textarea에 채워집니다. (일괄 등록은 [판매자센터에 일괄 등록] 사용)`,
+    `${draftItems.length}건 준비됐어요. 판매자센터에서 답글 칸을 열면 자동으로 채워집니다.\n(한 번에 올리려면 「한 번에 올리기」를 사용하세요)`,
     'info'
   );
 }
@@ -430,7 +454,7 @@ async function onBulkSubmit() {
   const pending = getPendingSubmitItems();
 
   if (!pending.length) {
-    showBanner('등록할 답글이 없습니다. 답글을 작성하거나 미등록 항목을 확인하세요.', 'warn');
+    showBanner('올릴 답글이 없어요. 답글을 먼저 확인해 주세요.', 'warn');
     return;
   }
 
@@ -525,7 +549,7 @@ function showSubmitProgress(current, total, message, isError = false) {
   if (isError) els.genProgress.classList.add('error');
   else els.genProgress.classList.add('success');
 
-  els.genStatusText.textContent = '일괄 등록';
+  els.genStatusText.textContent = '한 번에 올리는 중';
   els.genCountText.textContent = total ? `${current} / ${total}` : '';
   const pct = total > 0 ? Math.round((current / total) * 100) : 0;
   els.genProgressFill.style.width = `${pct}%`;
@@ -535,12 +559,12 @@ function showSubmitProgress(current, total, message, isError = false) {
 function updateReviewBanner() {
   if (activeTab !== 'review') return;
   if (submittedIds.size === draftItems.length && draftItems.length) {
-    showBanner('모든 답글이 판매자센터에 등록되었습니다.', 'success');
+    showBanner('모든 답글을 판매자센터에 올렸어요.', 'success');
   } else if (applyEnabled) {
-    showBanner('자동 입력 모드 — 답글 팝업을 열면 textarea에 채워집니다.', 'info');
+    showBanner('답글 칸을 열면 자동으로 채워집니다.', 'info');
   } else if (draftItems.length) {
     showBanner(
-      '답글 확인 후 [판매자센터에 일괄 등록]을 누르면 하나씩 열지 않고 등록됩니다. (최초 1회는 판매자센터에서 답글 1건을 직접 등록해야 API를 학습합니다)',
+      '답글을 확인한 뒤 「한 번에 올리기」를 누르면 판매자센터에 바로 올라갑니다.\n(처음 한 번은 판매자센터에서 답글 1건을 직접 올려야 할 수 있어요)',
       'info'
     );
   }
@@ -573,7 +597,7 @@ async function onGenerate() {
   const apiKey = settings.apiKey || CONFIG.GEMINI_API_KEY;
 
   if (!apiKey || apiKey.includes('YOUR_GEMINI_API_KEY')) {
-    showProgress('API 키가 없습니다. 확장 팝업 [설정] 탭에서 입력하세요.', true);
+    showProgress('AI 연결이 필요해요. 확장 아이콘 → 「설정」에서 API 키를 넣어 주세요.', true);
     return;
   }
 
@@ -590,7 +614,7 @@ async function onGenerate() {
 
   isGenerating = true;
   updateSelectCounts();
-  showRunningProgress(0, selectedRows.length, '', '답변 생성을 시작합니다...');
+  showRunningProgress(0, selectedRows.length, '', '답글 만들기 시작…');
 
   chrome.runtime.sendMessage(
     {
@@ -623,7 +647,7 @@ function onStopGenerate() {
   chrome.runtime.sendMessage({ type: 'STOP_GENERATE' }, (response) => {
     if (chrome.runtime.lastError || !response?.ok) {
       els.stopBtn.disabled = false;
-      els.stopBtn.textContent = '생성 중지';
+      els.stopBtn.textContent = '멈추기';
       showProgress(response?.error || chrome.runtime.lastError?.message || '중지 실패', true);
       return;
     }
@@ -651,20 +675,20 @@ function refreshJobStatus() {
         current,
         total,
         job.currentId || '',
-        job.message || '답변 생성 중...'
+        job.message || '답글 만드는 중...'
       );
       els.generateBtn.textContent = `생성 중 (${current}/${total})`;
       els.generateBtn.disabled = true;
       els.stopBtn.hidden = false;
       els.stopBtn.disabled = false;
-      els.stopBtn.textContent = '생성 중지';
+      els.stopBtn.textContent = '멈추기';
       return;
     }
 
     isGenerating = false;
     els.stopBtn.hidden = true;
     els.stopBtn.disabled = false;
-    els.stopBtn.textContent = '생성 중지';
+    els.stopBtn.textContent = '멈추기';
     updateSelectCounts();
 
     if (job.status === 'done' || job.status === 'stopped') {
@@ -702,7 +726,7 @@ function onStorageChanged(changes, area) {
 
 function showRunningProgress(current, total, currentId, message) {
   els.genProgress.classList.remove('hidden', 'success', 'error', 'stopped');
-  els.genStatusText.textContent = '답변 생성 중';
+  els.genStatusText.textContent = '답글 만드는 중';
   els.genCountText.textContent = `${current} / ${total}`;
 
   const pct = total > 0 ? Math.round((current / total) * 100) : 0;
@@ -737,7 +761,7 @@ function showStoppedProgress(job) {
 
   els.genProgress.classList.remove('hidden', 'error', 'success');
   els.genProgress.classList.add('stopped');
-  els.genStatusText.textContent = '생성 중지됨';
+  els.genStatusText.textContent = '멈추기됨';
   els.genCountText.textContent = `${success} / ${total}`;
   const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
   els.genProgressFill.style.width = `${pct}%`;

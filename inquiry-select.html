@@ -58,6 +58,7 @@
       color: #555;
     }
     .tab.active .badge { background: #2563eb; color: #fff; }
+    .tab.locked { opacity: .45; cursor: not-allowed; }
     .panel-toolbar {
       max-width: 1100px;
       margin: 0 auto;
@@ -268,12 +269,12 @@
 <body>
   <header class="header">
     <div class="header-inner">
-      <h1>상품문의 답글 작업</h1>
-      <p class="sub">문의 선택 → AI 답변 생성 → 검토·자동 입력을 한 화면에서 진행합니다.</p>
+      <h1>상품문의 답글 만들기</h1>
+      <p class="sub">골라서 답 만들기 → 확인하고 판매자센터에 넣기</p>
       <nav class="tabs" role="tablist">
-        <button type="button" class="tab active" id="tabSelect" role="tab">1. 문의 선택</button>
+        <button type="button" class="tab active" id="tabSelect" role="tab">① 골라 답 만들기</button>
         <button type="button" class="tab" id="tabReview" role="tab">
-          2. 답글 검토 <span class="badge" id="reviewBadge">0</span>
+          ② 확인하고 넣기 <span class="badge" id="reviewBadge" hidden>0</span>
         </button>
       </nav>
     </div>
@@ -301,24 +302,24 @@
       <button type="button" class="secondary" id="selectVisibleBtn">보이는 항목만 선택</button>
     </div>
     <div class="style-row" id="inquiryStyleRow">
-      <span class="style-title">답글 스타일</span>
+      <span class="style-title">지금 쓰는 말투</span>
       <span class="style-name" id="inquiryStyleLabel">기본 (친절·안내)</span>
-      <span class="style-hint" id="inquiryStyleHint">팝업 「문의」 탭에서 변경 가능</span>
+      <span class="style-hint" id="inquiryStyleHint">확장 아이콘 → 「설정」에서 바꿀 수 있어요</span>
     </div>
   </div>
 
   <div class="panel-toolbar" id="reviewToolbar" hidden>
     <div class="stats">
       <div class="stat-box">
-        <div class="label">생성된 답글</div>
+        <div class="label">답글 만든 개수</div>
         <div class="value" id="draftTotal">0</div>
       </div>
       <div class="stat-box selected">
-        <div class="label">작성 완료</div>
+        <div class="label">내용 채운 개수</div>
         <div class="value" id="draftFilled">0</div>
       </div>
       <div class="stat-box">
-        <div class="label">자동 입력</div>
+        <div class="label">넣기 준비</div>
         <div class="value" id="applyStatus" style="font-size:14px;color:#333;">미활성</div>
       </div>
     </div>
@@ -339,7 +340,7 @@
     <div class="footer-inner">
       <div class="gen-progress hidden" id="genProgress">
         <div class="gen-progress-top">
-          <span id="genStatusText">답변 생성 중</span>
+          <span id="genStatusText">답글 만드는 중</span>
           <span class="count" id="genCountText">0 / 0</span>
         </div>
         <div class="gen-progress-track">
@@ -350,14 +351,14 @@
 
       <div class="footer-select" id="footerSelect">
         <div class="summary"><strong id="footerCount">0</strong>건 선택</div>
-        <button type="button" class="stop" id="stopBtn" hidden>생성 중지</button>
-        <button type="button" class="primary" id="generateBtn" disabled>선택한 0건 답변 생성</button>
+        <button type="button" class="stop" id="stopBtn" hidden>멈추기</button>
+        <button type="button" class="primary" id="generateBtn" disabled>AI로 답글 만들기</button>
       </div>
 
       <div class="footer-review" id="footerReview">
-        <div class="summary" id="reviewSummary">답글을 확인·수정한 뒤 자동 입력을 활성화하세요.</div>
-        <button type="button" class="secondary" id="saveDraftBtn">임시 저장</button>
-        <button type="button" class="primary" id="confirmBtn" disabled>자동 입력 모드 활성화</button>
+        <div class="summary" id="reviewSummary">답글을 읽고 필요하면 고친 뒤, 판매자센터에 넣을 준비를 하세요.</div>
+        <button type="button" class="secondary" id="saveDraftBtn">잠깐 저장</button>
+        <button type="button" class="primary" id="confirmBtn" disabled>판매자센터에 넣기 준비</button>
       </div>
     </div>
   </footer>
