@@ -61,7 +61,7 @@ const els = {
   inquiryFetchDays: document.getElementById('inquiryFetchDays'),
   inquiryFetchBtn: document.getElementById('inquiryFetchBtn'),
   inquirySelectBtn: document.getElementById('inquirySelectBtn'),
-  inquiryApplyToggle: document.getElementById('inquiryApplyToggle'),
+  inquiryApplyHint: document.getElementById('inquiryApplyHint'),
   inquiryStatus: document.getElementById('inquiryStatus'),
   inquirySummary: document.getElementById('inquirySummary'),
 };
@@ -157,7 +157,6 @@ async function init() {
   els.fetchBtn.addEventListener('click', onFetchFromSeller);
   els.inquiryFetchBtn.addEventListener('click', onFetchInquiries);
   els.inquirySelectBtn.addEventListener('click', openInquiryWorkPage);
-  els.inquiryApplyToggle.addEventListener('change', onInquiryApplyToggle);
   els.selectBtn.addEventListener('click', openWorkPage);
   els.clearBtn.addEventListener('click', onClearStorage);
   els.openStylePickBtn.addEventListener('click', openStylePickPage);
@@ -196,9 +195,9 @@ async function init() {
 
   restoreParseCache(data[CONFIG.PARSE_CACHE_KEY]);
   restoreInquiryCache(data[INQUIRY_PARSE_CACHE_KEY]);
-  els.inquiryApplyToggle.checked = !!data[INQUIRY_APPLY_ENABLED_KEY];
   updateWorkButton(data[CONFIG.DRAFT_KEY]);
   updateInquiryWorkButton(data[INQUIRY_DRAFT_KEY]);
+  refreshInquiryApplyHint();
   refreshJobStatus();
   refreshInquiryJobStatus();
 }
@@ -581,6 +580,30 @@ function updateInquirySummary(replyCount = 0) {
   chrome.storage.local.get([INQUIRY_DRAFT_KEY], (r) => updateInquiryWorkButton(r[INQUIRY_DRAFT_KEY]));
 }
 
+function updateInquiryApplyHint(applyEnabled, draftCount = 0) {
+  if (!els.inquiryApplyHint) return;
+  if (applyEnabled && draftCount > 0) {
+    els.inquiryApplyHint.textContent =
+      '자동 입력 활성화됨 · 판매자센터 상품문의에서 [답글]을 누르면 textarea에 채워집니다.';
+    els.inquiryApplyHint.style.color = '#0a7a3f';
+    els.inquiryApplyHint.style.fontWeight = '600';
+    return;
+  }
+  els.inquiryApplyHint.textContent =
+    '자동 입력은 [문의 답글 작업] → 「2. 답글 검토」에서 활성화합니다.';
+  els.inquiryApplyHint.style.color = '';
+  els.inquiryApplyHint.style.fontWeight = '';
+}
+
+function refreshInquiryApplyHint() {
+  chrome.storage.local.get([INQUIRY_APPLY_ENABLED_KEY, INQUIRY_DRAFT_KEY], (data) => {
+    updateInquiryApplyHint(
+      !!data[INQUIRY_APPLY_ENABLED_KEY],
+      data[INQUIRY_DRAFT_KEY]?.items?.length || 0
+    );
+  });
+}
+
 function updateInquiryWorkButton(draft) {
   const draftCount = draft?.items?.length || 0;
   if (inquiryRows.length) {
@@ -651,10 +674,6 @@ async function onFetchInquiries() {
   }
 }
 
-async function onInquiryApplyToggle() {
-  await storageSet({ [INQUIRY_APPLY_ENABLED_KEY]: !!els.inquiryApplyToggle.checked });
-}
-
 function refreshInquiryJobStatus() {
   chrome.runtime.sendMessage({ type: 'GET_INQUIRY_JOB_STATUS' }, async (response) => {
     if (chrome.runtime.lastError) return;
@@ -695,11 +714,11 @@ async function applyInquiryJobUi(job, running) {
   if (job.message) setInquiryStatus(job.message);
 
   if (job.status === 'done' || job.status === 'stopped') {
-    const data = await storageGet([INQUIRY_STORAGE_KEY, INQUIRY_APPLY_ENABLED_KEY, INQUIRY_DRAFT_KEY]);
+    const data = await storageGet([INQUIRY_STORAGE_KEY, INQUIRY_DRAFT_KEY]);
     const replyCount = Object.keys(data[INQUIRY_STORAGE_KEY] || {}).length;
-    els.inquiryApplyToggle.checked = !!data[INQUIRY_APPLY_ENABLED_KEY];
-    updateInquirySummary(replyCount);
     updateInquiryWorkButton(data[INQUIRY_DRAFT_KEY]);
+    refreshInquiryApplyHint();
+    updateInquirySummary(replyCount);
     await saveInquiryCache(job.message, data[INQUIRY_STORAGE_KEY] || {});
   }
 }
@@ -779,8 +798,8 @@ function onStorageChanged(changes, area) {
       applyInquiryJobUi(response?.job ?? changes[INQUIRY_PROGRESS_KEY].newValue, response?.isRunning);
     });
   }
-  if (changes[INQUIRY_APPLY_ENABLED_KEY]) {
-    els.inquiryApplyToggle.checked = !!changes[INQUIRY_APPLY_ENABLED_KEY].newValue;
+  if (changes[INQUIRY_APPLY_ENABLED_KEY] || changes[INQUIRY_DRAFT_KEY]) {
+    refreshInquiryApplyHint();
   }
   if (changes[INQUIRY_DRAFT_KEY]) {
     updateInquiryWorkButton(changes[INQUIRY_DRAFT_KEY].newValue);
@@ -888,8 +907,8 @@ async function onClearStorage() {
   parseMeta = null;
   selectedIds.clear();
   inquiryRows = [];
-  els.inquiryApplyToggle.checked = false;
   els.xlsxFile.value = '';
+  refreshInquiryApplyHint();
   updateFileSummary();
   updateInquirySummary();
   setStatus('저장된 답변·검토 데이터를 삭제했습니다.\n다시 가져오거나 엑셀을 업로드하세요.');

@@ -233,35 +233,43 @@ async function onAnalyzeSelected() {
         samples,
         model: CONFIG.GEMINI_MODEL,
         context: 'inquiry',
+        skipPersist: true,
       },
     });
 
     const sampleText = samples.join('\n\n---\n\n');
     const existing = (await storageGet([CONFIG.SETTINGS_KEY]))[CONFIG.SETTINGS_KEY] || {};
-    await storageSet({
-      [CONFIG.SETTINGS_KEY]: {
-        ...existing,
-        inquirySampleReplies: sampleText,
-        inquirySampleFlow: {
-          ...(existing.inquirySampleFlow || {}),
-          source: 'seller-pick',
-          sourceLabel: `판매자센터 문의 선택 (${samples.length}개)`,
-          loadedAt: Date.now(),
-          loadedCount: samples.length,
-          analyzedAt: Date.now(),
-          analyzedCount: response.sampleCount || samples.length,
-          fetching: false,
-          analyzing: false,
-          lastError: '',
-        },
-        inquiryCustomPresets: response.customPresets || existing.inquiryCustomPresets,
-        inquiryTonePresetId: response.tonePresetId || INQUIRY_LEARNED_PRESET_ID,
-        inquirySystemPrompt: response.prompt || existing.inquirySystemPrompt,
+    const flowPatch = {
+      inquirySampleReplies: sampleText,
+      inquirySampleFlow: {
+        ...(existing.inquirySampleFlow || {}),
+        source: 'seller-pick',
+        sourceLabel: `판매자센터 문의 선택 (${samples.length}개)`,
+        loadedAt: Date.now(),
+        loadedCount: samples.length,
+        analyzedAt: Date.now(),
+        analyzedCount: response.sampleCount || samples.length,
+        fetching: false,
+        analyzing: false,
+        lastError: '',
       },
-    });
+    };
+
+    const confirm = await confirmAndApplyLearnedStyle(existing, 'inquiry', response, flowPatch);
+    if (!confirm.applied) {
+      setBanner(
+        confirm.choice === 'keep'
+          ? '분석은 완료했지만 기존 스타일을 유지했습니다.'
+          : '새 스타일 적용을 취소했습니다.',
+        'warn'
+      );
+      return;
+    }
+
+    await storageSet({ [CONFIG.SETTINGS_KEY]: confirm.patch });
 
     setBanner(
-      `✓ 분석 완료 · 선택 ${response.sampleCount || samples.length}개로 「내 스타일」이 저장되었습니다.\n` +
+      `✓ 새 스타일 적용 · 선택 ${response.sampleCount || samples.length}개로 「내 스타일」이 저장되었습니다.\n` +
         '[문의 답글 작업]에서 바로 답변 생성하면 자동 적용됩니다.',
       'success'
     );

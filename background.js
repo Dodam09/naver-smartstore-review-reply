@@ -1275,15 +1275,26 @@ async function runAnalyzeToneJob(payload) {
       lastErrorAt: null,
     };
 
-    await storageSet({
-      [CONFIG.SETTINGS_KEY]: {
-        ...settings,
-        [presetsKey]: customPresets,
-        [presetIdKey]: learnedId,
-        [promptKey]: result.prompt,
-        [flowKey]: nextSampleFlow,
-      },
-    });
+    if (payload.skipPersist) {
+      await patchSampleFlowByContext(context, {
+        analyzing: false,
+        analyzeStartedAt: null,
+        analyzedAt: Date.now(),
+        analyzedCount: result.sampleCount,
+        lastError: '',
+        lastErrorAt: null,
+      });
+    } else {
+      await storageSet({
+        [CONFIG.SETTINGS_KEY]: {
+          ...settings,
+          [presetsKey]: customPresets,
+          [presetIdKey]: learnedId,
+          [promptKey]: result.prompt,
+          [flowKey]: nextSampleFlow,
+        },
+      });
+    }
 
     return {
       ...result,

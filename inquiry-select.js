@@ -244,7 +244,6 @@ function renderReview() {
     });
   });
 
-  els.confirmBtn.disabled = false;
   updateReviewStats();
   updateReviewBanner();
 }
@@ -293,12 +292,29 @@ function updateReviewStats() {
   } else {
     els.reviewSummary.textContent = '답글을 확인·수정한 뒤 자동 입력을 활성화하세요.';
   }
+
+  updateConfirmButton(filled, total);
+}
+
+function updateConfirmButton(filled, total) {
+  if (!els.confirmBtn) return;
+  if (applyEnabled) {
+    els.confirmBtn.disabled = true;
+    els.confirmBtn.textContent = '✓ 자동 입력 활성화됨';
+    els.confirmBtn.classList.add('is-ready');
+    return;
+  }
+  els.confirmBtn.classList.remove('is-ready');
+  const ready = total > 0 && filled === total;
+  els.confirmBtn.disabled = !ready;
+  els.confirmBtn.textContent = '자동 입력 모드 활성화';
 }
 
 function updateReviewStatsFromUi() {
   const inputs = els.reviewList.querySelectorAll('.reply-input');
   const filled = [...inputs].filter((ta) => ta.value.trim()).length;
   els.draftFilled.textContent = String(filled);
+  updateConfirmButton(filled, draftItems.length);
 }
 
 function collectItemsFromUi() {
