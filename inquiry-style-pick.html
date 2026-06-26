@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>답글 스타일 선택</title>
+  <title>상품문의 답글 스타일 선택</title>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -72,7 +72,7 @@
       padding: 10px 14px;
       font-size: 13px;
     }
-    .stat strong { color: #2563eb; font-size: 18px; }
+    .stat strong { color: #0369a1; font-size: 18px; }
     .banner {
       max-width: 960px;
       margin: 0 auto 12px;
@@ -104,9 +104,9 @@
       cursor: pointer;
       transition: border-color .15s, box-shadow .15s;
     }
-    .card.selected { border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124,58,237,.12); }
+    .card.selected { border-color: #0369a1; box-shadow: 0 0 0 3px rgba(3,105,161,.12); }
     .card.disabled { opacity: .55; cursor: not-allowed; }
-    .card-check { margin-top: 4px; width: 18px; height: 18px; flex-shrink: 0; }
+    .card-check { margin-top: 4px; width: 18px; height: 18px; flex-shrink: 0; accent-color: #0369a1; }
     .card-body { flex: 1; min-width: 0; }
     .card-top {
       display: flex;
@@ -116,24 +116,22 @@
       flex-wrap: wrap;
     }
     .card-id { font-size: 12px; color: #888; font-weight: 700; }
-    .badges { display: flex; gap: 6px; flex-wrap: wrap; }
-    .badge {
-      font-size: 11px;
-      font-weight: 700;
-      padding: 2px 8px;
-      border-radius: 999px;
-      background: #f3f4f6;
-      color: #555;
-    }
-    .badge.rating { background: #fef3c7; color: #92400e; }
-    .badge.missing { background: #fee2e2; color: #b91c1c; }
     .product { font-size: 12px; color: #666; margin-bottom: 8px; }
-    .reply-label {
+    .q-label, .reply-label {
       font-size: 11px;
       font-weight: 800;
-      color: #7c3aed;
       letter-spacing: 0.02em;
       margin-bottom: 4px;
+    }
+    .q-label { color: #475569; }
+    .reply-label { color: #0369a1; }
+    .q-text {
+      font-size: 13px;
+      line-height: 1.55;
+      color: #334155;
+      margin-bottom: 10px;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
     .reply-text {
       font-size: 14px;
@@ -141,31 +139,10 @@
       white-space: pre-wrap;
       word-break: break-word;
       color: #111;
-      background: #f5f3ff;
-      border: 1px solid #ddd6fe;
+      background: #f0f9ff;
+      border: 1px solid #bae6fd;
       border-radius: 8px;
       padding: 10px 12px;
-    }
-    .reply-text.missing {
-      color: #92400e;
-      background: #fffbeb;
-      border-color: #fde68a;
-      font-size: 13px;
-    }
-    .review-preview {
-      margin-top: 10px;
-      padding-top: 10px;
-      border-top: 1px dashed #e5e7eb;
-      font-size: 12px;
-      color: #666;
-      line-height: 1.5;
-    }
-    .review-label {
-      display: block;
-      font-size: 11px;
-      font-weight: 700;
-      color: #888;
-      margin-bottom: 4px;
     }
     .empty {
       text-align: center;
@@ -190,9 +167,9 @@
       flex-wrap: wrap;
     }
     .footer-inner .summary { flex: 1; min-width: 200px; font-size: 15px; }
-    .footer-inner .summary strong { color: #7c3aed; font-size: 20px; }
+    .footer-inner .summary strong { color: #0369a1; font-size: 20px; }
     .footer-inner .primary {
-      background: #7c3aed;
+      background: #0369a1;
       color: #fff;
       font-size: 16px;
       padding: 14px 22px;
@@ -202,26 +179,26 @@
 <body>
   <header class="header">
     <div class="header-inner">
-      <h1>답글 스타일 선택</h1>
-      <p class="sub">판매자센터에 등록한 답글 중 원하는 것만 골라 AI 톤(내 스타일)을 만듭니다. 답글 등록 목록을 찾은 뒤, 각 답글 본문을 불러옵니다. (최대 2년, 90일씩 검색)</p>
+      <h1>상품문의 답글 스타일 선택</h1>
+      <p class="sub">판매자센터에 답변 완료된 상품문의 중 원하는 답글만 골라 문의 답글 AI 톤(내 스타일)을 만듭니다.</p>
     </div>
   </header>
 
   <div class="toolbar">
     <select id="daysSelect" aria-label="조회 기간"></select>
     <button type="button" class="reload" id="reloadBtn">답글 목록 불러오기</button>
-    <input type="search" class="search" id="searchInput" placeholder="답글·상품명 검색" />
-    <button type="button" class="secondary" id="selectAllBtn">본문 있는 답글 전체 선택</button>
+    <input type="search" class="search" id="searchInput" placeholder="문의·답변·상품명 검색" />
+    <button type="button" class="secondary" id="selectAllBtn">답변 있는 항목 전체 선택</button>
     <button type="button" class="secondary" id="clearBtn">선택 해제</button>
   </div>
 
   <div class="stats">
     <div class="stat">목록 <strong id="totalCount">0</strong>건</div>
-    <div class="stat">본문 읽기 가능 <strong id="readableCount">0</strong>건</div>
+    <div class="stat">답변 읽기 가능 <strong id="readableCount">0</strong>건</div>
     <div class="stat">선택 <strong id="selectedCount">0</strong>건</div>
   </div>
 
-  <div class="banner info" id="banner">판매자센터 [리뷰 관리] 탭을 연 뒤 [답글 목록 불러오기]를 누르세요.</div>
+  <div class="banner info" id="banner">판매자센터 [상품문의] 탭을 연 뒤 [답글 목록 불러오기]를 누르세요.</div>
 
   <main class="list" id="list"></main>
 
@@ -235,6 +212,6 @@
   <script src="config.js"></script>
   <script src="lib/lookup-days.js"></script>
   <script src="lib/tone-presets.js"></script>
-  <script src="style-pick.js"></script>
+  <script src="inquiry-style-pick.js"></script>
 </body>
 </html>

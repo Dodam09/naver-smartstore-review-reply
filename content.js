@@ -14,8 +14,8 @@
 
   let cachedReplies = null;
   let applyEnabled = false;
-  let observer = null;
   let scanTimer = null;
+  let clickWatchAttached = false;
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
@@ -38,45 +38,43 @@
     const active =
       applyEnabled && cachedReplies && Object.keys(cachedReplies).length > 0;
     if (active) {
-      ensureWatching();
-      scanPopups();
+      ensureClickWatching();
     } else {
       teardownWatching();
     }
   }
 
-  function ensureWatching() {
-    if (observer) return;
-
-    observer = new MutationObserver(() => {
-      clearTimeout(scanTimer);
-      scanTimer = setTimeout(scanPopups, 300);
-    });
-
-    observer.observe(document.documentElement, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['class', 'style', 'aria-hidden', 'open'],
-    });
-
-    window.addEventListener('popstate', scanPopups);
+  function ensureClickWatching() {
+    if (clickWatchAttached) return;
     document.addEventListener('click', onDocumentClick, true);
+    window.addEventListener('popstate', onPopState);
+    clickWatchAttached = true;
   }
 
   function teardownWatching() {
-    if (observer) {
-      observer.disconnect();
-      observer = null;
+    if (clickWatchAttached) {
+      document.removeEventListener('click', onDocumentClick, true);
+      window.removeEventListener('popstate', onPopState);
+      clickWatchAttached = false;
     }
     clearTimeout(scanTimer);
     scanTimer = null;
-    document.removeEventListener('click', onDocumentClick, true);
-    window.removeEventListener('popstate', scanPopups);
+  }
+
+  function onPopState() {
+    scheduleScan(300);
+  }
+
+  function scheduleScan(delay) {
+    if (!applyEnabled) return;
+    clearTimeout(scanTimer);
+    scanTimer = setTimeout(scanPopups, delay);
   }
 
   function onDocumentClick() {
-    setTimeout(scanPopups, 300);
+    scheduleScan(200);
+    setTimeout(scanPopups, 500);
+    setTimeout(scanPopups, 1200);
   }
 
   function scanPopups() {

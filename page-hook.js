@@ -27,7 +27,14 @@
       if (u.indexOf('/comments/pages') >= 0) return;
       var m = u.match(/\/comments\/(\d+)(?:\/replies|\/detail)?(?:\?|$|\/)/);
       if (!m) return;
+      // 목록/상세 API prefetch는 localStorage만 갱신 (postMessage 금지 → 페이지 멈춤 방지)
+      if (/\/api\//i.test(u) && !/\/replies|\/detail/i.test(u)) {
+        localStorage.setItem(INQUIRY_OPEN_ID_KEY, m[1]);
+        return;
+      }
+      var prev = localStorage.getItem(INQUIRY_OPEN_ID_KEY);
       localStorage.setItem(INQUIRY_OPEN_ID_KEY, m[1]);
+      if (prev === m[1]) return;
       window.postMessage({ type: 'SS_INQUIRY_OPEN_ID', id: m[1] }, '*');
     } catch (e) {}
   }

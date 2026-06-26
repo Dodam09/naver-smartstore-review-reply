@@ -573,7 +573,7 @@ async function onGenerate() {
   const apiKey = settings.apiKey || CONFIG.GEMINI_API_KEY;
 
   if (!apiKey || apiKey.includes('YOUR_GEMINI_API_KEY')) {
-    showProgress('Gemini API 키가 없습니다. 확장 팝업에서 API 키를 입력하세요.', true);
+    showProgress('API 키가 없습니다. 확장 팝업 [설정] 탭에서 입력하세요.', true);
     return;
   }
 

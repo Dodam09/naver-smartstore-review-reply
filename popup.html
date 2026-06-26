@@ -394,7 +394,8 @@
               <button id="inquiryDownloadSampleTxtBtn" class="secondary" type="button">텍스트 양식</button>
             </div>
             <input type="file" id="inquirySampleFile" accept=".txt,.xlsx,.xls" style="margin-top:8px;" />
-            <div class="hint">기존 상품문의 답글을 복사해 붙여넣거나 파일로 업로드하세요.</div>
+            <button id="openInquiryStylePickBtn" class="fetch-samples" type="button">판매자센터 답글 선택 · 스타일 분석</button>
+            <div class="hint">별도 화면에서 기존 상품문의 답글을 골라 분석합니다.</div>
             <button id="inquiryAnalyzeBtn" class="analyze" type="button">샘플 분석 → 프롬프트 생성</button>
           </div>
         </details>
@@ -407,7 +408,7 @@
   <!-- 설정 -->
   <section id="panelSettings" class="panel">
     <div class="card">
-      <label for="apiKey">Gemini API 키</label>
+      <label for="apiKey">API 키</label>
       <input type="password" id="apiKey" placeholder="AIza..." autocomplete="off" />
       <div class="hint">AI 답변 생성에 사용됩니다. 로컬에만 저장됩니다.</div>
     </div>

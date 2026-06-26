@@ -77,97 +77,28 @@
     .stat-box .value { font-size: 22px; font-weight: 800; color: #2563eb; }
     .stat-box.selected .value { color: #1d4ed8; }
     .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-    .ref-row {
+    .style-row {
       display: flex;
-      gap: 10px;
+      gap: 8px;
       flex-wrap: wrap;
       align-items: center;
       margin-top: 12px;
       padding: 10px 12px;
-      background: #f8faff;
-      border: 1px solid #dbeafe;
+      background: #faf5ff;
+      border: 1px solid #e9d5ff;
       border-radius: 10px;
       font-size: 13px;
     }
-    .ref-row label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 600; }
-    .ref-row select {
-      padding: 6px 8px;
-      border: 1px solid #bfdbfe;
-      border-radius: 8px;
-      background: #fff;
-      font-size: 12px;
+    .style-row .style-title { font-weight: 800; color: #6b21a8; }
+    .style-row .style-name { font-weight: 700; color: #7c3aed; }
+    .style-row .style-hint { color: #888; font-size: 12px; }
+    .style-row.is-ready {
+      background: #f0fdf4;
+      border-color: #bbf7d0;
     }
-    .ref-panel {
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 0 24px 16px;
-    }
-    .ref-panel-inner {
-      background: #fff;
-      border: 1px solid #dbeafe;
-      border-radius: 12px;
-      padding: 14px 16px;
-    }
-    .ref-panel-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-bottom: 10px;
-    }
-    .ref-panel-title { font-size: 14px; font-weight: 800; color: #1e40af; }
-    .ref-panel-meta { font-size: 13px; color: #555; }
-    .ref-panel-meta strong { color: #2563eb; }
-    .ref-toolbar {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      align-items: center;
-      margin-bottom: 10px;
-    }
-    .ref-toolbar .search { min-width: 180px; padding: 10px 12px; font-size: 13px; }
-    .ref-toolbar button { padding: 10px 14px; font-size: 13px; }
-    .ref-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      max-height: 320px;
-      overflow-y: auto;
-      padding-right: 4px;
-    }
-    .ref-card {
-      display: flex;
-      gap: 10px;
-      border: 2px solid #e5e7eb;
-      border-radius: 10px;
-      padding: 12px 14px;
-      cursor: pointer;
-      transition: border-color .15s, background .15s;
-    }
-    .ref-card:hover { border-color: #93c5fd; background: #f8faff; }
-    .ref-card.selected { border-color: #0369a1; background: #f0f9ff; }
-    .ref-card-check { width: 18px; height: 18px; margin-top: 2px; flex-shrink: 0; accent-color: #0369a1; }
-    .ref-card-body { flex: 1; min-width: 0; }
-    .ref-card-top { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
-    .ref-card-id { font-size: 12px; font-weight: 700; color: #64748b; }
-    .ref-card-product { font-size: 12px; color: #666; margin-bottom: 6px; }
-    .ref-q, .ref-a {
-      font-size: 13px;
-      line-height: 1.5;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-    .ref-q { color: #334155; margin-bottom: 4px; }
-    .ref-q-label, .ref-a-label { font-weight: 700; color: #475569; margin-right: 4px; }
-    .ref-a { color: #0f766e; }
-    .ref-empty {
-      text-align: center;
-      padding: 24px 12px;
-      color: #888;
-      font-size: 13px;
-      line-height: 1.5;
-    }
+    .style-row.is-ready .style-title { color: #166534; }
+    .style-row.is-ready .style-name { color: #15803d; }
+    .style-row.is-ready .style-hint { color: #16a34a; font-weight: 600; }
     .search {
       flex: 1;
       min-width: 220px;
@@ -191,7 +122,6 @@
     }
     button.secondary { background: #fff; color: #333; border: 1px solid #ccc; }
     button.primary { background: #2563eb; color: #fff; font-size: 16px; padding: 14px 24px; }
-    button.ref { background: #0369a1; color: #fff; }
     button.stop {
       background: #fff;
       color: #dc2626;
@@ -307,16 +237,6 @@
       color: #444;
       white-space: pre-wrap;
     }
-    .ref-hint {
-      margin-bottom: 10px;
-      padding: 8px 10px;
-      background: #f0fdf4;
-      border: 1px solid #bbf7d0;
-      border-radius: 8px;
-      font-size: 12px;
-      color: #166534;
-      line-height: 1.5;
-    }
     .reply-label { font-weight: 700; margin-bottom: 8px; font-size: 14px; color: #333; }
     .reply-input {
       width: 100%;
@@ -379,33 +299,12 @@
       <button type="button" class="secondary" id="selectNoneBtn">전체 해제</button>
       <button type="button" class="secondary" id="selectVisibleBtn">보이는 항목만 선택</button>
     </div>
-    <div class="ref-row">
-      <label>
-        <input type="checkbox" id="useReferenceToggle" checked />
-        기존 답변 문의 참고
-      </label>
-      <span class="ref-count" id="referenceCount">참고 답변 0건</span>
-      <select id="referenceDaysSelect" aria-label="참고 조회 기간"></select>
-      <button type="button" class="ref" id="refreshReferenceBtn">기존 답변 불러오기</button>
+    <div class="style-row" id="inquiryStyleRow">
+      <span class="style-title">답글 스타일</span>
+      <span class="style-name" id="inquiryStyleLabel">기본 (친절·안내)</span>
+      <span class="style-hint" id="inquiryStyleHint">팝업 「문의」 탭에서 변경 가능</span>
     </div>
   </div>
-
-  <section class="ref-panel" id="referencePanel" hidden>
-    <div class="ref-panel-inner">
-      <div class="ref-panel-head">
-        <div class="ref-panel-title">참고할 기존 답변 선택</div>
-        <div class="ref-panel-meta"><strong id="referenceSelectedCount">0</strong>건 선택 / 전체 <span id="referenceTotalCount">0</span>건</div>
-      </div>
-      <div class="ref-toolbar">
-        <input type="search" class="search" id="referenceSearchInput" placeholder="상품명, 문의·답변 내용 검색..." />
-        <button type="button" class="secondary" id="referenceSelectAllBtn">전체 선택</button>
-        <button type="button" class="secondary" id="referenceSelectNoneBtn">전체 해제</button>
-      </div>
-      <div id="referenceList" class="ref-list">
-        <div class="ref-empty">[기존 답변 불러오기]를 눌러 참고 목록을 가져오세요.</div>
-      </div>
-    </div>
-  </section>
 
   <div class="panel-toolbar" id="reviewToolbar" hidden>
     <div class="stats">
@@ -463,7 +362,7 @@
   </footer>
 
   <script src="config.js"></script>
-  <script src="lib/lookup-days.js"></script>
+  <script src="lib/tone-presets.js"></script>
   <script src="inquiry-select.js"></script>
 </body>
 </html>

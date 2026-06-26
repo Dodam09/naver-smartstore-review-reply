@@ -1,4 +1,4 @@
-importScripts('config.js', 'lib/lookup-days.js', 'lib/inquiry-reference.js');
+importScripts('config.js', 'lib/lookup-days.js', 'lib/tone-presets.js', 'lib/inquiry-reference.js');
 
 let isRunning = false;
 let isInquiryRunning = false;
@@ -14,20 +14,54 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return false;
     }
 
-    runGenerate(message.payload).catch(async (err) => {
-      await updateProgress({
-        status: 'error',
-        message: `오류: ${err.message}`,
-        lastError: err.message,
-        finishedAt: Date.now(),
-      });
-      isRunning = false;
-      stopRequested = false;
-      abortController = null;
-    });
+    const rows = message.payload?.rows || [];
+    if (!rows.length) {
+      sendResponse({ ok: false, error: '처리할 리뷰가 없습니다.' });
+      return false;
+    }
 
-    sendResponse({ ok: true, started: true });
-    return false;
+    isRunning = true;
+    stopRequested = false;
+    abortController = new AbortController();
+
+    patchJobProgress(CONFIG.PROGRESS_KEY, {
+      status: 'running',
+      total: rows.length,
+      current: 0,
+      success: 0,
+      failed: 0,
+      currentId: '',
+      message: '답변 생성 준비 중...',
+      startedAt: Date.now(),
+      finishedAt: null,
+      lastError: '',
+    })
+      .then(() => {
+        runGenerate(message.payload)
+          .catch(async (err) => {
+            if (stopRequested || err?.name === 'AbortError') return;
+            await updateProgress({
+              status: 'error',
+              message: `오류: ${err.message}`,
+              lastError: err.message,
+              finishedAt: Date.now(),
+            });
+          })
+          .finally(() => {
+            isRunning = false;
+            stopRequested = false;
+            abortController = null;
+          });
+
+        sendResponse({ ok: true, started: true });
+      })
+      .catch((err) => {
+        isRunning = false;
+        abortController = null;
+        sendResponse({ ok: false, error: err.message || '시작 실패' });
+      });
+
+    return true;
   }
 
   if (message.type === 'STOP_GENERATE') {
@@ -56,20 +90,60 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return false;
     }
 
-    runGenerateInquiries(message.payload).catch(async (err) => {
-      await updateInquiryProgress({
-        status: 'error',
-        message: `오류: ${err.message}`,
-        lastError: err.message,
-        finishedAt: Date.now(),
-      });
-      isInquiryRunning = false;
-      inquiryStopRequested = false;
-      inquiryAbortController = null;
-    });
+    const rows = message.payload?.rows || [];
+    if (!rows.length) {
+      sendResponse({ ok: false, error: '처리할 상품문의가 없습니다.' });
+      return false;
+    }
 
-    sendResponse({ ok: true, started: true });
-    return false;
+    const progressKey = CONFIG.INQUIRY_PROGRESS_KEY || 'smartstoreInquiryJobProgress';
+    isInquiryRunning = true;
+    inquiryStopRequested = false;
+    inquiryAbortController = new AbortController();
+
+    storageSet({
+      [progressKey]: {
+        status: 'running',
+        total: rows.length,
+        current: 0,
+        success: 0,
+        failed: 0,
+        currentId: '',
+        message: '답변 생성 준비 중...',
+        startedAt: Date.now(),
+        finishedAt: null,
+        lastError: '',
+        useReference: message.payload?.useReference === true,
+        referenceCount: 0,
+        updatedAt: Date.now(),
+      },
+    })
+      .then(() => {
+        runGenerateInquiries(message.payload)
+          .catch(async (err) => {
+            if (inquiryStopRequested || err?.name === 'AbortError') return;
+            await updateInquiryProgress({
+              status: 'error',
+              message: `오류: ${err.message}`,
+              lastError: err.message,
+              finishedAt: Date.now(),
+            });
+          })
+          .finally(() => {
+            isInquiryRunning = false;
+            inquiryStopRequested = false;
+            inquiryAbortController = null;
+          });
+
+        sendResponse({ ok: true, started: true });
+      })
+      .catch((err) => {
+        isInquiryRunning = false;
+        inquiryAbortController = null;
+        sendResponse({ ok: false, error: err.message || '시작 실패' });
+      });
+
+    return true;
   }
 
   if (message.type === 'STOP_GENERATE_INQUIRIES') {
@@ -267,21 +341,28 @@ async function runGenerate(payload) {
   abortController = null;
 }
 
+function storeInquiryReplyKeys(map, rowId, reply) {
+  const text = String(reply || '').trim();
+  if (!text) return;
+  const id = String(rowId);
+  const norm = id.replace(/[^\d]/g, '');
+  map[id] = text;
+  if (norm) map[norm] = text;
+}
+
 async function runGenerateInquiries(payload) {
-  const { rows, apiKey, systemPrompt, model, useReference, referenceDays, referenceSelectedIds } =
+  let { rows, apiKey, systemPrompt, model, useReference, referenceDays, referenceSelectedIds } =
     payload;
   if (!rows?.length) throw new Error('처리할 상품문의가 없습니다.');
   if (!apiKey) throw new Error('API 키가 없습니다.');
+
+  systemPrompt = String(systemPrompt || '').trim() || getDefaultInquirySystemPrompt();
 
   const storageKey = CONFIG.INQUIRY_STORAGE_KEY || 'smartstoreInquiryReplies';
   const applyKey = CONFIG.INQUIRY_APPLY_ENABLED_KEY || 'smartstoreInquiryApplyEnabled';
   const draftKey = CONFIG.INQUIRY_DRAFT_KEY || 'smartstoreInquiryDraft';
   const total = rows.length;
-
-  isInquiryRunning = true;
-  inquiryStopRequested = false;
-  inquiryAbortController = new AbortController();
-  const signal = inquiryAbortController.signal;
+  const signal = inquiryAbortController?.signal;
 
   try {
     await updateInquiryProgress({
@@ -295,12 +376,12 @@ async function runGenerateInquiries(payload) {
       startedAt: Date.now(),
       finishedAt: null,
       lastError: '',
-      useReference: useReference !== false,
+      useReference: useReference === true,
       referenceCount: 0,
     });
 
     let referenceCatalog = [];
-    if (useReference !== false) {
+    if (useReference === true) {
       try {
         await updateInquiryProgress({
           status: 'running',
@@ -326,11 +407,18 @@ async function runGenerateInquiries(payload) {
     let success = 0;
     let failed = 0;
     let lastError = '';
-    const replyMap = {};
+    const existingReplies = (await storageGet([storageKey]))[storageKey] || {};
+    const replyMap = { ...existingReplies };
     const draftItems = [];
 
     await storageSet({ [applyKey]: false });
-    await storageSet({ [storageKey]: {} });
+
+    for (const row of rows) {
+      delete replyMap[String(row.id)];
+      const norm = String(row.id).replace(/[^\d]/g, '');
+      if (norm) delete replyMap[norm];
+    }
+    await storageSet({ [storageKey]: replyMap });
 
     await updateInquiryProgress({
       status: 'running',
@@ -341,7 +429,7 @@ async function runGenerateInquiries(payload) {
       currentId: '',
       message: `문의 답변 생성 시작 (0/${total})`,
       lastError: '',
-      useReference: useReference !== false,
+      useReference: useReference === true,
       referenceCount: referenceCatalog.length,
     });
 
@@ -362,7 +450,7 @@ async function runGenerateInquiries(payload) {
         currentId: row.id,
         message: `문의 답변 생성 중 (${i + 1}/${total}) — 문의번호 ${row.id}`,
         lastError,
-        useReference: useReference !== false,
+        useReference: useReference === true,
         referenceCount: referenceCatalog.length,
       });
 
@@ -377,7 +465,7 @@ async function runGenerateInquiries(payload) {
         );
         if (inquiryStopRequested || signal.aborted) break;
 
-        replyMap[String(row.id)] = reply;
+        storeInquiryReplyKeys(replyMap, row.id, reply);
         draftItems.push({
           id: row.id,
           inquiryContent: row.content,
@@ -423,7 +511,6 @@ async function runGenerateInquiries(payload) {
           '\n작업 화면 「2. 답글 검토」 탭에서 확인·수정 후 자동 입력을 활성화하세요.',
         finishedAt: Date.now(),
       });
-      if (success > 0) await storageSet({ [applyKey]: true });
       return;
     }
 
@@ -435,7 +522,7 @@ async function runGenerateInquiries(payload) {
           : '';
 
     await updateInquiryProgress({
-      status: 'done',
+      status: success > 0 ? 'done' : 'error',
       total,
       current: total,
       success,
@@ -443,12 +530,12 @@ async function runGenerateInquiries(payload) {
       currentId: '',
       lastError,
       message:
-        `완료: 성공 ${success}건, 실패 ${failed}건.${errorHint}\n` +
-        `작업 화면 「2. 답글 검토」 탭에서 확인·수정 후 [자동 입력 모드]를 눌러주세요.`,
+        success > 0
+          ? `완료: 성공 ${success}건, 실패 ${failed}건.${errorHint}\n` +
+            `작업 화면 「2. 답글 검토」 탭에서 확인·수정 후 [자동 입력 모드]를 눌러주세요.`
+          : `답변 생성 실패 (${failed}건).${errorHint}`,
       finishedAt: Date.now(),
     });
-
-    if (success > 0) await storageSet({ [applyKey]: true });
   } catch (err) {
     if (!inquiryStopRequested && err.name !== 'AbortError') {
       await updateInquiryProgress({
@@ -459,11 +546,14 @@ async function runGenerateInquiries(payload) {
       });
     }
     throw err;
-  } finally {
-    isInquiryRunning = false;
-    inquiryStopRequested = false;
-    inquiryAbortController = null;
   }
+}
+
+function getDefaultInquirySystemPrompt() {
+  return (
+    BUILTIN_INQUIRY_TONE_PRESETS?.[0]?.prompt ||
+    '당신은 네이버 스마트스토어 판매자입니다. 고객 상품문의에 정확하고 친절한 답글을 한국어로 작성하세요.'
+  );
 }
 
 async function loadInquiryReferenceCatalog(days) {
@@ -512,6 +602,13 @@ async function analyzeToneSamples(payload) {
   if (!apiKey) throw new Error('API 키가 없습니다.');
   const normalized = normalizeAnalysisSamples(samples);
   if (normalized.length < 2) {
+    const rawCount = (samples || []).filter((s) => String(s).trim().length >= 8).length;
+    if (rawCount >= 2) {
+      throw new Error(
+        '선택한 답글의 앞부분이 너무 비슷해 분석 샘플이 부족합니다.\n' +
+          '내용이 서로 다른 답글을 2개 이상 선택해 주세요.'
+      );
+    }
     throw new Error('분석할 샘플 답글이 2개 이상 필요합니다.');
   }
 
@@ -556,17 +653,7 @@ ${sampleBlock}`;
 }
 
 function normalizeAnalysisSamples(samples) {
-  const unique = [];
-  const seen = new Set();
-  for (const raw of samples || []) {
-    const s = String(raw).replace(/\r\n/g, '\n').trim();
-    if (s.length < 8) continue;
-    const key = s.slice(0, 120);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    unique.push(s);
-  }
-  return unique.slice(0, 20);
+  return normalizeSamples(samples);
 }
 
 async function callGeminiText(apiKey, userText, model, options = {}) {
@@ -592,7 +679,7 @@ async function callGeminiText(apiKey, userText, model, options = {}) {
       const parsed = JSON.parse(errBody);
       message = parsed.error?.message || message;
     } catch (_) {}
-    throw new Error(`Gemini ${response.status}: ${message}`);
+    throw new Error(`API 오류 (${response.status}): ${message}`);
   }
 
   const data = await response.json();
@@ -648,7 +735,7 @@ async function generateReply(apiKey, systemPrompt, row, model, signal) {
       const parsed = JSON.parse(errBody);
       message = parsed.error?.message || message;
     } catch (_) {}
-    throw new Error(`Gemini ${response.status}: ${message}`);
+    throw new Error(`API 오류 (${response.status}): ${message}`);
   }
 
   const data = await response.json();
@@ -715,7 +802,7 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
       const parsed = JSON.parse(errBody);
       message = parsed.error?.message || message;
     } catch (_) {}
-    throw new Error(`Gemini ${response.status}: ${message}`);
+    throw new Error(`API 오류 (${response.status}): ${message}`);
   }
 
   const data = await response.json();
@@ -758,13 +845,28 @@ function storageSet(data) {
   return new Promise((resolve) => chrome.storage.local.set(data, resolve));
 }
 
+async function patchJobProgress(storageKey, progress) {
+  const data = await storageGet([storageKey]);
+  const prev = data[storageKey] || {};
+  const next = {
+    ...prev,
+    ...progress,
+    updatedAt: Date.now(),
+  };
+  if (next.status === 'running') {
+    next.startedAt = progress.startedAt ?? prev.startedAt ?? Date.now();
+    if (!('finishedAt' in progress)) next.finishedAt = null;
+  }
+  await storageSet({ [storageKey]: next });
+  return next;
+}
+
 async function updateProgress(progress) {
-  await storageSet({ [CONFIG.PROGRESS_KEY]: progress });
+  await patchJobProgress(CONFIG.PROGRESS_KEY, progress);
 }
 
 async function updateInquiryProgress(progress) {
-  const key = CONFIG.INQUIRY_PROGRESS_KEY || 'smartstoreInquiryJobProgress';
-  await storageSet({ [key]: progress });
+  await patchJobProgress(CONFIG.INQUIRY_PROGRESS_KEY || 'smartstoreInquiryJobProgress', progress);
 }
 
 function emptySampleFlow() {
@@ -791,7 +893,9 @@ const STALE_SAMPLE_FLOW_MS = 45 * 1000;
 async function healStaleJob(job, activelyRunning, storageKey) {
   if (!job || job.status !== 'running') return job;
 
-  const started = job.startedAt || job.updatedAt || 0;
+  const started = job.startedAt || 0;
+  if (activelyRunning && !started) return job;
+
   const ageMs = started ? Date.now() - started : STALE_JOB_MS + 1;
   const isInquiryJob =
     storageKey === (CONFIG.INQUIRY_PROGRESS_KEY || 'smartstoreInquiryJobProgress');

@@ -17,9 +17,13 @@
   let applyEnabled = false;
   let openInquiryId = null;
   let activeInquiryId = null;
-  let observer = null;
   let scanTimer = null;
+  let clickWatchAttached = false;
+  let isScanning = false;
+  let lastScanAt = 0;
+  let openIdBurstTimer = null;
   const warnedIds = new Set();
+  const MIN_SCAN_INTERVAL_MS = 500;
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
@@ -46,48 +50,35 @@
     if (event.source !== window || event.data?.type !== 'SS_INQUIRY_OPEN_ID') return;
     openInquiryId = normalizeId(event.data.id);
     activeInquiryId = openInquiryId;
-    if (applyEnabled) burstScan();
+    if (!applyEnabled) return;
+    clearTimeout(openIdBurstTimer);
+    openIdBurstTimer = setTimeout(() => burstScan(), 200);
   });
 
   function syncWatchState() {
     const active =
       applyEnabled && cachedReplies && Object.keys(cachedReplies).length > 0;
-    if (active) {
-      ensureWatching();
-      scheduleScan(0);
-    } else {
-      teardownWatching();
-    }
+    if (active) ensureClickWatching();
+    else teardownWatching();
   }
 
-  function ensureWatching() {
-    if (observer) return;
-
-    observer = new MutationObserver(() => {
-      clearTimeout(scanTimer);
-      scanTimer = setTimeout(scanTargets, 300);
-    });
-
-    observer.observe(document.documentElement, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['class', 'style', 'aria-hidden', 'open', 'hidden'],
-    });
-
+  function ensureClickWatching() {
+    if (clickWatchAttached) return;
     document.addEventListener('click', onDocumentClick, true);
     window.addEventListener('popstate', onPopState);
+    clickWatchAttached = true;
   }
 
   function teardownWatching() {
-    if (observer) {
-      observer.disconnect();
-      observer = null;
+    if (clickWatchAttached) {
+      document.removeEventListener('click', onDocumentClick, true);
+      window.removeEventListener('popstate', onPopState);
+      clickWatchAttached = false;
     }
     clearTimeout(scanTimer);
+    clearTimeout(openIdBurstTimer);
     scanTimer = null;
-    document.removeEventListener('click', onDocumentClick, true);
-    window.removeEventListener('popstate', onPopState);
+    openIdBurstTimer = null;
   }
 
   function onPopState() {
@@ -96,7 +87,7 @@
 
   function burstScan() {
     if (!applyEnabled) return;
-    [0, 50, 150, 300, 600, 1000, 1800, 2500].forEach((delay) => {
+    [0, 250, 700, 1400].forEach((delay) => {
       setTimeout(scanTargets, delay);
     });
   }
@@ -146,14 +137,19 @@
   function scanTargets() {
     if (!applyEnabled) return;
     if (!cachedReplies || !Object.keys(cachedReplies).length) return;
+    if (isScanning) return;
 
-    readOpenInquiryId().then((hookId) => {
-      if (hookId) {
-        openInquiryId = hookId;
-        if (!activeInquiryId) activeInquiryId = hookId;
-      }
+    const now = Date.now();
+    if (now - lastScanAt < MIN_SCAN_INTERVAL_MS) {
+      scheduleScan(MIN_SCAN_INTERVAL_MS - (now - lastScanAt));
+      return;
+    }
 
-      const knownId = activeInquiryId || openInquiryId || hookId;
+    isScanning = true;
+    lastScanAt = now;
+
+    try {
+      const knownId = activeInquiryId || openInquiryId;
       if (knownId && lookupReply(knownId)) {
         fillOpenReplyTextareas(knownId);
       }
@@ -164,7 +160,9 @@
       }
 
       tryFillVisibleReplyTextareas();
-    });
+    } finally {
+      isScanning = false;
+    }
   }
 
   function fillOpenReplyTextareas(inquiryId) {
@@ -200,13 +198,6 @@
       '[class*="Layer"]',
       '[class*="dialog"]',
       '[class*="Dialog"]',
-      '[class*="inquiry"]',
-      '[class*="Inquiry"]',
-      '[class*="comment"]',
-      '[class*="Comment"]',
-      'tr',
-      'li',
-      'article',
     ];
 
     const found = new Set();
@@ -216,7 +207,6 @@
       });
     }
 
-    found.add(document.body);
     return [...found];
   }
 
@@ -279,9 +269,9 @@
       return;
     }
 
-    setTextareaValue(textarea, reply);
     textarea.setAttribute(FILLED_ATTR, '1');
     textarea.setAttribute(FILLED_ID_ATTR, id);
+    setTextareaValue(textarea, reply);
     if (root?.setAttribute) {
       root.setAttribute(FILLED_ATTR, '1');
       root.setAttribute(FILLED_ID_ATTR, id);
@@ -423,7 +413,7 @@
     if (!row) return false;
 
     const rowText = (row.innerText || '').slice(0, 400);
-    return /답글을 입력|답글 템플릿|0\s*\/\s*1000/.test(rowText);
+    return /답글을 입력|답글 템플릿|0\s*\/\s*\d{3,4}/.test(rowText);
   }
 
   function findReplyTextarea(root) {

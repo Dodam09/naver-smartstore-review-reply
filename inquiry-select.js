@@ -3,7 +3,6 @@ const DRAFT_KEY = CONFIG.INQUIRY_DRAFT_KEY || 'smartstoreInquiryDraft';
 const STORAGE_KEY = CONFIG.INQUIRY_STORAGE_KEY || 'smartstoreInquiryReplies';
 const APPLY_KEY = CONFIG.INQUIRY_APPLY_ENABLED_KEY || 'smartstoreInquiryApplyEnabled';
 const PROGRESS_KEY = CONFIG.INQUIRY_PROGRESS_KEY || 'smartstoreInquiryJobProgress';
-const REFERENCE_CACHE_KEY = CONFIG.INQUIRY_REFERENCE_CACHE_KEY || 'smartstoreInquiryReferenceCache';
 const SETTINGS_KEY = CONFIG.SETTINGS_KEY;
 
 const els = {
@@ -40,17 +39,9 @@ const els = {
   selectAllBtn: document.getElementById('selectAllBtn'),
   selectNoneBtn: document.getElementById('selectNoneBtn'),
   selectVisibleBtn: document.getElementById('selectVisibleBtn'),
-  useReferenceToggle: document.getElementById('useReferenceToggle'),
-  referenceCount: document.getElementById('referenceCount'),
-  referenceDaysSelect: document.getElementById('referenceDaysSelect'),
-  refreshReferenceBtn: document.getElementById('refreshReferenceBtn'),
-  referencePanel: document.getElementById('referencePanel'),
-  referenceSearchInput: document.getElementById('referenceSearchInput'),
-  referenceSelectAllBtn: document.getElementById('referenceSelectAllBtn'),
-  referenceSelectNoneBtn: document.getElementById('referenceSelectNoneBtn'),
-  referenceList: document.getElementById('referenceList'),
-  referenceSelectedCount: document.getElementById('referenceSelectedCount'),
-  referenceTotalCount: document.getElementById('referenceTotalCount'),
+  inquiryStyleLabel: document.getElementById('inquiryStyleLabel'),
+  inquiryStyleHint: document.getElementById('inquiryStyleHint'),
+  inquiryStyleRow: document.getElementById('inquiryStyleRow'),
 };
 
 let parsedRows = [];
@@ -63,13 +54,6 @@ let draftItems = [];
 let applyEnabled = false;
 let saveTimer = null;
 let activeTab = 'select';
-let referenceCount = 0;
-let referenceCatalog = [];
-let selectedReferenceIds = new Set();
-let referenceFilterText = '';
-let generationPending = false;
-let generationPendingTotal = 0;
-let lastReferenceHintCount = null;
 
 init();
 
@@ -99,29 +83,8 @@ async function init() {
   els.tabReview.addEventListener('click', () => switchTab('review'));
   els.saveDraftBtn.addEventListener('click', () => saveDraft(true));
   els.confirmBtn.addEventListener('click', onConfirmAll);
-  els.useReferenceToggle.addEventListener('change', () => {
-    saveReferencePreference();
-    syncReferencePanelVisibility();
-  });
-  els.referenceDaysSelect.addEventListener('change', saveReferencePreference);
-  els.refreshReferenceBtn.addEventListener('click', onRefreshReference);
-  els.referenceSearchInput.addEventListener('input', () => {
-    referenceFilterText = els.referenceSearchInput.value.trim().toLowerCase();
-    renderReferenceList();
-  });
-  els.referenceSelectAllBtn.addEventListener('click', () => {
-    referenceCatalog.forEach((item) => selectedReferenceIds.add(String(item.id)));
-    saveReferenceCache();
-    renderReferenceList();
-  });
-  els.referenceSelectNoneBtn.addEventListener('click', () => {
-    selectedReferenceIds.clear();
-    saveReferenceCache();
-    renderReferenceList();
-  });
 
   chrome.storage.onChanged.addListener(onStorageChanged);
-  await loadReferenceCount();
   await loadData();
   refreshJobStatus();
   setInterval(refreshJobStatus, 2000);
@@ -148,32 +111,19 @@ function switchTab(tab) {
     renderSelect();
   } else {
     location.hash = 'review';
-    loadDraftAndRender();
+    loadDraftAndRender().then(() => updateReviewBanner());
   }
-  syncReferencePanelVisibility();
 }
 
 async function loadData() {
-  const data = await storageGet([
-    PARSE_CACHE_KEY,
-    SETTINGS_KEY,
-    DRAFT_KEY,
-    APPLY_KEY,
-    REFERENCE_CACHE_KEY,
-  ]);
+  const data = await storageGet([PARSE_CACHE_KEY, SETTINGS_KEY, DRAFT_KEY, APPLY_KEY]);
   const cache = data[PARSE_CACHE_KEY];
   const settings = data[SETTINGS_KEY] || {};
 
   draftItems = data[DRAFT_KEY]?.items || [];
   applyEnabled = !!data[APPLY_KEY];
-  els.useReferenceToggle.checked = settings.inquiryUseReference !== false;
-  renderLookupDayOptions(els.referenceDaysSelect, {
-    includeLong: true,
-    selected: settings.inquiryReferenceDays ?? 7,
-  });
   updateReviewBadge();
-  applyReferenceCache(data[REFERENCE_CACHE_KEY]);
-  syncReferencePanelVisibility();
+  updateInquiryStyleLabel(settings);
 
   if (!cache?.inquiryRows?.length) {
     els.selectList.innerHTML =
@@ -196,180 +146,6 @@ async function loadDraftAndRender() {
   applyEnabled = !!data[APPLY_KEY];
   updateReviewBadge();
   renderReview();
-}
-
-async function loadReferenceCount() {
-  const data = await storageGet([REFERENCE_CACHE_KEY]);
-  applyReferenceCache(data[REFERENCE_CACHE_KEY]);
-  syncReferencePanelVisibility();
-}
-
-function applyReferenceCache(cache) {
-  referenceCatalog = Array.isArray(cache?.catalog) ? cache.catalog : [];
-  const validIds = new Set(referenceCatalog.map((item) => String(item.id)));
-  const savedIds = (cache?.selectedIds || []).map(String).filter((id) => validIds.has(id));
-
-  if (savedIds.length) {
-    selectedReferenceIds = new Set(savedIds);
-  } else if (referenceCatalog.length) {
-    selectedReferenceIds = new Set(referenceCatalog.map((item) => String(item.id)));
-  } else {
-    selectedReferenceIds = new Set();
-  }
-
-  updateReferenceCountLabel(cache);
-  renderReferenceList();
-}
-
-function syncReferencePanelVisibility() {
-  const visible =
-    !!els.useReferenceToggle.checked && referenceCatalog.length > 0 && activeTab === 'select';
-  els.referencePanel.hidden = !visible;
-}
-
-function updateReferenceCountLabel(cache) {
-  const total = referenceCatalog.length || cache?.catalog?.length || cache?.withAnswerCount || 0;
-  const selected = selectedReferenceIds.size;
-  referenceCount = selected;
-  els.referenceCount.textContent =
-    total > 0 ? `참고 ${selected}/${total}건 선택` : '참고 답변 0건';
-  if (els.referenceSelectedCount) els.referenceSelectedCount.textContent = String(selected);
-  if (els.referenceTotalCount) els.referenceTotalCount.textContent = String(total);
-}
-
-async function saveReferenceCache() {
-  const data = await storageGet([REFERENCE_CACHE_KEY]);
-  const cache = data[REFERENCE_CACHE_KEY] || {};
-  const nextCache = {
-    ...cache,
-    catalog: referenceCatalog,
-    selectedIds: [...selectedReferenceIds],
-    withAnswerCount: referenceCatalog.length,
-  };
-  await storageSet({ [REFERENCE_CACHE_KEY]: nextCache });
-  updateReferenceCountLabel(nextCache);
-}
-
-function getFilteredReferenceRows() {
-  if (!referenceFilterText) return referenceCatalog;
-  return referenceCatalog.filter((item) => {
-    const haystack = [
-      item.id,
-      item.product,
-      item.question,
-      item.content,
-      item.answer,
-      item.reply,
-    ]
-      .join(' ')
-      .toLowerCase();
-    return haystack.includes(referenceFilterText);
-  });
-}
-
-function toggleReferenceId(id, checked) {
-  const key = String(id);
-  const shouldSelect = typeof checked === 'boolean' ? checked : !selectedReferenceIds.has(key);
-  if (shouldSelect) selectedReferenceIds.add(key);
-  else selectedReferenceIds.delete(key);
-  saveReferenceCache();
-  renderReferenceList();
-}
-
-function renderReferenceList() {
-  if (!els.referenceList) return;
-
-  const rows = getFilteredReferenceRows();
-  els.referenceSelectedCount.textContent = String(selectedReferenceIds.size);
-  els.referenceTotalCount.textContent = String(referenceCatalog.length);
-
-  if (!referenceCatalog.length) {
-    els.referenceList.innerHTML =
-      '<div class="ref-empty">[기존 답변 불러오기]를 눌러 참고 목록을 가져오세요.</div>';
-    return;
-  }
-
-  if (!rows.length) {
-    els.referenceList.innerHTML = '<div class="ref-empty">검색 결과가 없습니다.</div>';
-    return;
-  }
-
-  els.referenceList.innerHTML = rows
-    .map((item) => {
-      const id = String(item.id);
-      const selected = selectedReferenceIds.has(id);
-      const question = item.question || item.content || '';
-      const answer = item.answer || item.reply || '';
-      return `
-        <article class="ref-card ${selected ? 'selected' : ''}" data-id="${escapeHtml(id)}">
-          <input type="checkbox" class="ref-card-check" data-id="${escapeHtml(id)}" ${selected ? 'checked' : ''} />
-          <div class="ref-card-body">
-            <div class="ref-card-top">
-              <div class="ref-card-id">#${escapeHtml(id)}</div>
-            </div>
-            ${item.product ? `<div class="ref-card-product">${escapeHtml(item.product)}</div>` : ''}
-            <div class="ref-q"><span class="ref-q-label">문의</span>${escapeHtml(question)}</div>
-            <div class="ref-a"><span class="ref-a-label">답변</span>${escapeHtml(answer)}</div>
-          </div>
-        </article>`;
-    })
-    .join('');
-
-  els.referenceList.querySelectorAll('.ref-card').forEach((card) => {
-    card.addEventListener('click', (event) => {
-      if (event.target.classList.contains('ref-card-check')) return;
-      toggleReferenceId(card.dataset.id);
-    });
-  });
-
-  els.referenceList.querySelectorAll('.ref-card-check').forEach((cb) => {
-    cb.addEventListener('click', (event) => event.stopPropagation());
-    cb.addEventListener('change', () => toggleReferenceId(cb.dataset.id, cb.checked));
-  });
-}
-
-async function saveReferencePreference() {
-  const existing = (await storageGet([SETTINGS_KEY]))[SETTINGS_KEY] || {};
-  await storageSet({
-    [SETTINGS_KEY]: {
-      ...existing,
-      inquiryUseReference: !!els.useReferenceToggle.checked,
-      inquiryReferenceDays: clampLookupDays(els.referenceDaysSelect.value, {
-        min: 0,
-        max: 365,
-        fallback: 7,
-      }),
-    },
-  });
-}
-
-function getReferenceDays() {
-  return clampLookupDays(els.referenceDaysSelect.value, { min: 0, max: 365, fallback: 7 });
-}
-
-async function onRefreshReference() {
-  els.refreshReferenceBtn.disabled = true;
-  els.refreshReferenceBtn.textContent = '불러오는 중...';
-  try {
-    const days = getReferenceDays();
-    const response = await sendRuntimeMessage({
-      type: 'FETCH_INQUIRY_REPLY_CATALOG_JOB',
-      payload: { days, maxItems: 80 },
-    });
-    referenceCatalog = response.catalog || [];
-    selectedReferenceIds = new Set(referenceCatalog.map((item) => String(item.id)));
-    await saveReferenceCache();
-    syncReferencePanelVisibility();
-    showBanner(
-      `${formatLookupDaysLabel(days)} 기존 답변 문의 ${referenceCatalog.length}건을 불러왔습니다. 참고할 항목을 선택하세요.`,
-      'success'
-    );
-  } catch (err) {
-    showBanner(`기존 답변 불러오기 실패: ${err.message}`, 'warn');
-  } finally {
-    els.refreshReferenceBtn.disabled = false;
-    els.refreshReferenceBtn.textContent = '기존 답변 불러오기';
-  }
 }
 
 function getFilteredRows() {
@@ -443,10 +219,6 @@ function renderReview() {
 
   els.reviewList.innerHTML = draftItems
     .map((item) => {
-      const refHint =
-        item.referenceIds?.length > 0
-          ? `<div class="ref-hint">기존 답변 문의 ${item.referenceIds.length}건을 참고해 생성됨</div>`
-          : '';
       return `
     <article class="card review-card" data-id="${escapeHtml(item.id)}">
       <div class="card-top">
@@ -457,7 +229,6 @@ function renderReview() {
       </div>
       ${item.product ? `<div class="card-product">${escapeHtml(item.product)}</div>` : ''}
       <div class="inquiry-box">${escapeHtml(item.inquiryContent || '')}</div>
-      ${refHint}
       <div class="reply-label">판매자 답글</div>
       <textarea class="reply-input" data-id="${escapeHtml(item.id)}" maxlength="2000">${escapeHtml(item.reply || '')}</textarea>
       <div class="char-count">${(item.reply || '').length} / 2000</div>
@@ -572,6 +343,28 @@ function scheduleSaveDraft() {
   saveTimer = setTimeout(() => saveDraft(false), 500);
 }
 
+async function syncInquiryApplyFromDraft() {
+  const data = await storageGet([DRAFT_KEY]);
+  const items = data[DRAFT_KEY]?.items || draftItems;
+  if (!items.length) return;
+
+  const replies = {};
+  for (const item of items) {
+    const text = String(item.reply || '').trim();
+    if (!text) continue;
+    replies[item.id] = text;
+    replies[normalizeId(item.id)] = text;
+  }
+  if (!Object.keys(replies).length) return;
+
+  await storageSet({
+    [STORAGE_KEY]: replies,
+    [APPLY_KEY]: true,
+  });
+  applyEnabled = true;
+  updateReviewStats();
+}
+
 async function onConfirmAll() {
   draftItems = collectItemsFromUi();
 
@@ -581,19 +374,10 @@ async function onConfirmAll() {
     return;
   }
 
-  const replies = {};
-  for (const item of draftItems) {
-    replies[item.id] = item.reply.trim();
-    replies[normalizeId(item.id)] = item.reply.trim();
-  }
-
   await storageSet({
-    [STORAGE_KEY]: replies,
     [DRAFT_KEY]: { items: draftItems, updatedAt: Date.now() },
-    [APPLY_KEY]: true,
   });
-
-  applyEnabled = true;
+  await syncInquiryApplyFromDraft();
   updateReviewStats();
   showBanner(
     `${draftItems.length}건 자동 입력 모드 활성화.\n판매자센터 상품문의에서 [답글]을 누르면 textarea에 채워집니다.`,
@@ -637,27 +421,22 @@ async function onGenerate() {
   const apiKey = settings.apiKey || CONFIG.GEMINI_API_KEY;
 
   if (!apiKey || apiKey.includes('YOUR_GEMINI')) {
-    showProgress('Gemini API 키가 없습니다. 확장 팝업 [설정] 탭에서 입력하세요.', true);
+    showProgress('API 키가 없습니다. 확장 팝업 [설정] 탭에서 입력하세요.', true);
     return;
   }
 
-  if (els.useReferenceToggle.checked && referenceCatalog.length && selectedReferenceIds.size === 0) {
-    showBanner('참고할 기존 답변을 1건 이상 선택하세요.', 'warn');
-    return;
-  }
-
-  const job = await getJobStatus();
-  if (job?.status === 'running') {
+  const jobResponse = await getInquiryJobStatus();
+  if (jobResponse?.job?.status === 'running' && jobResponse?.isRunning) {
+    const job = jobResponse.job;
     showRunningProgress(job.current || 0, job.total || 0, job.currentId || '', job.message || '이미 생성 중입니다.');
     return;
   }
 
   isGenerating = true;
-  generationPending = true;
-  generationPendingTotal = selectedRows.length;
-  lastReferenceHintCount = null;
   updateSelectCounts();
   showRunningProgress(0, selectedRows.length, '', '답변 생성을 시작합니다...');
+
+  const systemPrompt = resolveInquirySystemPrompt(settings);
 
   chrome.runtime.sendMessage(
     {
@@ -665,16 +444,12 @@ async function onGenerate() {
       payload: {
         rows: selectedRows,
         apiKey,
-        systemPrompt: settings.inquirySystemPrompt || '',
+        systemPrompt,
         model: CONFIG.GEMINI_MODEL,
-        useReference: !!els.useReferenceToggle.checked,
-        referenceDays: getReferenceDays(),
-        referenceSelectedIds: [...selectedReferenceIds],
       },
     },
     (response) => {
       if (chrome.runtime.lastError || !response?.ok) {
-        generationPending = false;
         isGenerating = false;
         updateSelectCounts();
         showProgress(response?.error || chrome.runtime.lastError?.message || '시작 실패', true);
@@ -715,8 +490,12 @@ function refreshJobStatus() {
     const job = response?.job;
     const activelyRunning = response?.isRunning;
 
-    if (job?.status === 'running' && activelyRunning) {
-      generationPending = false;
+    if (!job) {
+      if (!isGenerating) updateSelectCounts();
+      return;
+    }
+
+    if (job.status === 'running' && activelyRunning) {
       isGenerating = true;
       showRunningProgress(
         job.current || 0,
@@ -724,57 +503,59 @@ function refreshJobStatus() {
         job.currentId || '',
         job.message || '답변 생성 중...'
       );
-      if (job.referenceCount != null && els.useReferenceToggle.checked) {
-        if (lastReferenceHintCount !== job.referenceCount) {
-          lastReferenceHintCount = job.referenceCount;
-          const base = job.currentId
-            ? `문의번호 ${job.currentId} 처리 중...`
-            : job.message || '답변 생성 중...';
-          els.genSubText.textContent = `${base}\n선택한 참고 답변 ${job.referenceCount}건 사용`;
-        }
-      }
       els.generateBtn.textContent = `생성 중 (${job.current || 0}/${job.total || '?'})`;
       els.generateBtn.disabled = true;
       els.stopBtn.hidden = false;
+      els.stopBtn.disabled = false;
       return;
     }
 
-    if (generationPending && (!job || job.status !== 'running')) {
-      isGenerating = true;
-      showRunningProgress(
-        0,
-        generationPendingTotal,
-        '',
-        '답변 생성 준비 중...'
-      );
-      els.generateBtn.disabled = true;
-      els.stopBtn.hidden = false;
+    if (job.status === 'running' && !activelyRunning) {
+      isGenerating = false;
+      updateSelectCounts();
+      if (job.finishedAt !== lastHandledFinishedAt) {
+        lastHandledFinishedAt = job.finishedAt;
+        showProgress(job.message || '생성 작업이 중단되었습니다. 다시 시도해 주세요.', true);
+      }
       return;
     }
 
-    generationPending = false;
-    lastReferenceHintCount = null;
     isGenerating = false;
-    resetGenProgressUi();
     els.stopBtn.hidden = true;
     els.stopBtn.disabled = false;
     els.stopBtn.textContent = '생성 중지';
     updateSelectCounts();
 
-    if (!job) return;
-
     if (job.status === 'done' || job.status === 'stopped') {
       if (job.finishedAt !== lastHandledFinishedAt) {
         lastHandledFinishedAt = job.finishedAt;
-        if (job.status === 'stopped') showStoppedProgress(job);
-        else showDoneProgress(job);
+        const success = job.success ?? 0;
+        const failed = job.failed ?? 0;
+
+        if (job.status === 'stopped') {
+          showStoppedProgress(job);
+          if (success > 0) {
+            await loadDraftAndRender();
+            await syncInquiryApplyFromDraft();
+            switchTab('review');
+          }
+          return;
+        }
+
+        if (success === 0 && failed > 0) {
+          showProgress(job.message || job.lastError || '답변 생성에 실패했습니다.', true);
+          return;
+        }
+
+        showDoneProgress(job);
         await loadDraftAndRender();
+        await syncInquiryApplyFromDraft();
         switchTab('review');
       }
     } else if (job.status === 'error') {
       if (job.finishedAt !== lastHandledFinishedAt) {
         lastHandledFinishedAt = job.finishedAt;
-        showProgress(job.message || '오류가 발생했습니다.', true);
+        showProgress(job.message || job.lastError || '오류가 발생했습니다.', true);
       }
     }
   });
@@ -787,11 +568,11 @@ function onStorageChanged(changes, area) {
     loadDraftAndRender();
     if (activeTab === 'review') renderReview();
   }
-  if (changes[REFERENCE_CACHE_KEY]) {
-    applyReferenceCache(changes[REFERENCE_CACHE_KEY].newValue);
-    syncReferencePanelVisibility();
-  }
   if (changes[PROGRESS_KEY]) refreshJobStatus();
+  if (changes[SETTINGS_KEY]) {
+    const settings = changes[SETTINGS_KEY].newValue || {};
+    updateInquiryStyleLabel(settings);
+  }
 }
 
 function showRunningProgress(current, total, currentId, message) {
@@ -803,12 +584,19 @@ function showRunningProgress(current, total, currentId, message) {
 }
 
 function showDoneProgress(job) {
+  const success = job.success ?? 0;
+  const failed = job.failed ?? 0;
+  const total = job.total ?? 0;
+
   els.genProgress.classList.remove('hidden', 'error', 'stopped');
   els.genProgress.classList.add('success');
   els.genStatusText.textContent = '생성 완료';
-  els.genCountText.textContent = `${job.success ?? 0} / ${job.total ?? 0}`;
+  els.genCountText.textContent = `${success} / ${total}`;
   els.genProgressFill.style.width = '100%';
-  els.genSubText.textContent = `${job.success ?? 0}건 완료 · 검토 탭에서 확인·수정하세요`;
+  els.genSubText.textContent =
+    failed > 0
+      ? `성공 ${success}건 · 실패 ${failed}건 · 검토 탭으로 이동합니다`
+      : `${success}건 완료 · 검토 탭에서 확인·수정하세요`;
 }
 
 function showStoppedProgress(job) {
@@ -828,12 +616,72 @@ function showProgress(message, isError = false) {
   els.genSubText.textContent = message;
 }
 
-function getJobStatus() {
+function getInquiryJobStatus() {
   return new Promise((resolve) => {
     chrome.runtime.sendMessage({ type: 'GET_INQUIRY_JOB_STATUS' }, (response) => {
-      resolve(response?.job || null);
+      if (chrome.runtime.lastError) resolve(null);
+      else resolve(response);
     });
   });
+}
+
+function resolveInquirySystemPrompt(settings = {}) {
+  const saved = String(settings.inquirySystemPrompt || '').trim();
+  if (saved) return saved;
+
+  const presetId = settings.inquiryTonePresetId || 'default';
+  const customPresets = settings.inquiryCustomPresets || [];
+  if (presetId === CUSTOM_PRESET_ID) {
+    return BUILTIN_INQUIRY_TONE_PRESETS[0]?.prompt || saved;
+  }
+
+  const preset = findInquiryPreset(presetId, customPresets);
+  if (preset?.prompt) return preset.prompt;
+
+  return BUILTIN_INQUIRY_TONE_PRESETS[0]?.prompt || '';
+}
+
+function getInquiryStyleLabel(settings = {}) {
+  const presetId = settings.inquiryTonePresetId || 'default';
+  if (presetId === CUSTOM_PRESET_ID) return '직접 입력';
+  if (presetId === INQUIRY_LEARNED_PRESET_ID) return '내 스타일 (학습)';
+
+  const preset = findInquiryPreset(presetId, settings.inquiryCustomPresets || []);
+  return preset?.name || BUILTIN_INQUIRY_TONE_PRESETS[0]?.name || '기본 (친절·안내)';
+}
+
+function isInquiryStyleConfigured(settings = {}) {
+  const presetId = settings.inquiryTonePresetId || 'default';
+  if (presetId === INQUIRY_LEARNED_PRESET_ID || presetId === CUSTOM_PRESET_ID) return true;
+  if (presetId !== 'default') return true;
+
+  const saved = String(settings.inquirySystemPrompt || '').trim();
+  if (!saved) return false;
+
+  const defaultPrompt = String(BUILTIN_INQUIRY_TONE_PRESETS[0]?.prompt || '').trim();
+  return saved !== defaultPrompt;
+}
+
+function getInquiryStyleHint(settings = {}) {
+  if (isInquiryStyleConfigured(settings)) return '';
+  return '팝업 「문의」 탭에서 설정';
+}
+
+function updateInquiryStyleLabel(settings = {}) {
+  if (!els.inquiryStyleLabel) return;
+  els.inquiryStyleLabel.textContent = getInquiryStyleLabel(settings);
+  if (els.inquiryStyleHint) {
+    const hint = getInquiryStyleHint(settings);
+    els.inquiryStyleHint.textContent = hint;
+    els.inquiryStyleHint.hidden = !hint;
+  }
+  if (els.inquiryStyleRow) {
+    els.inquiryStyleRow.classList.toggle('is-ready', isInquiryStyleConfigured(settings));
+  }
+}
+
+function getJobStatus() {
+  return getInquiryJobStatus().then((response) => response?.job || null);
 }
 
 function sendRuntimeMessage(message) {

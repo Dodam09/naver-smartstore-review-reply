@@ -36,6 +36,7 @@ const els = {
   downloadSampleXlsxBtn: document.getElementById('downloadSampleXlsxBtn'),
   downloadSampleTxtBtn: document.getElementById('downloadSampleTxtBtn'),
   openStylePickBtn: document.getElementById('openStylePickBtn'),
+  openInquiryStylePickBtn: document.getElementById('openInquiryStylePickBtn'),
   analyzeBtn: document.getElementById('analyzeBtn'),
   inquiryTonePreset: document.getElementById('inquiryTonePreset'),
   inquiryPresetNote: document.getElementById('inquiryPresetNote'),
@@ -140,12 +141,13 @@ async function init() {
       sampleFile: els.inquirySampleFile,
       downloadSampleXlsxBtn: els.inquiryDownloadSampleXlsxBtn,
       downloadSampleTxtBtn: els.inquiryDownloadSampleTxtBtn,
+      openStylePickBtn: els.openInquiryStylePickBtn,
       analyzeBtn: els.inquiryAnalyzeBtn,
     },
     getApiKey: () => els.apiKey.value.trim() || CONFIG.GEMINI_API_KEY || '',
     getModel: () => CONFIG.GEMINI_MODEL,
     onSettingsDirty: scheduleSaveSettings,
-    features: { stylePick: false },
+    features: { stylePick: true },
   });
 
   reviewStyle.bindEvents();
@@ -159,6 +161,7 @@ async function init() {
   els.selectBtn.addEventListener('click', openWorkPage);
   els.clearBtn.addEventListener('click', onClearStorage);
   els.openStylePickBtn.addEventListener('click', openStylePickPage);
+  els.openInquiryStylePickBtn.addEventListener('click', openInquiryStylePickPage);
   els.apiKey.addEventListener('input', scheduleSaveSettings);
   els.fetchDays.addEventListener('change', scheduleSaveSettings);
   els.inquiryFetchDays.addEventListener('change', scheduleSaveSettings);
@@ -225,6 +228,10 @@ function switchTab(name) {
 
 function openStylePickPage() {
   chrome.tabs.create({ url: chrome.runtime.getURL('style-pick.html') });
+}
+
+function openInquiryStylePickPage() {
+  chrome.tabs.create({ url: chrome.runtime.getURL('inquiry-style-pick.html') });
 }
 
 function openInquiryWorkPage() {
@@ -664,24 +671,15 @@ async function applyInquiryJobUi(job, running) {
     return;
   }
 
-  if (job?.status === 'running' && !running) {
+  if (job.status === 'running' && !running) {
     if (inquiryJobPollTimer) {
       clearInterval(inquiryJobPollTimer);
       inquiryJobPollTimer = null;
     }
+    updateInquirySummary();
     if (job.message) {
-      setInquiryStatus(`${job.message}\n(작업이 중단되었습니다. 다시 시도해 주세요.)`);
+      setInquiryStatus(`${job.message}\n(작업이 중단되었습니다. [문의 답글 작업]에서 다시 생성하세요.)`);
     }
-    updateInquirySummary();
-    return;
-  }
-
-  if (job?.status === 'running') {
-    if (inquiryJobPollTimer) {
-      clearInterval(inquiryJobPollTimer);
-      inquiryJobPollTimer = null;
-    }
-    updateInquirySummary();
     return;
   }
 
