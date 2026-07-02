@@ -5,7 +5,8 @@ if (!globalThis.CONFIG) {
   GEMINI_MODEL: 'gemini-2.5-flash',
   // 서버 프록시 (설정 시 확장은 Gemini 키 없이 서버만 호출)
   // 로컬: http://127.0.0.1:8787
-  // Railway: https://your-app.up.railway.app
+  // Railway (베타): https://naver-smartstore-review-reply-production.up.railway.app
+  // 배포용 config: beta/config.js 참고
   API_BASE_URL: 'http://127.0.0.1:8787',
   API_DEV_SECRET: 'dev-change-me',
   AUTH_STORAGE_KEY: 'smartstoreAuthSession',

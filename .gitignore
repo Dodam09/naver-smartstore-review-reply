@@ -6,3 +6,4 @@ Thumbs.db
 server/node_modules/
 server/.env
 server/data/
+beta/dist/
