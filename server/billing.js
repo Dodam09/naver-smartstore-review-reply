@@ -13,11 +13,21 @@ import { addDaysIso, getSubscriptionSummary } from './subscription.js';
 
 const TOSS_SECRET_KEY = String(process.env.TOSS_SECRET_KEY || '').trim();
 const TOSS_CLIENT_KEY = String(process.env.TOSS_CLIENT_KEY || '').trim();
-const APP_BASE_URL = String(process.env.APP_BASE_URL || `http://127.0.0.1:${process.env.PORT || 8787}`)
-  .trim()
-  .replace(/\/$/, '');
 const BILLING_MOCK = String(process.env.BILLING_MOCK || 'false').toLowerCase() === 'true';
 const SUBSCRIPTION_DAYS = Number(process.env.SUBSCRIPTION_DAYS || 30);
+
+function resolveAppBaseUrl() {
+  const explicit = String(process.env.APP_BASE_URL || '').trim().replace(/\/$/, '');
+  if (explicit) return explicit;
+
+  const railwayDomain = String(process.env.RAILWAY_PUBLIC_DOMAIN || '').trim();
+  if (railwayDomain) return `https://${railwayDomain}`.replace(/\/$/, '');
+
+  const port = process.env.PORT || 8787;
+  return `http://127.0.0.1:${port}`;
+}
+
+const APP_BASE_URL = resolveAppBaseUrl();
 
 export function getBillingConfig() {
   return {
