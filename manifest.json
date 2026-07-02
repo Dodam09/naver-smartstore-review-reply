@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "스마트스토어 답글 도우미",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "리뷰·상품문의 답글을 쉽게 만들고 판매자센터에 올립니다",
   "icons": {
     "16": "icons/icon-16.png",

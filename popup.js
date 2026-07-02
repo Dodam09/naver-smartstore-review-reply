@@ -719,6 +719,15 @@ async function applyInquiryJobUi(job, running) {
     return;
   }
 
+  if (!job) {
+    if (inquiryJobPollTimer) {
+      clearInterval(inquiryJobPollTimer);
+      inquiryJobPollTimer = null;
+    }
+    updateInquirySummary();
+    return;
+  }
+
   if (job.status === 'running' && !running) {
     if (inquiryJobPollTimer) {
       clearInterval(inquiryJobPollTimer);
@@ -737,8 +746,6 @@ async function applyInquiryJobUi(job, running) {
   }
 
   updateInquirySummary();
-
-  if (!job) return;
 
   if (job.message) setInquiryStatus(job.message);
 
