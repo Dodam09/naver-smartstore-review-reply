@@ -1,460 +1,1021 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>스마트스토어 답글 도우미</title>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      width: 360px;
-      margin: 0;
-      padding: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 13px;
-      color: #222;
-      background: #f4f5f7;
-    }
-    .header {
-      padding: 14px 16px 0;
-      background: #fff;
-      border-bottom: 1px solid #e5e7eb;
-    }
-    h1 { margin: 0 0 2px; font-size: 16px; }
-    .sub {
-      margin: 0 0 12px;
-      color: #666;
-      font-size: 11px;
-      line-height: 1.4;
-    }
-    .tabs { display: flex; gap: 4px; }
-    .tab {
-      flex: 1;
-      padding: 10px 8px;
-      border: none;
-      border-radius: 8px 8px 0 0;
-      background: transparent;
-      color: #666;
-      font-size: 13px;
-      font-weight: 700;
-      cursor: pointer;
-      border-bottom: 2px solid transparent;
-      margin-bottom: -1px;
-    }
-    .tab.active {
-      color: #0a7a3f;
-      background: #f4f5f7;
-      border-bottom-color: #03c75a;
-    }
-    .tab.inquiry.active {
-      color: #1d4ed8;
-      border-bottom-color: #2563eb;
-    }
-    .tab.settings.active {
-      color: #475569;
-      border-bottom-color: #64748b;
-    }
-    .panel { display: none; padding: 14px 16px 16px; }
-    .panel.active { display: block; }
-    .flow-bar {
-      display: flex;
-      gap: 6px;
-      margin-bottom: 12px;
-    }
-    .flow-chip {
-      flex: 1;
-      padding: 8px 6px;
-      border-radius: 10px;
-      background: #e5e7eb;
-      color: #64748b;
-      font-size: 10px;
-      font-weight: 700;
-      text-align: center;
-      line-height: 1.35;
-    }
-    .flow-chip.done {
-      background: #dcfce7;
-      color: #166534;
-    }
-    .flow-chip.active {
-      background: #dbeafe;
-      color: #1d4ed8;
-    }
-    .panel.inquiry .flow-chip.active {
-      background: #dbeafe;
-      color: #1d4ed8;
-    }
-    .panel.work .flow-chip.active {
-      background: #dcfce7;
-      color: #166534;
-    }
-    label {
-      display: block;
-      margin: 0 0 4px;
-      font-weight: 600;
-      font-size: 12px;
-    }
-    input[type="file"],
-    input[type="password"],
-    select,
-    textarea {
-      width: 100%;
-      padding: 8px;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-      background: #fff;
-      font-family: inherit;
-    }
-    textarea { min-height: 72px; resize: vertical; }
-    .hint {
-      color: #888;
-      font-size: 11px;
-      margin-top: 4px;
-      line-height: 1.4;
-    }
-    button {
-      width: 100%;
-      margin-top: 8px;
-      padding: 10px;
-      border: none;
-      border-radius: 8px;
-      background: #03c75a;
-      color: #fff;
-      font-weight: 700;
-      cursor: pointer;
-      font-size: 13px;
-    }
-    button:disabled { opacity: .55; cursor: not-allowed; }
-    button.secondary {
-      background: #fff;
-      color: #333;
-      border: 1px solid #ccc;
-    }
-    button.select {
-      background: #2563eb;
-      padding: 14px;
-      font-size: 15px;
-      margin-top: 12px;
-    }
-    button.select.highlight {
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35);
-      animation: pulse-once 1.2s ease 2;
-    }
-    @keyframes pulse-once {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.02); }
-    }
-    button.fetch { margin-top: 8px; }
-    button.fetch-samples { background: #0369a1; }
-    button.analyze { background: #7c3aed; }
-    .card {
-      background: #fff;
-      border: 1px solid #e5e7eb;
-      border-radius: 10px;
-      padding: 12px;
-      margin-bottom: 10px;
-    }
-    .card-title {
-      font-weight: 700;
-      font-size: 13px;
-      margin-bottom: 4px;
-    }
-    .card-desc {
-      font-size: 11px;
-      color: #666;
-      line-height: 1.45;
-      margin-bottom: 10px;
-    }
-    .row-inline {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    }
-    .row-inline select { flex: 1; margin: 0; }
-    .row-inline button { flex: 1.2; margin-top: 0; white-space: nowrap; }
-    details {
-      background: #fff;
-      border: 1px solid #e5e7eb;
-      border-radius: 10px;
-      margin-bottom: 10px;
-      overflow: hidden;
-    }
-    summary {
-      padding: 11px 12px;
-      font-weight: 600;
-      font-size: 12px;
-      cursor: pointer;
-      list-style: none;
-      color: #64748b;
-    }
-    summary::-webkit-details-marker { display: none; }
-    summary::after { content: '▸'; float: right; color: #999; }
-    details[open] summary::after { content: '▾'; }
-    .details-body {
-      padding: 0 12px 12px;
-      border-top: 1px solid #f0f0f0;
-    }
-    .settings-section {
-      margin-bottom: 14px;
-    }
-    .settings-section > summary {
-      font-size: 13px;
-      color: #333;
-      background: #fff;
-      border: 1px solid #e5e7eb;
-      border-radius: 10px;
-    }
-    .settings-section[open] > summary {
-      border-radius: 10px 10px 0 0;
-      border-bottom: none;
-    }
-    .settings-section .details-body {
-      background: #fff;
-      border: 1px solid #e5e7eb;
-      border-top: none;
-      border-radius: 0 0 10px 10px;
-    }
-    .preset-note, .sample-count {
-      font-size: 11px;
-      color: #666;
-      margin-top: 6px;
-      line-height: 1.4;
-    }
-    .sample-flow {
-      margin-bottom: 10px;
-      padding: 10px 12px;
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 10px;
-    }
-    .sample-steps { display: flex; gap: 6px; margin-bottom: 8px; }
-    .sample-step {
-      flex: 1;
-      padding: 6px 4px;
-      border-radius: 999px;
-      background: #e5e7eb;
-      color: #6b7280;
-      font-size: 10px;
-      font-weight: 700;
-      text-align: center;
-      line-height: 1.3;
-    }
-    .sample-step.done { background: #dcfce7; color: #166534; }
-    .sample-step.active { background: #dbeafe; color: #1d4ed8; }
-    .sample-step.stale { background: #fef3c7; color: #92400e; }
-    .sample-flow-status {
-      font-size: 11px;
-      line-height: 1.5;
-      color: #475569;
-      white-space: pre-wrap;
-    }
-    .sample-flow-status.success { color: #166534; }
-    .sample-flow-status.error { color: #b91c1c; }
-    .sample-flow-status.warn { color: #92400e; }
-    .sample-flow-status.loading { color: #1d4ed8; }
-    button.fetch-samples.loading,
-    button.analyze.loading { opacity: .75; cursor: wait; }
-    button.analyze.done { background: #059669; }
-    .file-summary {
-      padding: 12px;
-      background: #eef8f2;
-      border: 1px solid #b8e6cc;
-      border-radius: 10px;
-      font-size: 12px;
-      line-height: 1.5;
-      margin-bottom: 10px;
-      display: none;
-    }
-    .file-summary.visible { display: block; }
-    .file-summary strong { color: #0a7a3f; font-size: 18px; }
-    .file-summary .next-step {
-      margin-top: 6px;
-      color: #2563eb;
-      font-weight: 600;
-    }
-    #status, #inquiryStatus {
-      margin-top: 10px;
-      padding: 10px;
-      border-radius: 8px;
-      background: #fff;
-      border: 1px solid #e5e5e5;
-      min-height: 40px;
-      white-space: pre-wrap;
-      line-height: 1.45;
-      font-size: 12px;
-    }
-    .danger-zone {
-      margin-top: 16px;
-      padding-top: 12px;
-      border-top: 1px dashed #e5e7eb;
-    }
-  </style>
-</head>
-<body>
-  <header class="header">
-    <h1>스마트스토어 답글 도우미</h1>
-    <p class="sub">리뷰·상품문의 답글을 쉽게 만들고 올립니다</p>
-    <nav class="tabs">
-      <button type="button" class="tab active" data-tab="work">리뷰</button>
-      <button type="button" class="tab inquiry" data-tab="inquiry">상품문의</button>
-      <button type="button" class="tab settings" data-tab="settings">설정</button>
-    </nav>
-  </header>
-
-  <!-- 리뷰 -->
-  <section id="panelWork" class="panel work active">
-    <div class="flow-bar">
-      <div class="flow-chip active" id="reviewFlow1">① 가져오기</div>
-      <div class="flow-chip" id="reviewFlow2">② 답글 만들기</div>
-    </div>
-
-    <div id="fileSummary" class="file-summary"></div>
-
-    <div class="card">
-      <div class="card-title">① 판매자센터에서 리뷰 가져오기</div>
-      <div class="card-desc">먼저 스마트스토어 <strong>리뷰 관리</strong> 페이지를 연 뒤, 아래 버튼을 누르세요.</div>
-      <div class="row-inline">
-        <select id="fetchDays"></select>
-        <button id="fetchBtn" class="fetch" type="button">가져오기</button>
-      </div>
-    </div>
-
-    <details>
-      <summary>엑셀 파일로 가져오기 (다른 방법)</summary>
-      <div class="details-body">
-        <input type="file" id="xlsxFile" accept=".xlsx,.xls" />
-        <div class="hint">네이버에서 받은 리뷰 엑셀 파일</div>
-      </div>
-    </details>
-
-    <button id="selectBtn" class="select" type="button" disabled>② 답글 만들기 시작 →</button>
-
-    <div id="status">위에서 리뷰를 가져온 다음, 「답글 만들기 시작」을 누르세요.</div>
-  </section>
-
-  <!-- 상품문의 -->
-  <section id="panelInquiry" class="panel inquiry">
-    <div class="flow-bar">
-      <div class="flow-chip active" id="inquiryFlow1">① 가져오기</div>
-      <div class="flow-chip" id="inquiryFlow2">② 답글 만들기</div>
-    </div>
-
-    <div id="inquirySummary" class="file-summary"></div>
-
-    <div class="card">
-      <div class="card-title">① 판매자센터에서 문의 가져오기</div>
-      <div class="card-desc">먼저 스마트스토어 <strong>상품문의</strong> 페이지를 연 뒤, 아래 버튼을 누르세요.</div>
-      <div class="row-inline">
-        <select id="inquiryFetchDays"></select>
-        <button id="inquiryFetchBtn" class="fetch" type="button">가져오기</button>
-      </div>
-    </div>
-
-    <button id="inquirySelectBtn" class="select" type="button" disabled>② 답글 만들기 시작 →</button>
-    <div class="hint" id="inquiryApplyHint">답글을 만든 뒤, 작업 화면에서 「판매자센터에 넣기 준비」를 누르면 [답글] 클릭 시 자동으로 채워집니다.</div>
-
-    <div id="inquiryStatus">위에서 문의를 가져온 다음, 「답글 만들기 시작」을 누르세요.</div>
-  </section>
-
-  <!-- 설정 -->
-  <section id="panelSettings" class="panel settings">
-    <div class="card">
-      <div class="card-title">AI 연결 (처음 한 번만)</div>
-      <label for="apiKey">API 키</label>
-      <input type="password" id="apiKey" placeholder="AIza..." autocomplete="off" />
-      <div class="hint">답글 자동 작성에 필요합니다. 내 컴퓨터에만 저장됩니다.</div>
-    </div>
-
-    <details class="settings-section" open>
-      <summary>리뷰 답글 말투</summary>
-      <div class="details-body">
-        <label for="tonePreset">말투 선택</label>
-        <select id="tonePreset"></select>
-        <div class="preset-note" id="presetNote">원하는 말투를 고르면 AI가 그 스타일로 답글을 씁니다.</div>
-        <details style="margin-top:8px;">
-          <summary>말투 직접 적기 (고급)</summary>
-          <div class="details-body" style="padding-top:8px;">
-            <textarea id="systemPrompt" placeholder="예: 반말 금지, 감사 인사로 시작…"></textarea>
-          </div>
-        </details>
-        <details style="margin-top:8px;">
-          <summary>내 예전 답글로 말투 배우기</summary>
-          <div class="details-body">
-            <div class="sample-flow" id="sampleFlow">
-              <div class="sample-steps">
-                <span class="sample-step" id="sampleStepLoad">① 예시 준비</span>
-                <span class="sample-step" id="sampleStepAnalyze">② 분석</span>
-                <span class="sample-step" id="sampleStepApply">③ 저장</span>
-              </div>
-              <div class="sample-flow-status" id="sampleFlowStatus">예전 답글 2개 이상을 넣고 [말투 만들기]를 누르세요.</div>
-            </div>
-            <textarea id="sampleReplies" placeholder="예전에 쓴 답글 2개 이상 (빈 줄 또는 --- 로 구분)"></textarea>
-            <div class="sample-count" id="sampleCount">예시 0개</div>
-            <div class="row-inline" style="margin-top:8px;">
-              <button id="downloadSampleXlsxBtn" class="secondary" type="button">엑셀 양식</button>
-              <button id="downloadSampleTxtBtn" class="secondary" type="button">메모 양식</button>
-            </div>
-            <input type="file" id="sampleFile" accept=".txt,.xlsx,.xls" style="margin-top:8px;" />
-            <button id="openStylePickBtn" class="fetch-samples" type="button">판매자센터에서 내 답글 고르기</button>
-            <div class="hint">가장 쉬운 방법: 이미 올린 답글 중에서 골라 말투를 배웁니다.</div>
-            <button id="analyzeBtn" class="analyze" type="button">말투 만들기</button>
-          </div>
-        </details>
-      </div>
-    </details>
-
-    <details class="settings-section">
-      <summary>상품문의 답글 말투</summary>
-      <div class="details-body">
-        <label for="inquiryTonePreset">말투 선택</label>
-        <select id="inquiryTonePreset"></select>
-        <div class="preset-note" id="inquiryPresetNote">리뷰와 따로 저장됩니다. 문의 답글 전용 말투입니다.</div>
-        <details style="margin-top:8px;">
-          <summary>말투 직접 적기 (고급)</summary>
-          <div class="details-body" style="padding-top:8px;">
-            <textarea id="inquirySystemPrompt" placeholder="예: 정중하게, 배송·교환 안내 위주…"></textarea>
-          </div>
-        </details>
-        <details style="margin-top:8px;">
-          <summary>내 예전 답글로 말투 배우기</summary>
-          <div class="details-body">
-            <div class="sample-flow" id="inquirySampleFlow">
-              <div class="sample-steps">
-                <span class="sample-step" id="inquirySampleStepLoad">① 예시 준비</span>
-                <span class="sample-step" id="inquirySampleStepAnalyze">② 분석</span>
-                <span class="sample-step" id="inquirySampleStepApply">③ 저장</span>
-              </div>
-              <div class="sample-flow-status" id="inquirySampleFlowStatus">문의 답글 2개 이상을 넣고 [말투 만들기]를 누르세요.</div>
-            </div>
-            <textarea id="inquirySampleReplies" placeholder="예전 문의 답글 2개 이상"></textarea>
-            <div class="sample-count" id="inquirySampleCount">예시 0개</div>
-            <div class="row-inline" style="margin-top:8px;">
-              <button id="inquiryDownloadSampleXlsxBtn" class="secondary" type="button">엑셀 양식</button>
-              <button id="inquiryDownloadSampleTxtBtn" class="secondary" type="button">메모 양식</button>
-            </div>
-            <input type="file" id="inquirySampleFile" accept=".txt,.xlsx,.xls" style="margin-top:8px;" />
-            <button id="openInquiryStylePickBtn" class="fetch-samples" type="button">판매자센터에서 내 답글 고르기</button>
-            <button id="inquiryAnalyzeBtn" class="analyze" type="button">말투 만들기</button>
-          </div>
-        </details>
-      </div>
-    </details>
-
-    <div class="danger-zone">
-      <button id="clearBtn" class="secondary" type="button">저장된 작업 모두 지우기</button>
-      <div class="hint">가져온 목록, 만든 답글, 진행 중 작업이 삭제됩니다.</div>
-    </div>
-  </section>
-
-  <script src="lib/console-filter.js"></script>
-  <script src="config.js"></script>
-  <script src="lib/lookup-days.js"></script>
-  <script src="lib/tone-presets.js"></script>
-  <script src="lib/style-apply-confirm.js"></script>
-  <script src="lib/sample-replies.js"></script>
-  <script src="lib/style-channel.js"></script>
-  <script src="lib/xlsx.full.min.js"></script>
-  <script src="popup.js"></script>
-</body>
-</html>
-
+<!DOCTYPE html>
+
+<html lang="ko">
+
+<head>
+
+  <meta charset="UTF-8" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>스마트스토어 답글 도우미</title>
+
+  <style>
+
+    * { box-sizing: border-box; }
+
+    body {
+
+      width: 360px;
+
+      margin: 0;
+
+      padding: 0;
+
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+      font-size: 13px;
+
+      color: #222;
+
+      background: #f4f5f7;
+
+    }
+
+    .header {
+
+      padding: 14px 16px 0;
+
+      background: #fff;
+
+      border-bottom: 1px solid #e5e7eb;
+
+    }
+
+    h1 { margin: 0 0 2px; font-size: 16px; }
+
+    .sub {
+
+      margin: 0 0 12px;
+
+      color: #666;
+
+      font-size: 11px;
+
+      line-height: 1.4;
+
+    }
+
+    .tabs { display: flex; gap: 4px; }
+
+    .tab {
+
+      flex: 1;
+
+      padding: 10px 8px;
+
+      border: none;
+
+      border-radius: 8px 8px 0 0;
+
+      background: transparent;
+
+      color: #666;
+
+      font-size: 13px;
+
+      font-weight: 700;
+
+      cursor: pointer;
+
+      border-bottom: 2px solid transparent;
+
+      margin-bottom: -1px;
+
+    }
+
+    .tab.active {
+
+      color: #0a7a3f;
+
+      background: #f4f5f7;
+
+      border-bottom-color: #03c75a;
+
+    }
+
+    .tab.inquiry.active {
+
+      color: #1d4ed8;
+
+      border-bottom-color: #2563eb;
+
+    }
+
+    .tab.settings.active {
+
+      color: #475569;
+
+      border-bottom-color: #64748b;
+
+    }
+
+    .panel { display: none; padding: 14px 16px 16px; }
+
+    .panel.active { display: block; }
+
+    .flow-bar {
+
+      display: flex;
+
+      gap: 6px;
+
+      margin-bottom: 12px;
+
+    }
+
+    .flow-chip {
+
+      flex: 1;
+
+      padding: 8px 6px;
+
+      border-radius: 10px;
+
+      background: #e5e7eb;
+
+      color: #64748b;
+
+      font-size: 10px;
+
+      font-weight: 700;
+
+      text-align: center;
+
+      line-height: 1.35;
+
+    }
+
+    .flow-chip.done {
+
+      background: #dcfce7;
+
+      color: #166534;
+
+    }
+
+    .flow-chip.active {
+
+      background: #dbeafe;
+
+      color: #1d4ed8;
+
+    }
+
+    .panel.inquiry .flow-chip.active {
+
+      background: #dbeafe;
+
+      color: #1d4ed8;
+
+    }
+
+    .panel.work .flow-chip.active {
+
+      background: #dcfce7;
+
+      color: #166534;
+
+    }
+
+    label {
+
+      display: block;
+
+      margin: 0 0 4px;
+
+      font-weight: 600;
+
+      font-size: 12px;
+
+    }
+
+    input[type="file"],
+
+    input[type="password"],
+
+    select,
+
+    textarea {
+
+      width: 100%;
+
+      padding: 8px;
+
+      border: 1px solid #ccc;
+
+      border-radius: 6px;
+
+      background: #fff;
+
+      font-family: inherit;
+
+    }
+
+    textarea { min-height: 72px; resize: vertical; }
+
+    .hint {
+
+      color: #888;
+
+      font-size: 11px;
+
+      margin-top: 4px;
+
+      line-height: 1.4;
+
+    }
+
+    .account-auth-tabs {
+
+      display: flex;
+
+      gap: 6px;
+
+      margin-bottom: 10px;
+
+    }
+
+    .account-auth-tab {
+
+      flex: 1;
+
+      margin-top: 0;
+
+      padding: 8px;
+
+      border: 1px solid #ddd;
+
+      border-radius: 8px;
+
+      background: #f5f6fa;
+
+      color: #444;
+
+      font-size: 12px;
+
+      font-weight: 600;
+
+      cursor: pointer;
+
+    }
+
+    .account-auth-tab.active {
+
+      background: #e8f5ee;
+
+      border-color: #03c75a;
+
+      color: #037a3a;
+
+    }
+
+    button {
+
+      width: 100%;
+
+      margin-top: 8px;
+
+      padding: 10px;
+
+      border: none;
+
+      border-radius: 8px;
+
+      background: #03c75a;
+
+      color: #fff;
+
+      font-weight: 700;
+
+      cursor: pointer;
+
+      font-size: 13px;
+
+    }
+
+    button:disabled { opacity: .55; cursor: not-allowed; }
+
+    button.secondary {
+
+      background: #fff;
+
+      color: #333;
+
+      border: 1px solid #ccc;
+
+    }
+
+    button.select {
+
+      background: #2563eb;
+
+      padding: 14px;
+
+      font-size: 15px;
+
+      margin-top: 12px;
+
+    }
+
+    button.select.highlight {
+
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35);
+
+      animation: pulse-once 1.2s ease 2;
+
+    }
+
+    @keyframes pulse-once {
+
+      0%, 100% { transform: scale(1); }
+
+      50% { transform: scale(1.02); }
+
+    }
+
+    button.fetch { margin-top: 8px; }
+
+    button.fetch-samples { background: #0369a1; }
+
+    button.analyze { background: #7c3aed; }
+
+    .card {
+
+      background: #fff;
+
+      border: 1px solid #e5e7eb;
+
+      border-radius: 10px;
+
+      padding: 12px;
+
+      margin-bottom: 10px;
+
+    }
+
+    .card-title {
+
+      font-weight: 700;
+
+      font-size: 13px;
+
+      margin-bottom: 4px;
+
+    }
+
+    .card-desc {
+
+      font-size: 11px;
+
+      color: #666;
+
+      line-height: 1.45;
+
+      margin-bottom: 10px;
+
+    }
+
+    .row-inline {
+
+      display: flex;
+
+      gap: 8px;
+
+      align-items: center;
+
+    }
+
+    .row-inline select { flex: 1; margin: 0; }
+
+    .row-inline button { flex: 1.2; margin-top: 0; white-space: nowrap; }
+
+    details {
+
+      background: #fff;
+
+      border: 1px solid #e5e7eb;
+
+      border-radius: 10px;
+
+      margin-bottom: 10px;
+
+      overflow: hidden;
+
+    }
+
+    summary {
+
+      padding: 11px 12px;
+
+      font-weight: 600;
+
+      font-size: 12px;
+
+      cursor: pointer;
+
+      list-style: none;
+
+      color: #64748b;
+
+    }
+
+    summary::-webkit-details-marker { display: none; }
+
+    summary::after { content: '▸'; float: right; color: #999; }
+
+    details[open] summary::after { content: '▾'; }
+
+    .details-body {
+
+      padding: 0 12px 12px;
+
+      border-top: 1px solid #f0f0f0;
+
+    }
+
+    .settings-section {
+
+      margin-bottom: 14px;
+
+    }
+
+    .settings-section > summary {
+
+      font-size: 13px;
+
+      color: #333;
+
+      background: #fff;
+
+      border: 1px solid #e5e7eb;
+
+      border-radius: 10px;
+
+    }
+
+    .settings-section[open] > summary {
+
+      border-radius: 10px 10px 0 0;
+
+      border-bottom: none;
+
+    }
+
+    .settings-section .details-body {
+
+      background: #fff;
+
+      border: 1px solid #e5e7eb;
+
+      border-top: none;
+
+      border-radius: 0 0 10px 10px;
+
+    }
+
+    .preset-note, .sample-count {
+
+      font-size: 11px;
+
+      color: #666;
+
+      margin-top: 6px;
+
+      line-height: 1.4;
+
+    }
+
+    .sample-flow {
+
+      margin-bottom: 10px;
+
+      padding: 10px 12px;
+
+      background: #f8fafc;
+
+      border: 1px solid #e2e8f0;
+
+      border-radius: 10px;
+
+    }
+
+    .sample-steps { display: flex; gap: 6px; margin-bottom: 8px; }
+
+    .sample-step {
+
+      flex: 1;
+
+      padding: 6px 4px;
+
+      border-radius: 999px;
+
+      background: #e5e7eb;
+
+      color: #6b7280;
+
+      font-size: 10px;
+
+      font-weight: 700;
+
+      text-align: center;
+
+      line-height: 1.3;
+
+    }
+
+    .sample-step.done { background: #dcfce7; color: #166534; }
+
+    .sample-step.active { background: #dbeafe; color: #1d4ed8; }
+
+    .sample-step.stale { background: #fef3c7; color: #92400e; }
+
+    .sample-flow-status {
+
+      font-size: 11px;
+
+      line-height: 1.5;
+
+      color: #475569;
+
+      white-space: pre-wrap;
+
+    }
+
+    .sample-flow-status.success { color: #166534; }
+
+    .sample-flow-status.error { color: #b91c1c; }
+
+    .sample-flow-status.warn { color: #92400e; }
+
+    .sample-flow-status.loading { color: #1d4ed8; }
+
+    button.fetch-samples.loading,
+
+    button.analyze.loading { opacity: .75; cursor: wait; }
+
+    button.analyze.done { background: #059669; }
+
+    .file-summary {
+
+      padding: 12px;
+
+      background: #eef8f2;
+
+      border: 1px solid #b8e6cc;
+
+      border-radius: 10px;
+
+      font-size: 12px;
+
+      line-height: 1.5;
+
+      margin-bottom: 10px;
+
+      display: none;
+
+    }
+
+    .file-summary.visible { display: block; }
+
+    .file-summary strong { color: #0a7a3f; font-size: 18px; }
+
+    .file-summary .next-step {
+
+      margin-top: 6px;
+
+      color: #2563eb;
+
+      font-weight: 600;
+
+    }
+
+    #status, #inquiryStatus {
+
+      margin-top: 10px;
+
+      padding: 10px;
+
+      border-radius: 8px;
+
+      background: #fff;
+
+      border: 1px solid #e5e5e5;
+
+      min-height: 40px;
+
+      white-space: pre-wrap;
+
+      line-height: 1.45;
+
+      font-size: 12px;
+
+    }
+
+    .danger-zone {
+
+      margin-top: 16px;
+
+      padding-top: 12px;
+
+      border-top: 1px dashed #e5e7eb;
+
+    }
+
+  </style>
+
+</head>
+
+<body>
+
+  <header class="header">
+
+    <h1>스마트스토어 답글 도우미</h1>
+
+    <p class="sub">리뷰·상품문의 답글을 쉽게 만들고 올립니다</p>
+
+    <nav class="tabs">
+
+      <button type="button" class="tab active" data-tab="work">리뷰</button>
+
+      <button type="button" class="tab inquiry" data-tab="inquiry">상품문의</button>
+
+      <button type="button" class="tab settings" data-tab="settings">설정</button>
+
+    </nav>
+
+  </header>
+
+
+
+  <!-- 리뷰 -->
+
+  <section id="panelWork" class="panel work active">
+
+    <div class="flow-bar">
+
+      <div class="flow-chip active" id="reviewFlow1">① 가져오기</div>
+
+      <div class="flow-chip" id="reviewFlow2">② 답글 만들기</div>
+
+    </div>
+
+
+
+    <div id="fileSummary" class="file-summary"></div>
+
+
+
+    <div class="card">
+
+      <div class="card-title">① 판매자센터에서 리뷰 가져오기</div>
+
+      <div class="card-desc">먼저 스마트스토어 <strong>리뷰 관리</strong> 페이지를 연 뒤, 아래 버튼을 누르세요.</div>
+
+      <div class="row-inline">
+
+        <select id="fetchDays"></select>
+
+        <button id="fetchBtn" class="fetch" type="button">가져오기</button>
+
+      </div>
+
+    </div>
+
+
+
+    <details>
+
+      <summary>엑셀 파일로 가져오기 (다른 방법)</summary>
+
+      <div class="details-body">
+
+        <input type="file" id="xlsxFile" accept=".xlsx,.xls" />
+
+        <div class="hint">네이버에서 받은 리뷰 엑셀 파일</div>
+
+      </div>
+
+    </details>
+
+
+
+    <button id="selectBtn" class="select" type="button" disabled>② 답글 만들기 시작 →</button>
+
+
+
+    <div id="status">위에서 리뷰를 가져온 다음, 「답글 만들기 시작」을 누르세요.</div>
+
+  </section>
+
+
+
+  <!-- 상품문의 -->
+
+  <section id="panelInquiry" class="panel inquiry">
+
+    <div class="flow-bar">
+
+      <div class="flow-chip active" id="inquiryFlow1">① 가져오기</div>
+
+      <div class="flow-chip" id="inquiryFlow2">② 답글 만들기</div>
+
+    </div>
+
+
+
+    <div id="inquirySummary" class="file-summary"></div>
+
+
+
+    <div class="card">
+
+      <div class="card-title">① 판매자센터에서 문의 가져오기</div>
+
+      <div class="card-desc">먼저 스마트스토어 <strong>상품문의</strong> 페이지를 연 뒤, 아래 버튼을 누르세요.</div>
+
+      <div class="row-inline">
+
+        <select id="inquiryFetchDays"></select>
+
+        <button id="inquiryFetchBtn" class="fetch" type="button">가져오기</button>
+
+      </div>
+
+    </div>
+
+
+
+    <button id="inquirySelectBtn" class="select" type="button" disabled>② 답글 만들기 시작 →</button>
+
+    <div class="hint" id="inquiryApplyHint">답글을 만든 뒤, 작업 화면에서 「판매자센터에 넣기 준비」를 누르면 [답글] 클릭 시 자동으로 채워집니다.</div>
+
+
+
+    <div id="inquiryStatus">위에서 문의를 가져온 다음, 「답글 만들기 시작」을 누르세요.</div>
+
+  </section>
+
+
+
+  <!-- 설정 -->
+
+  <section id="panelSettings" class="panel settings">
+
+    <div class="card" id="accountCard" hidden>
+
+      <div class="card-title">계정</div>
+
+      <div class="card-desc">처음이면 가입, 이미 있으면 로그인하세요.</div>
+
+      <div id="accountLoggedOut">
+
+        <div class="account-auth-tabs">
+
+          <button type="button" class="account-auth-tab active" id="accountTabLogin">로그인</button>
+
+          <button type="button" class="account-auth-tab" id="accountTabRegister">가입하기</button>
+
+        </div>
+
+        <label for="loginEmail">이메일</label>
+
+        <input type="email" id="loginEmail" placeholder="you@example.com" autocomplete="username" />
+
+        <label for="loginPassword">비밀번호</label>
+
+        <input type="password" id="loginPassword" placeholder="8자 이상" autocomplete="current-password" />
+
+        <div id="registerExtra" hidden>
+
+          <label for="registerPasswordConfirm">비밀번호 확인</label>
+
+          <input type="password" id="registerPasswordConfirm" placeholder="한 번 더 입력" autocomplete="new-password" />
+
+        </div>
+
+        <button id="loginBtn" type="button">로그인</button>
+
+        <button id="registerBtn" type="button" hidden>가입하기</button>
+
+        <div class="hint" id="accountStatus"></div>
+
+      </div>
+
+      <div id="accountLoggedIn" hidden>
+
+        <div class="file-summary visible" id="accountSummary" style="margin-top:0;"></div>
+
+        <button id="refreshUsageBtn" class="secondary" type="button" style="margin-top:8px;">사용량 새로고침</button>
+
+        <button id="openBillingBtn" type="button" style="margin-top:8px;">구독하기</button>
+
+        <button id="logoutBtn" class="secondary" type="button" style="margin-top:8px;">로그아웃</button>
+
+      </div>
+
+    </div>
+
+
+
+    <div class="card" id="apiKeyCard">
+
+      <div class="card-title">AI 연결 (처음 한 번만)</div>
+
+      <label for="apiKey">API 키</label>
+
+      <input type="password" id="apiKey" placeholder="AIza..." autocomplete="off" />
+
+      <div class="hint" id="apiKeyHint">답글 자동 작성에 필요합니다. 내 컴퓨터에만 저장됩니다.</div>
+
+    </div>
+
+
+
+    <details class="settings-section" open>
+
+      <summary>리뷰 답글 말투</summary>
+
+      <div class="details-body">
+
+        <label for="tonePreset">말투 선택</label>
+
+        <select id="tonePreset"></select>
+
+        <div class="preset-note" id="presetNote">원하는 말투를 고르면 AI가 그 스타일로 답글을 씁니다.</div>
+
+        <details style="margin-top:8px;">
+
+          <summary>말투 직접 적기 (고급)</summary>
+
+          <div class="details-body" style="padding-top:8px;">
+
+            <textarea id="systemPrompt" placeholder="예: 반말 금지, 감사 인사로 시작…"></textarea>
+
+          </div>
+
+        </details>
+
+        <details style="margin-top:8px;">
+
+          <summary>내 예전 답글로 말투 배우기</summary>
+
+          <div class="details-body">
+
+            <div class="sample-flow" id="sampleFlow">
+
+              <div class="sample-steps">
+
+                <span class="sample-step" id="sampleStepLoad">① 예시 준비</span>
+
+                <span class="sample-step" id="sampleStepAnalyze">② 분석</span>
+
+                <span class="sample-step" id="sampleStepApply">③ 저장</span>
+
+              </div>
+
+              <div class="sample-flow-status" id="sampleFlowStatus">예전 답글 2개 이상을 넣고 [말투 만들기]를 누르세요.</div>
+
+            </div>
+
+            <textarea id="sampleReplies" placeholder="예전에 쓴 답글 2개 이상 (빈 줄 또는 --- 로 구분)"></textarea>
+
+            <div class="sample-count" id="sampleCount">예시 0개</div>
+
+            <div class="row-inline" style="margin-top:8px;">
+
+              <button id="downloadSampleXlsxBtn" class="secondary" type="button">엑셀 양식</button>
+
+              <button id="downloadSampleTxtBtn" class="secondary" type="button">메모 양식</button>
+
+            </div>
+
+            <input type="file" id="sampleFile" accept=".txt,.xlsx,.xls" style="margin-top:8px;" />
+
+            <button id="openStylePickBtn" class="fetch-samples" type="button">판매자센터에서 내 답글 고르기</button>
+
+            <div class="hint">가장 쉬운 방법: 이미 올린 답글 중에서 골라 말투를 배웁니다.</div>
+
+            <button id="analyzeBtn" class="analyze" type="button">말투 만들기</button>
+
+          </div>
+
+        </details>
+
+      </div>
+
+    </details>
+
+
+
+    <details class="settings-section">
+
+      <summary>상품문의 답글 말투</summary>
+
+      <div class="details-body">
+
+        <label for="inquiryTonePreset">말투 선택</label>
+
+        <select id="inquiryTonePreset"></select>
+
+        <div class="preset-note" id="inquiryPresetNote">리뷰와 따로 저장됩니다. 문의 답글 전용 말투입니다.</div>
+
+        <details style="margin-top:8px;">
+
+          <summary>말투 직접 적기 (고급)</summary>
+
+          <div class="details-body" style="padding-top:8px;">
+
+            <textarea id="inquirySystemPrompt" placeholder="예: 정중하게, 배송·교환 안내 위주…"></textarea>
+
+          </div>
+
+        </details>
+
+        <details style="margin-top:8px;">
+
+          <summary>내 예전 답글로 말투 배우기</summary>
+
+          <div class="details-body">
+
+            <div class="sample-flow" id="inquirySampleFlow">
+
+              <div class="sample-steps">
+
+                <span class="sample-step" id="inquirySampleStepLoad">① 예시 준비</span>
+
+                <span class="sample-step" id="inquirySampleStepAnalyze">② 분석</span>
+
+                <span class="sample-step" id="inquirySampleStepApply">③ 저장</span>
+
+              </div>
+
+              <div class="sample-flow-status" id="inquirySampleFlowStatus">문의 답글 2개 이상을 넣고 [말투 만들기]를 누르세요.</div>
+
+            </div>
+
+            <textarea id="inquirySampleReplies" placeholder="예전 문의 답글 2개 이상"></textarea>
+
+            <div class="sample-count" id="inquirySampleCount">예시 0개</div>
+
+            <div class="row-inline" style="margin-top:8px;">
+
+              <button id="inquiryDownloadSampleXlsxBtn" class="secondary" type="button">엑셀 양식</button>
+
+              <button id="inquiryDownloadSampleTxtBtn" class="secondary" type="button">메모 양식</button>
+
+            </div>
+
+            <input type="file" id="inquirySampleFile" accept=".txt,.xlsx,.xls" style="margin-top:8px;" />
+
+            <button id="openInquiryStylePickBtn" class="fetch-samples" type="button">판매자센터에서 내 답글 고르기</button>
+
+            <button id="inquiryAnalyzeBtn" class="analyze" type="button">말투 만들기</button>
+
+          </div>
+
+        </details>
+
+      </div>
+
+    </details>
+
+
+
+    <div class="danger-zone">
+
+      <button id="clearBtn" class="secondary" type="button">저장된 작업 모두 지우기</button>
+
+      <div class="hint">가져온 목록, 만든 답글, 진행 중 작업이 삭제됩니다.</div>
+
+    </div>
+
+  </section>
+
+
+
+  <script src="lib/console-filter.js"></script>
+
+  <script src="config.js"></script>
+
+  <script src="lib/ai-proxy.js"></script>
+
+  <script src="lib/lookup-days.js"></script>
+
+  <script src="lib/tone-presets.js"></script>
+
+  <script src="lib/style-apply-confirm.js"></script>
+
+  <script src="lib/sample-replies.js"></script>
+
+  <script src="lib/style-channel.js"></script>
+
+  <script src="lib/xlsx.full.min.js"></script>
+
+  <script src="popup.js"></script>
+
+</body>
+
+</html>
+
+

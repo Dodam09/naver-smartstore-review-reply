@@ -1,0 +1,11 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+
+# Railway 대시보드에서 Volume 추가: Mount Path = /data
+# (회원 DB app.db 가 여기 저장됩니다)

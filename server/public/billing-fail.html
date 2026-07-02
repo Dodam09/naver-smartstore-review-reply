@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>결제 실패</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f6f7fb;
+      color: #222;
+    }
+    .wrap { max-width: 560px; margin: 0 auto; padding: 32px 16px; }
+    .card {
+      background: #fff5f5;
+      border: 1px solid #ffb4b4;
+      border-radius: 12px;
+      padding: 20px;
+      white-space: pre-wrap;
+      line-height: 1.6;
+      color: #b00020;
+    }
+    a { color: #03c75a; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card" id="message"></div>
+  </div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const code = params.get('code') || '';
+    const msg = params.get('message') || '결제가 완료되지 않았습니다.';
+    document.getElementById('message').textContent =
+      `${msg}${code ? `\n\n코드: ${code}` : ''}\n\n<a href="/billing.html">다시 시도</a>`;
+  </script>
+</body>
+</html>

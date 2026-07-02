@@ -3,3 +3,6 @@ sample.xlsx
 *.xlsx
 .DS_Store
 Thumbs.db
+server/node_modules/
+server/.env
+server/data/

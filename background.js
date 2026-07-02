@@ -1,4 +1,4 @@
-importScripts('config.js', 'lib/lookup-days.js', 'lib/tone-presets.js', 'lib/inquiry-reference.js');
+importScripts('config.js', 'lib/lookup-days.js', 'lib/tone-presets.js', 'lib/inquiry-reference.js', 'lib/ai-proxy.js');
 
 let isRunning = false;
 let isInquiryRunning = false;
@@ -217,7 +217,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 async function runGenerate(payload) {
   const { rows, apiKey, systemPrompt, model } = payload;
   if (!rows?.length) throw new Error('처리할 리뷰가 없습니다.');
-  if (!apiKey) throw new Error('API 키가 없습니다.');
+  await ensureAiCredentials(apiKey);
 
   isRunning = true;
   stopRequested = false;
@@ -354,7 +354,7 @@ async function runGenerateInquiries(payload) {
   let { rows, apiKey, systemPrompt, model, useReference, referenceDays, referenceSelectedIds } =
     payload;
   if (!rows?.length) throw new Error('처리할 상품문의가 없습니다.');
-  if (!apiKey) throw new Error('API 키가 없습니다.');
+  await ensureAiCredentials(apiKey);
 
   systemPrompt = String(systemPrompt || '').trim() || getDefaultInquirySystemPrompt();
 
@@ -599,7 +599,20 @@ async function loadInquiryReferenceCatalog(days) {
 
 async function analyzeToneSamples(payload) {
   const { apiKey, samples, model, context = 'review' } = payload;
-  if (!apiKey) throw new Error('API 키가 없습니다.');
+  await ensureAiCredentials(apiKey);
+
+  if (useAiProxy()) {
+    const data = await postAiApi('/api/analyze-tone', {
+      samples,
+      context,
+      model: model || CONFIG.GEMINI_MODEL,
+    });
+    return {
+      prompt: data.prompt,
+      sampleCount: data.sampleCount,
+    };
+  }
+
   const normalized = normalizeAnalysisSamples(samples);
   if (normalized.length < 2) {
     const rawCount = (samples || []).filter((s) => String(s).trim().length >= 8).length;
@@ -657,6 +670,10 @@ function normalizeAnalysisSamples(samples) {
 }
 
 async function callGeminiText(apiKey, userText, model, options = {}) {
+  if (useAiProxy()) {
+    throw new Error('callGeminiText는 서버 프록시 모드에서 직접 호출할 수 없습니다.');
+  }
+
   const geminiModel = model || CONFIG.GEMINI_MODEL;
   const url =
     `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -692,6 +709,20 @@ async function callGeminiText(apiKey, userText, model, options = {}) {
 }
 
 async function generateReply(apiKey, systemPrompt, row, model, signal) {
+  if (useAiProxy()) {
+    const data = await postAiApi(
+      '/api/generate-reply',
+      {
+        channel: 'review',
+        systemPrompt,
+        row,
+        model: model || CONFIG.GEMINI_MODEL,
+      },
+      signal
+    );
+    return data.text;
+  }
+
   const userContent = [
     row.product && `상품명: ${row.product}`,
     row.reviewType && `리뷰구분: ${row.reviewType}`,
@@ -748,6 +779,21 @@ async function generateReply(apiKey, systemPrompt, row, model, signal) {
 }
 
 async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, references = []) {
+  if (useAiProxy()) {
+    const data = await postAiApi(
+      '/api/generate-reply',
+      {
+        channel: 'inquiry',
+        systemPrompt,
+        row,
+        references,
+        model: model || CONFIG.GEMINI_MODEL,
+      },
+      signal
+    );
+    return data.text;
+  }
+
   const refBlock =
     references.length > 0
       ? [
@@ -1004,8 +1050,9 @@ function formatSampleFetchError(message) {
 }
 
 const SELLER_TAB_URL = 'https://sell.smartstore.naver.com/*';
-const INQUIRY_CONTENT_SCRIPT_FILES = ['content-inquiry-import.js'];
+const INQUIRY_CONTENT_SCRIPT_FILES = ['config.js', 'content-inquiry-import.js'];
 const SELLER_CONTENT_SCRIPT_FILES = [
+  'config.js',
   'content.js',
   'content-import.js',
   'content-submit.js',

@@ -68,6 +68,24 @@ const els = {
   reviewFlow2: document.getElementById('reviewFlow2'),
   inquiryFlow1: document.getElementById('inquiryFlow1'),
   inquiryFlow2: document.getElementById('inquiryFlow2'),
+  accountCard: document.getElementById('accountCard'),
+  accountLoggedOut: document.getElementById('accountLoggedOut'),
+  accountLoggedIn: document.getElementById('accountLoggedIn'),
+  loginEmail: document.getElementById('loginEmail'),
+  loginPassword: document.getElementById('loginPassword'),
+  loginBtn: document.getElementById('loginBtn'),
+  registerBtn: document.getElementById('registerBtn'),
+  accountTabLogin: document.getElementById('accountTabLogin'),
+  accountTabRegister: document.getElementById('accountTabRegister'),
+  registerExtra: document.getElementById('registerExtra'),
+  registerPasswordConfirm: document.getElementById('registerPasswordConfirm'),
+  logoutBtn: document.getElementById('logoutBtn'),
+  refreshUsageBtn: document.getElementById('refreshUsageBtn'),
+  openBillingBtn: document.getElementById('openBillingBtn'),
+  accountStatus: document.getElementById('accountStatus'),
+  accountSummary: document.getElementById('accountSummary'),
+  apiKeyCard: document.getElementById('apiKeyCard'),
+  apiKeyHint: document.getElementById('apiKeyHint'),
 };
 
 let parsedRows = [];
@@ -80,6 +98,8 @@ let inquiryRows = [];
 let inquiryJobPollTimer = null;
 let reviewStyle;
 let inquiryStyle;
+let accountAuthMode = 'login';
+let registrationOpen = true;
 
 init();
 
@@ -168,6 +188,13 @@ async function init() {
   els.apiKey.addEventListener('input', scheduleSaveSettings);
   els.fetchDays.addEventListener('change', scheduleSaveSettings);
   els.inquiryFetchDays.addEventListener('change', scheduleSaveSettings);
+  els.loginBtn?.addEventListener('click', onLoginAccount);
+  els.registerBtn?.addEventListener('click', onRegisterAccount);
+  els.accountTabLogin?.addEventListener('click', () => setAccountAuthMode('login'));
+  els.accountTabRegister?.addEventListener('click', () => setAccountAuthMode('register'));
+  els.logoutBtn?.addEventListener('click', onLogoutAccount);
+  els.refreshUsageBtn?.addEventListener('click', onRefreshAccountUsage);
+  els.openBillingBtn?.addEventListener('click', onOpenBillingPage);
 
   chrome.storage.onChanged.addListener(onStorageChanged);
 
@@ -206,6 +233,7 @@ async function init() {
   refreshInquiryJobStatus();
   updateReviewFlowBar();
   updateInquiryFlowBar();
+  await initAccountUi();
 }
 
 function updateReviewFlowBar() {
@@ -807,6 +835,10 @@ async function onFileSelected(event) {
 
 function onStorageChanged(changes, area) {
   if (area !== 'local') return;
+  const authKey = CONFIG.AUTH_STORAGE_KEY || 'smartstoreAuthSession';
+  if (changes[authKey]) {
+    renderAccountUi();
+  }
   if (changes[CONFIG.SETTINGS_KEY]) {
     const settings = changes[CONFIG.SETTINGS_KEY].newValue || {};
     reviewStyle.syncFromSettings(settings);
@@ -959,6 +991,164 @@ function normalizeReviewContent(text) {
 
 function setStatus(message) {
   els.status.textContent = message;
+}
+
+async function initAccountUi() {
+  const proxyMode = useAiProxy();
+  const devBypass = !!String(CONFIG.API_DEV_SECRET || '').trim();
+
+  if (els.accountCard) {
+    els.accountCard.hidden = !proxyMode || devBypass;
+  }
+  if (els.apiKeyCard) {
+    els.apiKeyCard.hidden = proxyMode && !devBypass;
+  }
+  if (els.apiKeyHint && proxyMode && devBypass) {
+    els.apiKeyHint.textContent = '개발 모드: 서버 DEV_API_SECRET 으로 연결 중입니다.';
+  }
+
+  if (!proxyMode || devBypass) return;
+
+  try {
+    const health = await fetchServerHealth();
+    registrationOpen = health?.registrationOpen !== false;
+  } catch (_) {
+    registrationOpen = true;
+  }
+
+  if (els.accountTabRegister) {
+    els.accountTabRegister.hidden = !registrationOpen;
+  }
+  setAccountAuthMode('login');
+  await renderAccountUi();
+}
+
+function setAccountAuthMode(mode) {
+  if (mode === 'register' && !registrationOpen) {
+    mode = 'login';
+  }
+  accountAuthMode = mode;
+
+  els.accountTabLogin?.classList.toggle('active', mode === 'login');
+  els.accountTabRegister?.classList.toggle('active', mode === 'register');
+  if (els.registerExtra) els.registerExtra.hidden = mode !== 'register';
+  if (els.loginBtn) els.loginBtn.hidden = mode !== 'login';
+  if (els.registerBtn) els.registerBtn.hidden = mode !== 'register';
+
+  if (els.accountStatus) {
+    els.accountStatus.textContent =
+      mode === 'register'
+        ? '이메일과 비밀번호(8자 이상)로 가입할 수 있습니다.'
+        : registrationOpen
+          ? '로그인하거나 [가입하기] 탭에서 새 계정을 만드세요.'
+          : '이메일과 비밀번호로 로그인해 주세요.';
+  }
+}
+
+async function renderAccountUi() {
+  const session = await loadAuthSession();
+  const loggedIn = !!session?.token;
+
+  if (els.accountLoggedOut) els.accountLoggedOut.hidden = loggedIn;
+  if (els.accountLoggedIn) els.accountLoggedIn.hidden = !loggedIn;
+
+  if (!loggedIn) {
+    setAccountAuthMode(accountAuthMode);
+    return;
+  }
+
+  if (els.accountSummary) {
+    const usageText = formatUsageSummary(session.usage);
+    const subText = formatSubscriptionSummary(session.subscription);
+    els.accountSummary.innerHTML = `
+      <div><strong>${session.email || '계정'}</strong></div>
+      <div>${session.planName || session.planId || '플랜'}</div>
+      <div>${subText || '구독 정보 없음'}</div>
+      <div>${usageText || '사용량 정보 없음'}</div>
+    `;
+  }
+}
+
+async function onRegisterAccount() {
+  const email = els.loginEmail?.value.trim() || '';
+  const password = els.loginPassword?.value || '';
+  const confirm = els.registerPasswordConfirm?.value || '';
+
+  if (!email || !password) {
+    if (els.accountStatus) els.accountStatus.textContent = '이메일과 비밀번호를 입력해 주세요.';
+    return;
+  }
+  if (password.length < 8) {
+    if (els.accountStatus) els.accountStatus.textContent = '비밀번호는 8자 이상이어야 합니다.';
+    return;
+  }
+  if (password !== confirm) {
+    if (els.accountStatus) els.accountStatus.textContent = '비밀번호 확인이 일치하지 않습니다.';
+    return;
+  }
+
+  if (els.registerBtn) els.registerBtn.disabled = true;
+  if (els.accountStatus) els.accountStatus.textContent = '가입 중…';
+
+  try {
+    await registerWithPassword(email, password);
+    if (els.loginPassword) els.loginPassword.value = '';
+    if (els.registerPasswordConfirm) els.registerPasswordConfirm.value = '';
+    if (els.accountStatus) els.accountStatus.textContent = '가입 완료! 로그인되었습니다.';
+    await renderAccountUi();
+  } catch (err) {
+    if (els.accountStatus) els.accountStatus.textContent = err.message || '가입에 실패했습니다.';
+  } finally {
+    if (els.registerBtn) els.registerBtn.disabled = false;
+  }
+}
+
+async function onLoginAccount() {
+  const email = els.loginEmail?.value.trim() || '';
+  const password = els.loginPassword?.value || '';
+  if (!email || !password) {
+    if (els.accountStatus) els.accountStatus.textContent = '이메일과 비밀번호를 입력해 주세요.';
+    return;
+  }
+
+  if (els.loginBtn) els.loginBtn.disabled = true;
+  if (els.accountStatus) els.accountStatus.textContent = '로그인 중…';
+
+  try {
+    await loginWithPassword(email, password);
+    if (els.loginPassword) els.loginPassword.value = '';
+    if (els.accountStatus) els.accountStatus.textContent = '로그인되었습니다.';
+    await renderAccountUi();
+  } catch (err) {
+    if (els.accountStatus) els.accountStatus.textContent = err.message || '로그인에 실패했습니다.';
+  } finally {
+    if (els.loginBtn) els.loginBtn.disabled = false;
+  }
+}
+
+async function onLogoutAccount() {
+  await logoutAccount();
+  await renderAccountUi();
+  if (els.accountStatus) els.accountStatus.textContent = '로그아웃되었습니다.';
+}
+
+async function onRefreshAccountUsage() {
+  if (els.refreshUsageBtn) els.refreshUsageBtn.disabled = true;
+  try {
+    await refreshAccountUsage();
+    await renderAccountUi();
+    if (els.accountStatus) els.accountStatus.textContent = '사용량을 새로고침했습니다.';
+  } catch (err) {
+    if (els.accountStatus) els.accountStatus.textContent = err.message || '새로고침에 실패했습니다.';
+  } finally {
+    if (els.refreshUsageBtn) els.refreshUsageBtn.disabled = false;
+  }
+}
+
+function onOpenBillingPage() {
+  openBillingPage('standard').catch((err) => {
+    if (els.accountStatus) els.accountStatus.textContent = err.message || '결제 페이지를 열 수 없습니다.';
+  });
 }
 
 function storageGet(keys) {

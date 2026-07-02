@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>결제 완료</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f6f7fb;
+      color: #222;
+    }
+    .wrap { max-width: 560px; margin: 0 auto; padding: 32px 16px; }
+    .card {
+      background: #fff;
+      border: 1px solid #e5e7ef;
+      border-radius: 12px;
+      padding: 20px;
+      white-space: pre-wrap;
+      line-height: 1.6;
+    }
+    .error { border-color: #ffb4b4; background: #fff5f5; color: #b00020; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card" id="status">결제 확인 중…</div>
+  </div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const statusEl = document.getElementById('status');
+    const paymentKey = params.get('paymentKey');
+    const orderId = params.get('orderId');
+    const amount = Number(params.get('amount'));
+    const token = sessionStorage.getItem('billingToken') || '';
+
+    async function confirmPayment() {
+      if (!token) throw new Error('로그인 정보가 없습니다. 확장프로그램에서 다시 시도해 주세요.');
+      if (!paymentKey || !orderId || !Number.isFinite(amount)) {
+        throw new Error('결제 정보가 올바르지 않습니다.');
+      }
+
+      const response = await fetch('/api/billing/confirm', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ paymentKey, orderId, amount }),
+      });
+      const raw = await response.text();
+      let data = {};
+      try { data = raw ? JSON.parse(raw) : {}; } catch (_) {}
+      if (!response.ok || data.ok === false) {
+        throw new Error(data.error || `결제 확인 실패 (${response.status})`);
+      }
+      return data;
+    }
+
+    confirmPayment()
+      .then((data) => {
+        statusEl.textContent =
+          `결제가 완료되었습니다.\n\n플랜: ${data.user.plan.name}\n만료: ${data.user.subscription.expiresAt || '-'}\n\n확장프로그램 [설정] → 사용량 새로고침 후 사용하세요.\n이 창은 닫아도 됩니다.`;
+      })
+      .catch((err) => {
+        statusEl.className = 'card error';
+        statusEl.textContent = err.message || String(err);
+      });
+  </script>
+</body>
+</html>

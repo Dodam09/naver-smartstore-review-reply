@@ -219,8 +219,8 @@ async function onAnalyzeSelected() {
 
   const settings = (await storageGet([CONFIG.SETTINGS_KEY]))[CONFIG.SETTINGS_KEY] || {};
   const apiKey = settings.apiKey || CONFIG.GEMINI_API_KEY || '';
-  if (!apiKey || apiKey.includes('YOUR_GEMINI')) {
-    setBanner('API 키가 없습니다.\n확장 팝업 [설정] 탭에서 API 키를 입력해 주세요.', 'warn');
+  if (!(await hasAiCredentialsAsync(apiKey))) {
+    setBanner('AI 연결이 필요해요.\n[설정]에서 로그인하거나 API 키를 확인해 주세요.', 'warn');
     return;
   }
 

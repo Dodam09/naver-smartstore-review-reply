@@ -596,8 +596,8 @@ async function onGenerate() {
   const settings = settingsData[CONFIG.SETTINGS_KEY] || {};
   const apiKey = settings.apiKey || CONFIG.GEMINI_API_KEY;
 
-  if (!apiKey || apiKey.includes('YOUR_GEMINI_API_KEY')) {
-    showProgress('AI 연결이 필요해요. 확장 아이콘 → 「설정」에서 API 키를 넣어 주세요.', true);
+  if (!(await hasAiCredentialsAsync(apiKey))) {
+    showProgress('AI 연결이 필요해요. [설정]에서 로그인하거나 API 키를 넣어 주세요.', true);
     return;
   }
 

@@ -5,9 +5,10 @@
   if (globalThis.__ssInquiryFillLoaded) return;
   globalThis.__ssInquiryFillLoaded = true;
 
-  const STORAGE_KEY = CONFIG.INQUIRY_STORAGE_KEY || 'smartstoreInquiryReplies';
-  const APPLY_ENABLED_KEY = CONFIG.INQUIRY_APPLY_ENABLED_KEY || 'smartstoreInquiryApplyEnabled';
-  const PARSE_CACHE_KEY = CONFIG.INQUIRY_PARSE_CACHE_KEY || 'smartstoreInquiryParseCache';
+  const cfg = globalThis.CONFIG || {};
+  const STORAGE_KEY = cfg.INQUIRY_STORAGE_KEY || 'smartstoreInquiryReplies';
+  const APPLY_ENABLED_KEY = cfg.INQUIRY_APPLY_ENABLED_KEY || 'smartstoreInquiryApplyEnabled';
+  const PARSE_CACHE_KEY = cfg.INQUIRY_PARSE_CACHE_KEY || 'smartstoreInquiryParseCache';
   const FILLED_ATTR = 'data-ss-inquiry-filled';
   const FILLED_ID_ATTR = 'data-ss-inquiry-id';
   const TOAST_ID = 'ss-inquiry-reply-toast';

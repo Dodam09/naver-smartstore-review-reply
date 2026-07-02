@@ -3,6 +3,12 @@ if (!globalThis.CONFIG) {
   globalThis.CONFIG = {
   GEMINI_API_KEY: 'AIzaYOUR_GEMINI_API_KEY_HERE',
   GEMINI_MODEL: 'gemini-2.5-flash',
+  // 서버 프록시 (설정 시 확장은 Gemini 키 없이 서버만 호출)
+  // 로컬: http://127.0.0.1:8787
+  // Railway: https://your-app.up.railway.app
+  API_BASE_URL: 'http://127.0.0.1:8787',
+  API_DEV_SECRET: 'dev-change-me',
+  AUTH_STORAGE_KEY: 'smartstoreAuthSession',
   STORAGE_KEY: 'smartstoreReviewReplies',
   DRAFT_KEY: 'smartstoreReviewDraft',
   APPLY_ENABLED_KEY: 'smartstoreReviewApplyEnabled',
