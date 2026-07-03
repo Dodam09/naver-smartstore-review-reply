@@ -6,17 +6,20 @@ import {
   findBillingOrderByOrderId,
   findUserById,
   getOrCreateCustomerKey,
+  listBillingOrdersForUser,
   markBillingOrderPaid,
   setUserBillingKey,
   upgradeUserSubscription,
 } from './db.js';
 import { getPlan, getPlanRank, listPaidPlans, normalizePaidPlanId } from './plans.js';
-import { getSubscriptionSummary, resolveCheckoutAction } from './subscription.js';
+import { getSubscriptionSummary, isSubscriptionActive, resolveCheckoutAction } from './subscription.js';
 
 const TOSS_SECRET_KEY = String(process.env.TOSS_SECRET_KEY || '').trim();
 const TOSS_CLIENT_KEY = String(process.env.TOSS_CLIENT_KEY || '').trim();
 const BILLING_MOCK = String(process.env.BILLING_MOCK || 'false').toLowerCase() === 'true';
 const SUBSCRIPTION_DAYS = Number(process.env.SUBSCRIPTION_DAYS || 30);
+const RENEWAL_GRACE_DAYS = Number(process.env.RENEWAL_GRACE_DAYS || 3);
+const RENEWAL_MAX_ATTEMPTS = Number(process.env.RENEWAL_MAX_ATTEMPTS || 3);
 
 function resolveAppBaseUrl() {
   const explicit = String(process.env.APP_BASE_URL || '').trim().replace(/\/$/, '');
@@ -32,13 +35,23 @@ function resolveAppBaseUrl() {
 const APP_BASE_URL = resolveAppBaseUrl();
 
 export function getBillingConfig() {
+  const tossConfigured = !!TOSS_SECRET_KEY && !!TOSS_CLIENT_KEY;
+  const productionReady = tossConfigured && !BILLING_MOCK;
   return {
     mockMode: BILLING_MOCK,
-    tossConfigured: !!TOSS_SECRET_KEY && !!TOSS_CLIENT_KEY,
+    tossConfigured,
+    productionReady,
     clientKey: TOSS_CLIENT_KEY || null,
     appBaseUrl: APP_BASE_URL,
     subscriptionDays: SUBSCRIPTION_DAYS,
+    renewalGraceDays: RENEWAL_GRACE_DAYS,
+    renewalMaxAttempts: RENEWAL_MAX_ATTEMPTS,
     autoRenewEnabled: String(process.env.RENEWAL_ENABLED || 'true').toLowerCase() !== 'false',
+    legalNotice: {
+      billingCycle: `${SUBSCRIPTION_DAYS}일`,
+      cancelMethod: '확장 프로그램 [설정] → [구독 취소]',
+      retryPolicy: `갱신 실패 시 최대 ${RENEWAL_MAX_ATTEMPTS}회(약 ${RENEWAL_GRACE_DAYS}일) 재시도`,
+    },
     plans: listPaidPlans().map((plan) => ({
       id: plan.id,
       name: plan.name,
@@ -48,6 +61,40 @@ export function getBillingConfig() {
       rank: getPlanRank(plan.id),
     })),
   };
+}
+
+export function logBillingStartupWarnings() {
+  if (BILLING_MOCK) {
+    console.warn('WARN: BILLING_MOCK=true — 실제 결제 없음. 배포 시 false + TOSS 키 설정 필요');
+  } else if (!TOSS_SECRET_KEY || !TOSS_CLIENT_KEY) {
+    console.warn('WARN: TOSS 키 미설정 — 결제 불가');
+  } else {
+    console.log('Production billing ready (Toss + auto-renewal)');
+  }
+}
+
+function formatOrderKind(kind) {
+  const map = {
+    subscribe: '신규 구독',
+    upgrade: '플랜 업그레이드',
+    renewal: '자동 갱신',
+    card_update: '결제 수단 변경',
+    payment: '결제',
+  };
+  return map[kind] || kind || '결제';
+}
+
+export function getPaymentHistory(userId, limit = 20) {
+  return listBillingOrdersForUser(userId, limit).map((order) => ({
+    orderId: order.order_id,
+    planId: order.plan_id,
+    planName: getPlan(order.plan_id).name,
+    amount: order.amount,
+    orderName: order.order_name,
+    kind: order.order_kind || 'payment',
+    kindLabel: formatOrderKind(order.order_kind),
+    paidAt: order.paid_at || order.created_at,
+  }));
 }
 
 export function createOrderId(userId) {
@@ -142,6 +189,7 @@ export function prepareCheckout(userId, planId) {
     amount: action.amount,
     orderName: action.orderName,
     customerKey,
+    orderKind: action.type === 'upgrade' ? 'upgrade' : 'subscribe',
   });
 
   const useBillingAuth = action.type === 'subscribe';
@@ -304,5 +352,58 @@ export async function mockConfirmBillingAuth(userId, orderId) {
     authKey: `mock_auth_${orderId}`,
     customerKey: getOrCreateCustomerKey(userId),
     orderId,
+  });
+}
+
+export function prepareCardUpdate(userId) {
+  const user = findUserById(userId);
+  if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+  if (!isSubscriptionActive(user)) {
+    throw new Error('활성 구독이 있을 때만 결제 수단을 변경할 수 있습니다.');
+  }
+  if (String(user.subscription_status || 'none') === 'cancelled') {
+    throw new Error('취소 예약 중에는 결제 수단을 변경할 수 없습니다. [취소 철회] 후 다시 시도해 주세요.');
+  }
+
+  const customerKey = getOrCreateCustomerKey(userId);
+  return {
+    customerKey,
+    clientKey: TOSS_CLIENT_KEY || null,
+    billingAuthSuccessUrl: `${APP_BASE_URL}/billing-auth-success.html?mode=card-update`,
+    failUrl: `${APP_BASE_URL}/billing-fail.html`,
+    mockMode: BILLING_MOCK,
+  };
+}
+
+export async function confirmCardUpdate(userId, { authKey, customerKey }) {
+  const user = findUserById(userId);
+  if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+  if (!isSubscriptionActive(user)) {
+    throw new Error('활성 구독이 있을 때만 결제 수단을 변경할 수 있습니다.');
+  }
+
+  let billingKey;
+  if (BILLING_MOCK && String(authKey || '').startsWith('mock_auth_card_')) {
+    billingKey = mockBillingKeyForUser(userId);
+  } else {
+    if (!TOSS_SECRET_KEY) throw new Error('TOSS_SECRET_KEY가 설정되지 않았습니다.');
+    const issued = await issueTossBillingKey({ authKey, customerKey });
+    billingKey = issued.billingKey;
+  }
+
+  setUserBillingKey(userId, billingKey, { enableAutoRenew: !!user.auto_renew });
+  return {
+    user: findUserById(userId),
+    subscription: getSubscriptionSummary(findUserById(userId)),
+  };
+}
+
+export async function mockConfirmCardUpdate(userId) {
+  if (!BILLING_MOCK) {
+    throw new Error('BILLING_MOCK 모드에서만 사용할 수 있습니다.');
+  }
+  return confirmCardUpdate(userId, {
+    authKey: `mock_auth_card_${userId}_${Date.now()}`,
+    customerKey: getOrCreateCustomerKey(userId),
   });
 }

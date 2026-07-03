@@ -13,10 +13,15 @@ import {
 } from './auth.js';
 import {
   confirmBillingAuthCheckout,
+  confirmCardUpdate,
   confirmCheckout,
   getBillingConfig,
+  getPaymentHistory,
+  logBillingStartupWarnings,
   mockConfirmBillingAuth,
+  mockConfirmCardUpdate,
   mockConfirmCheckout,
+  prepareCardUpdate,
   prepareCheckout,
 } from './billing.js';
 import {
@@ -277,6 +282,79 @@ app.get('/api/auth/me', authenticate, (req, res) => {
 
 app.get('/api/billing/config', (_req, res) => {
   res.json({ ok: true, ...getBillingConfig() });
+});
+
+app.get('/api/billing/history', authenticate, (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(400).json({ ok: false, error: '로그인 계정으로만 조회할 수 있습니다.' });
+    return;
+  }
+  try {
+    const history = getPaymentHistory(req.auth.user.id);
+    res.json({ ok: true, history });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.post('/api/billing/prepare-card-update', authenticate, (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(400).json({ ok: false, error: '로그인 계정으로만 변경할 수 있습니다.' });
+    return;
+  }
+  try {
+    const cardUpdate = prepareCardUpdate(req.auth.user.id);
+    res.json({ ok: true, cardUpdate });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.post('/api/billing/confirm-card-update', authenticate, async (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(400).json({ ok: false, error: '로그인 계정으로만 변경할 수 있습니다.' });
+    return;
+  }
+  try {
+    const result = await confirmCardUpdate(req.auth.user.id, {
+      authKey: req.body?.authKey,
+      customerKey: req.body?.customerKey,
+    });
+    res.json({
+      ok: true,
+      user: {
+        id: result.user.id,
+        email: result.user.email,
+        planId: result.user.plan_id,
+        plan: getPlan(result.user.plan_id),
+        subscription: result.subscription,
+      },
+    });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.post('/api/billing/mock-card-update', authenticate, async (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(400).json({ ok: false, error: '로그인 계정으로만 변경할 수 있습니다.' });
+    return;
+  }
+  try {
+    const result = await mockConfirmCardUpdate(req.auth.user.id);
+    res.json({
+      ok: true,
+      user: {
+        id: result.user.id,
+        email: result.user.email,
+        planId: result.user.plan_id,
+        plan: getPlan(result.user.plan_id),
+        subscription: result.subscription,
+      },
+    });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
 });
 
 app.post('/api/billing/prepare', authenticate, (req, res) => {
@@ -656,6 +734,7 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log('User login required for AI endpoints');
   }
   const billing = getBillingConfig();
+  logBillingStartupWarnings();
   if (billing.mockMode) {
     console.log('BILLING_MOCK enabled (test payments without Toss)');
   }

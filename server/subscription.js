@@ -1,5 +1,24 @@
 import { findUserById, markUserSubscriptionCancelled, resumeUserSubscription } from './db.js';
 import { getPlan, getUpgradePrice, normalizePaidPlanId } from './plans.js';
+
+const RENEWAL_GRACE_DAYS = Number(process.env.RENEWAL_GRACE_DAYS || 3);
+const RENEWAL_MAX_ATTEMPTS = Number(process.env.RENEWAL_MAX_ATTEMPTS || 3);
+
+function parseDbDate(value) {
+  return new Date(String(value || '').replace(' ', 'T') + 'Z');
+}
+
+export function isInRenewalGrace(user, now = new Date()) {
+  if (!user) return false;
+  if (String(user.subscription_status || 'none') !== 'active') return false;
+  if (!user.auto_renew || !user.billing_key || !user.subscription_expires_at) return false;
+  const failCount = Number(user.renewal_fail_count || 0);
+  if (failCount <= 0 || failCount >= RENEWAL_MAX_ATTEMPTS) return false;
+  const expires = parseDbDate(user.subscription_expires_at);
+  if (expires.getTime() > now.getTime()) return false;
+  const graceEnd = expires.getTime() + RENEWAL_GRACE_DAYS * 86400000;
+  return now.getTime() <= graceEnd;
+}
 export class SubscriptionError extends Error {
   constructor(message, subscription) {
     super(message);
@@ -15,12 +34,15 @@ export function getSubscriptionSummary(user) {
   const expiresAt = user.subscription_expires_at || null;
   const active = isSubscriptionActive(user);
   const cancelled = status === 'cancelled';
+  const renewalGrace = isInRenewalGrace(user);
 
   return {
     status,
     active,
     cancelled,
     autoRenew: !!(user.auto_renew && user.billing_key),
+    renewalGrace,
+    renewalFailCount: Number(user.renewal_fail_count || 0),
     expiresAt,
     planId: active ? user.plan_id : 'none',
     planName: active ? plan.name : '구독 전',
@@ -33,8 +55,10 @@ export function isSubscriptionActive(user, now = new Date()) {
   const status = String(user.subscription_status || 'none');
   if (status !== 'active' && status !== 'cancelled') return false;
   if (!user.subscription_expires_at) return false;
-  const expires = new Date(String(user.subscription_expires_at).replace(' ', 'T') + 'Z');
-  return expires.getTime() > now.getTime();
+  const expires = parseDbDate(user.subscription_expires_at);
+  if (expires.getTime() > now.getTime()) return true;
+  if (status === 'active' && isInRenewalGrace(user, now)) return true;
+  return false;
 }
 
 export function assertSubscriptionActive(userId) {

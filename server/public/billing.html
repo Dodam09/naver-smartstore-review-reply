@@ -43,13 +43,61 @@
     button:disabled { opacity: 0.6; cursor: not-allowed; }
     .status { margin-top: 16px; padding: 12px; border-radius: 10px; background: #fff; border: 1px solid #e5e7ef; white-space: pre-wrap; }
     .status.error { border-color: #ffb4b4; background: #fff5f5; color: #b00020; }
+    .legal {
+      margin: 16px 0;
+      padding: 14px;
+      border-radius: 10px;
+      background: #fff;
+      border: 1px solid #e5e7ef;
+      font-size: 13px;
+      line-height: 1.6;
+      color: #444;
+    }
+    .legal label { display: flex; gap: 8px; align-items: flex-start; font-weight: 500; cursor: pointer; }
+    .legal input { width: auto; margin-top: 3px; }
+    .panel {
+      margin-top: 16px;
+      padding: 14px;
+      border-radius: 10px;
+      background: #fff;
+      border: 1px solid #e5e7ef;
+    }
+    .panel h3 { margin: 0 0 10px; font-size: 15px; }
+    .history-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid #f0f2f6;
+      font-size: 13px;
+    }
+    .history-item:last-child { border-bottom: 0; }
+    .history-meta { color: #666; font-size: 12px; margin-top: 2px; }
+    .toolbar-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .toolbar-row button { width: auto; min-width: 140px; margin-top: 0; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>스마트스토어 답글 구독</h1>
     <div class="sub">신규 구독은 카드 자동결제 등록(만료일 자동 갱신). 업그레이드는 차액만 결제(만료일 유지). 취소하면 자동결제가 중단되고 만료일까지 이용 가능합니다.</div>
+    <div class="legal" id="legalBox">
+      <strong>정기결제 안내</strong>
+      <div id="legalText" style="margin:8px 0;">불러오는 중…</div>
+      <label><input id="legalAgree" type="checkbox" /> 위 정기결제 조건에 동의합니다.</label>
+    </div>
     <div class="plans" id="plans"></div>
+    <div class="panel" id="accountPanel" hidden>
+      <h3>내 구독 관리</h3>
+      <div id="accountPanelBody"></div>
+      <div class="toolbar-row">
+        <button id="cardUpdateBtn" class="secondary" type="button" hidden>결제 수단 변경</button>
+      </div>
+    </div>
+    <div class="panel" id="historyPanel" hidden>
+      <h3>결제 내역</h3>
+      <div id="historyList"></div>
+    </div>
     <div class="status" id="status">불러오는 중…</div>
   </div>
   <script>
@@ -58,11 +106,88 @@
     const initialPlan = params.get('plan') || 'standard';
     const statusEl = document.getElementById('status');
     const plansEl = document.getElementById('plans');
+    const legalAgree = document.getElementById('legalAgree');
+    const legalText = document.getElementById('legalText');
+    const accountPanel = document.getElementById('accountPanel');
+    const accountPanelBody = document.getElementById('accountPanelBody');
+    const cardUpdateBtn = document.getElementById('cardUpdateBtn');
+    const historyPanel = document.getElementById('historyPanel');
+    const historyList = document.getElementById('historyList');
 
     if (token) sessionStorage.setItem('billingToken', token);
 
     let checkoutBusy = false;
     let billingConfig = null;
+    let currentSub = null;
+
+    function requireLegalConsent(forSubscribe) {
+      if (!forSubscribe) return true;
+      if (!legalAgree.checked) {
+        setStatus('정기결제 안내에 동의해 주세요.', true);
+        return false;
+      }
+      return true;
+    }
+
+    function renderLegalNotice(config) {
+      const notice = config.legalNotice || {};
+      legalText.innerHTML = [
+        `· 결제 주기: <strong>${config.subscriptionDays || 30}일</strong> (만료일 자동 갱신)`,
+        `· 갱신 실패: ${notice.retryPolicy || '재시도 후 해지'}`,
+        `· 구독 취소: ${notice.cancelMethod || '확장 [설정] → [구독 취소]'}`,
+        config.productionReady
+          ? '· <strong>실결제 모드</strong> (토스페이먼츠)'
+          : config.mockMode
+            ? '· <strong>테스트 모드</strong> (BILLING_MOCK)'
+            : '· 결제 설정 필요 (TOSS 키 또는 BILLING_MOCK)',
+      ].join('<br />');
+    }
+
+    async function loadPaymentHistory() {
+      try {
+        const data = await api('/api/billing/history');
+        const rows = data.history || [];
+        if (!rows.length) {
+          historyPanel.hidden = false;
+          historyList.innerHTML = '<div class="meta">결제 내역이 없습니다.</div>';
+          return;
+        }
+        historyPanel.hidden = false;
+        historyList.innerHTML = rows
+          .map(
+            (row) => `
+              <div class="history-item">
+                <div>
+                  <div><strong>${row.kindLabel || row.kind}</strong> · ${row.planName || row.planId}</div>
+                  <div class="history-meta">${row.paidAt || '-'} · ${row.orderName || ''}</div>
+                </div>
+                <div><strong>${Number(row.amount || 0).toLocaleString()}원</strong></div>
+              </div>
+            `
+          )
+          .join('');
+      } catch (_) {
+        historyPanel.hidden = true;
+      }
+    }
+
+    function renderAccountPanel(sub, config) {
+      if (!sub?.active) {
+        accountPanel.hidden = true;
+        cardUpdateBtn.hidden = true;
+        return;
+      }
+      accountPanel.hidden = false;
+      const renewLine = sub.autoRenew ? '만료일에 같은 플랜으로 자동 결제됩니다.' : '자동 갱신이 꺼져 있습니다.';
+      const graceLine = sub.renewalGrace ? ' (결제 재시도 중 — 잠시 이용 유지)' : '';
+      accountPanelBody.textContent =
+        `${sub.planName || sub.planId} · 만료 ${sub.expiresAt || '-'} · ${renewLine}${graceLine}`;
+      const canUpdateCard =
+        sub.status === 'active' &&
+        !sub.cancelled &&
+        (config.tossConfigured || config.mockMode);
+      cardUpdateBtn.hidden = !canUpdateCard;
+    }
 
     function setStatus(message, isError) {
       statusEl.textContent = message;
@@ -260,19 +385,57 @@
     async function refreshBillingView() {
       const config = billingConfig || (await api('/api/billing/config'));
       billingConfig = config;
+      renderLegalNotice(config);
       let sub = null;
       try {
         const me = await api('/api/auth/me');
         sub = me.subscription || me.user?.subscription;
       } catch (_) {}
+      currentSub = sub;
       renderPlans(config, sub);
       updateStatusForSub(sub, config);
+      renderAccountPanel(sub, config);
+      await loadPaymentHistory();
       return sub;
+    }
+
+    async function startCardUpdate(config) {
+      if (checkoutBusy) return;
+      checkoutBusy = true;
+      try {
+        setStatus('결제 수단 변경 준비 중…');
+        if (config.mockMode && !config.tossConfigured) {
+          await api('/api/billing/mock-card-update', { method: 'POST', body: {} });
+          setStatus('결제 수단이 변경되었습니다. (테스트)');
+          await refreshBillingView();
+          return;
+        }
+        if (!config.tossConfigured) throw new Error('TOSS_CLIENT_KEY가 설정되지 않았습니다.');
+        const data = await api('/api/billing/prepare-card-update', { method: 'POST', body: {} });
+        const cardUpdate = data.cardUpdate;
+        const tossPayments = TossPayments(cardUpdate.clientKey);
+        await tossPayments.requestBillingAuth('카드', {
+          customerKey: cardUpdate.customerKey,
+          successUrl: cardUpdate.billingAuthSuccessUrl,
+          failUrl: cardUpdate.failUrl,
+        });
+      } catch (err) {
+        if (err?.code === 'USER_CANCEL') {
+          setStatus('변경이 취소되었습니다.');
+          return;
+        }
+        setStatus(err.message || String(err), true);
+      } finally {
+        checkoutBusy = false;
+      }
     }
 
     async function startCheckout(planId, config) {
       if (checkoutBusy) return;
       try {
+        const isSubscribe = !currentSub?.active;
+        if (isSubscribe && !requireLegalConsent(true)) return;
+
         if (!config.tossConfigured) {
           if (config.mockMode) {
             await mockCheckout(planId);
@@ -321,6 +484,8 @@
 
     async function mockCheckout(planId) {
       if (checkoutBusy) return;
+      const isSubscribe = !currentSub?.active;
+      if (isSubscribe && !requireLegalConsent(true)) return;
       checkoutBusy = true;
       setPayButtonsDisabled(true);
       try {
@@ -355,6 +520,11 @@
         checkoutBusy = false;
       }
     }
+
+    cardUpdateBtn?.addEventListener('click', () => {
+      if (!billingConfig) return;
+      startCardUpdate(billingConfig);
+    });
 
     async function init() {
       if (!token && !sessionStorage.getItem('billingToken')) {

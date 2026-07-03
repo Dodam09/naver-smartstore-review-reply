@@ -80,7 +80,15 @@ function initSchema(database) {
     CREATE INDEX IF NOT EXISTS idx_billing_orders_user_id ON billing_orders(user_id);
   `);
 
+  migrateBillingOrdersTable(database);
   migrateUsersTable(database);
+}
+
+function migrateBillingOrdersTable(database) {
+  const cols = database.prepare('PRAGMA table_info(billing_orders)').all().map((c) => c.name);
+  if (!cols.includes('order_kind')) {
+    database.exec(`ALTER TABLE billing_orders ADD COLUMN order_kind TEXT NOT NULL DEFAULT 'payment'`);
+  }
 }
 
 function migrateUsersTable(database) {
@@ -111,6 +119,12 @@ function migrateUsersTable(database) {
   }
   if (!cols.includes('billing_key')) {
     database.exec(`ALTER TABLE users ADD COLUMN billing_key TEXT`);
+  }
+  if (!cols.includes('renewal_fail_count')) {
+    database.exec(`ALTER TABLE users ADD COLUMN renewal_fail_count INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!cols.includes('renewal_last_attempt_at')) {
+    database.exec(`ALTER TABLE users ADD COLUMN renewal_last_attempt_at TEXT`);
   }
 
   database.exec(`
@@ -219,25 +233,59 @@ export function deactivateUserSubscription(userId) {
     .prepare(
       `UPDATE users
        SET plan_id = 'none', subscription_status = 'none', subscription_expires_at = NULL,
-           auto_renew = 0, billing_key = NULL, updated_at = datetime('now')
+           auto_renew = 0, billing_key = NULL, renewal_fail_count = 0, renewal_last_attempt_at = NULL,
+           updated_at = datetime('now')
        WHERE id = ?`
     )
     .run(userId);
   return findUserById(userId);
 }
 
-export function setUserBillingKey(userId, billingKey) {
+export function setUserBillingKey(userId, billingKey, { enableAutoRenew = true } = {}) {
   getDb()
     .prepare(
       `UPDATE users
-       SET billing_key = ?, auto_renew = 1, updated_at = datetime('now')
+       SET billing_key = ?, auto_renew = ?, renewal_fail_count = 0, renewal_last_attempt_at = NULL,
+           updated_at = datetime('now')
        WHERE id = ?`
     )
-    .run(String(billingKey || ''), userId);
+    .run(String(billingKey || ''), enableAutoRenew ? 1 : 0, userId);
   return findUserById(userId);
 }
 
-export function listUsersDueForRenewal(nowIso = new Date().toISOString().slice(0, 19).replace('T', ' ')) {
+export function clearRenewalFailures(userId) {
+  getDb()
+    .prepare(
+      `UPDATE users
+       SET renewal_fail_count = 0, renewal_last_attempt_at = NULL, updated_at = datetime('now')
+       WHERE id = ?`
+    )
+    .run(userId);
+  return findUserById(userId);
+}
+
+export function recordRenewalFailure(userId, maxAttempts) {
+  const user = findUserById(userId);
+  if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+  const nextCount = Number(user.renewal_fail_count || 0) + 1;
+  getDb()
+    .prepare(
+      `UPDATE users
+       SET renewal_fail_count = ?, renewal_last_attempt_at = datetime('now'), updated_at = datetime('now')
+       WHERE id = ?`
+    )
+    .run(nextCount, userId);
+  if (nextCount >= maxAttempts) {
+    deactivateUserSubscription(userId);
+    return { deactivated: true, failCount: nextCount };
+  }
+  return { deactivated: false, failCount: nextCount };
+}
+
+export function listUsersDueForRenewal(
+  nowIso = new Date().toISOString().slice(0, 19).replace('T', ' '),
+  maxAttempts = 3
+) {
   return getDb()
     .prepare(
       `SELECT * FROM users
@@ -245,9 +293,14 @@ export function listUsersDueForRenewal(nowIso = new Date().toISOString().slice(0
          AND subscription_status = 'active'
          AND billing_key IS NOT NULL
          AND subscription_expires_at IS NOT NULL
-         AND subscription_expires_at <= ?`
+         AND subscription_expires_at <= ?
+         AND COALESCE(renewal_fail_count, 0) < ?
+         AND (
+           renewal_last_attempt_at IS NULL
+           OR renewal_last_attempt_at <= datetime('now', '-24 hours')
+         )`
     )
-    .all(nowIso);
+    .all(nowIso, maxAttempts);
 }
 
 export function expireEndedSubscriptions(nowIso = new Date().toISOString().slice(0, 19).replace('T', ' ')) {
@@ -255,7 +308,8 @@ export function expireEndedSubscriptions(nowIso = new Date().toISOString().slice
     .prepare(
       `UPDATE users
        SET plan_id = 'none', subscription_status = 'none', subscription_expires_at = NULL,
-           auto_renew = 0, billing_key = NULL, updated_at = datetime('now')
+           auto_renew = 0, billing_key = NULL, renewal_fail_count = 0, renewal_last_attempt_at = NULL,
+           updated_at = datetime('now')
        WHERE subscription_expires_at IS NOT NULL
          AND subscription_expires_at <= ?
          AND (
@@ -267,6 +321,31 @@ export function expireEndedSubscriptions(nowIso = new Date().toISOString().slice
     )
     .run(nowIso);
   return result.changes || 0;
+}
+
+export function expireRenewalGracePeriod(graceDays = Number(process.env.RENEWAL_GRACE_DAYS || 3), maxAttempts = Number(process.env.RENEWAL_MAX_ATTEMPTS || 3)) {
+  const users = getDb()
+    .prepare(
+      `SELECT * FROM users
+       WHERE auto_renew = 1
+         AND subscription_status = 'active'
+         AND billing_key IS NOT NULL
+         AND subscription_expires_at IS NOT NULL
+         AND COALESCE(renewal_fail_count, 0) > 0
+         AND COALESCE(renewal_fail_count, 0) < ?`
+    )
+    .all(maxAttempts);
+
+  const now = Date.now();
+  let expired = 0;
+  for (const user of users) {
+    const expires = new Date(String(user.subscription_expires_at).replace(' ', 'T') + 'Z');
+    if (now > expires.getTime() + graceDays * 86400000) {
+      deactivateUserSubscription(user.id);
+      expired += 1;
+    }
+  }
+  return expired;
 }
 
 export function createSession(userId, token, expiresAtIso) {
@@ -347,13 +426,13 @@ export function getOrCreateCustomerKey(userId) {
   return customerKey;
 }
 
-export function createBillingOrder({ userId, orderId, planId, amount, orderName, customerKey }) {
+export function createBillingOrder({ userId, orderId, planId, amount, orderName, customerKey, orderKind = 'payment' }) {
   const result = getDb()
     .prepare(
-      `INSERT INTO billing_orders (user_id, order_id, plan_id, amount, order_name, customer_key, status)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending')`
+      `INSERT INTO billing_orders (user_id, order_id, plan_id, amount, order_name, customer_key, status, order_kind)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`
     )
-    .run(userId, orderId, normalizePlanId(planId), amount, orderName, customerKey);
+    .run(userId, orderId, normalizePlanId(planId), amount, orderName, customerKey, orderKind);
   return findBillingOrder(result.lastInsertRowid);
 }
 
@@ -424,7 +503,8 @@ export function renewUserSubscriptionPeriod(userId, days = 30) {
   getDb()
     .prepare(
       `UPDATE users
-       SET subscription_status = 'active', subscription_expires_at = ?, auto_renew = 1, updated_at = datetime('now')
+       SET subscription_status = 'active', subscription_expires_at = ?, auto_renew = 1,
+           renewal_fail_count = 0, renewal_last_attempt_at = NULL, updated_at = datetime('now')
        WHERE id = ?`
     )
     .run(expiresAt, userId);
@@ -458,4 +538,28 @@ function addDaysIsoLocal(days, from = new Date()) {
   const next = new Date(from.getTime());
   next.setUTCDate(next.getUTCDate() + days);
   return next.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+export function listBillingOrdersForUser(userId, limit = 20) {
+  return getDb()
+    .prepare(
+      `SELECT * FROM billing_orders
+       WHERE user_id = ? AND status = 'paid'
+       ORDER BY COALESCE(paid_at, created_at) DESC
+       LIMIT ?`
+    )
+    .all(userId, limit);
+}
+
+export function listRecentBillingOrders(limit = 50) {
+  return getDb()
+    .prepare(
+      `SELECT o.*, u.email, u.display_name
+       FROM billing_orders o
+       JOIN users u ON u.id = o.user_id
+       WHERE o.status = 'paid'
+       ORDER BY COALESCE(o.paid_at, o.created_at) DESC
+       LIMIT ?`
+    )
+    .all(limit);
 }

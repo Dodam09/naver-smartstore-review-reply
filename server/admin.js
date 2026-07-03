@@ -4,6 +4,7 @@ import {
   deactivateUserSubscription,
   findUserById,
   listAllUsers,
+  listRecentBillingOrders,
   upgradeUserSubscription,
 } from './db.js';
 import { getPlan, listPaidPlans, normalizePaidPlanId } from './plans.js';
@@ -71,6 +72,19 @@ export function getAdminDashboard() {
       price: plan.price,
       replyLimit: plan.replyLimit,
       toneLimit: plan.toneLimit,
+    })),
+    recentOrders: listRecentBillingOrders(30).map((order) => ({
+      id: order.id,
+      userId: order.user_id,
+      email: order.email,
+      displayName: order.display_name,
+      orderId: order.order_id,
+      planId: order.plan_id,
+      planName: getPlan(order.plan_id).name,
+      amount: order.amount,
+      kind: order.order_kind || 'payment',
+      paidAt: order.paid_at || order.created_at,
+      orderName: order.order_name,
     })),
     users: rows,
   };
