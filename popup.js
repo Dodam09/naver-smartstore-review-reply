@@ -293,6 +293,10 @@ function switchTab(name) {
   Object.entries(panels).forEach(([key, panel]) => {
     panel.classList.toggle('active', key === name);
   });
+
+  if (name === 'settings') {
+    void syncAccountUi();
+  }
 }
 
 function openStylePickPage() {
@@ -1040,6 +1044,24 @@ function applyAuthGate(loggedIn) {
   }
 }
 
+async function syncAccountUi(options = {}) {
+  if (!useAiProxy()) {
+    await renderAccountUi();
+    return;
+  }
+  const session = await loadAuthSession();
+  if (!session?.token) {
+    await renderAccountUi();
+    return;
+  }
+  try {
+    await refreshAccountUsage(options);
+  } catch (_) {
+    // 네트워크 오류 시 캐시된 세션으로 표시
+  }
+  await renderAccountUi();
+}
+
 async function initAccountUi() {
   const proxyMode = useAiProxy();
   const devBypass = !!String(CONFIG.API_DEV_SECRET || '').trim();
@@ -1076,7 +1098,7 @@ async function initAccountUi() {
     els.accountTabRegister.hidden = !registrationOpen;
   }
   setAccountAuthMode('login');
-  await renderAccountUi();
+  await syncAccountUi();
 }
 
 function setAccountAuthMode(mode) {
@@ -1289,9 +1311,8 @@ async function onLogoutAccount() {
 async function onRefreshAccountUsage() {
   if (els.refreshUsageBtn) els.refreshUsageBtn.disabled = true;
   try {
-    await refreshAccountUsage();
+    await refreshAccountUsage({ force: true });
     await renderAccountUi();
-    await setAccountMessage('사용량을 새로고침했습니다.');
   } catch (err) {
     await setAccountMessage(err.message || '새로고침에 실패했습니다.');
   } finally {

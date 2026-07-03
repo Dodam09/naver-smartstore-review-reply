@@ -61,7 +61,7 @@
     confirmPayment()
       .then((data) => {
         statusEl.textContent =
-          `결제가 완료되었습니다.\n\n플랜: ${data.user.plan.name}\n만료: ${data.user.subscription.expiresAt || '-'}\n\n확장프로그램 [설정] → 사용량 새로고침 후 사용하세요.\n이 창은 닫아도 됩니다.`;
+          `결제가 완료되었습니다.\n\n플랜: ${data.user.plan.name}\n만료: ${data.user.subscription.expiresAt || '-'}\n\n확장프로그램 [설정] 탭을 다시 열면 자동 반영됩니다.\n이 창은 닫아도 됩니다.`;
       })
       .catch((err) => {
         statusEl.className = 'card error';
