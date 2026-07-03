@@ -35,6 +35,18 @@ function resolveAppBaseUrl() {
 
 const APP_BASE_URL = resolveAppBaseUrl();
 
+export function assertLegalConsent(legalConsent) {
+  if (legalConsent !== true && legalConsent !== 'true' && legalConsent !== 1) {
+    throw new Error('정기결제 안내에 동의해야 결제할 수 있습니다.');
+  }
+}
+
+function assertOrderHasLegalConsent(order) {
+  if (!order?.legal_consent_at) {
+    throw new Error('정기결제 안내에 동의해야 결제할 수 있습니다.');
+  }
+}
+
 export function getBillingConfig() {
   const tossConfigured = !!TOSS_SECRET_KEY && !!TOSS_CLIENT_KEY;
   const productionReady = tossConfigured && !BILLING_MOCK;
@@ -198,7 +210,8 @@ export async function chargeWithBillingKey({ billingKey, customerKey, amount, or
   };
 }
 
-export function prepareCheckout(userId, planId) {
+export function prepareCheckout(userId, planId, { legalConsent } = {}) {
+  assertLegalConsent(legalConsent);
   const user = findUserById(userId);
   if (!user) throw new Error('사용자를 찾을 수 없습니다.');
   const action = resolveCheckoutAction(user, planId);
@@ -214,6 +227,7 @@ export function prepareCheckout(userId, planId) {
     orderName: action.orderName,
     customerKey,
     orderKind: action.type === 'upgrade' ? 'upgrade' : 'subscribe',
+    legalConsentAt: new Date().toISOString(),
   });
 
   const useBillingAuth = action.type === 'subscribe';
@@ -241,6 +255,7 @@ export async function confirmCheckout(userId, { paymentKey, orderId, amount }) {
   if (Number(order.user_id) !== Number(userId)) {
     throw new Error('주문 정보가 일치하지 않습니다.');
   }
+  assertOrderHasLegalConsent(order);
   if (order.status === 'paid') {
     const user = findUserById(userId);
     return {
@@ -291,6 +306,7 @@ export async function confirmBillingAuthCheckout(userId, { authKey, customerKey,
   if (Number(order.user_id) !== Number(userId)) {
     throw new Error('주문 정보가 일치하지 않습니다.');
   }
+  assertOrderHasLegalConsent(order);
   if (order.status === 'paid') {
     const user = findUserById(userId);
     return {
@@ -341,6 +357,7 @@ export async function mockConfirmCheckout(userId, orderId) {
   if (Number(order.user_id) !== Number(userId)) {
     throw new Error('주문 정보가 일치하지 않습니다.');
   }
+  assertOrderHasLegalConsent(order);
 
   const userBeforeActivate = findUserById(userId);
   const action = resolveCheckoutAction(userBeforeActivate, order.plan_id);
@@ -368,11 +385,11 @@ export async function mockConfirmCheckout(userId, orderId) {
   });
 }
 
-export async function mockSubscribe(userId, planId) {
+export async function mockSubscribe(userId, planId, { legalConsent } = {}) {
   if (!BILLING_MOCK) {
     throw new Error('BILLING_MOCK 모드에서만 사용할 수 있습니다.');
   }
-  const checkout = prepareCheckout(userId, planId);
+  const checkout = prepareCheckout(userId, planId, { legalConsent });
   return mockConfirmBillingAuth(userId, checkout.orderId);
 }
 

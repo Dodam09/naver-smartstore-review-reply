@@ -366,7 +366,9 @@ app.post('/api/billing/prepare', authenticate, (req, res) => {
   }
 
   try {
-    const checkout = prepareCheckout(req.auth.user.id, req.body?.planId);
+    const checkout = prepareCheckout(req.auth.user.id, req.body?.planId, {
+      legalConsent: req.body?.legalConsent,
+    });
     res.json({ ok: true, checkout });
   } catch (err) {
     res.status(400).json({ ok: false, error: err.message || String(err) });
@@ -409,7 +411,9 @@ app.post('/api/billing/mock-subscribe', authenticate, async (req, res) => {
   }
 
   try {
-    const result = await mockSubscribe(req.auth.user.id, req.body?.planId);
+    const result = await mockSubscribe(req.auth.user.id, req.body?.planId, {
+      legalConsent: req.body?.legalConsent,
+    });
     res.json({
       ok: true,
       user: {

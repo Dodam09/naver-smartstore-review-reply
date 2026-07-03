@@ -133,8 +133,7 @@
       box.style.background = on ? '#fffbeb' : '#fff';
     }
 
-    function requireLegalConsent(forSubscribe) {
-      if (!forSubscribe) return true;
+    function requireLegalConsent() {
       if (!legalAgree?.checked) {
         highlightLegalBox(true);
         setStatus('정기결제 안내에 동의 체크가 필요합니다.', true);
@@ -453,8 +452,7 @@
     async function startCheckout(planId, config) {
       if (checkoutBusy) return;
       try {
-        const isSubscribe = !currentSub?.active;
-        if (isSubscribe && !requireLegalConsent(true)) return;
+        if (!requireLegalConsent()) return;
 
         if (!config.tossConfigured) {
           if (config.mockMode) {
@@ -469,7 +467,7 @@
         setStatus('결제 준비 중…');
         const data = await api('/api/billing/prepare', {
           method: 'POST',
-          body: { planId },
+          body: { planId, legalConsent: true },
         });
         const checkout = data.checkout;
         const tossPayments = TossPayments(checkout.clientKey);
@@ -508,8 +506,7 @@
         setStatus('결제 처리 중입니다. 잠시만 기다려 주세요.');
         return;
       }
-      const isSubscribe = !currentSub?.active;
-      if (isSubscribe && !requireLegalConsent(true)) return;
+      if (!requireLegalConsent()) return;
 
       checkoutBusy = true;
       setPayButtonsDisabled(true);
@@ -518,15 +515,16 @@
       try {
         setStatus('모의 결제 처리 중…');
         let result;
+        const isSubscribe = !currentSub?.active;
         if (isSubscribe) {
           result = await api('/api/billing/mock-subscribe', {
             method: 'POST',
-            body: { planId },
+            body: { planId, legalConsent: true },
           });
         } else {
           const prepared = await api('/api/billing/prepare', {
             method: 'POST',
-            body: { planId },
+            body: { planId, legalConsent: true },
           });
           result = await api('/api/billing/mock-confirm', {
             method: 'POST',

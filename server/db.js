@@ -89,6 +89,9 @@ function migrateBillingOrdersTable(database) {
   if (!cols.includes('order_kind')) {
     database.exec(`ALTER TABLE billing_orders ADD COLUMN order_kind TEXT NOT NULL DEFAULT 'payment'`);
   }
+  if (!cols.includes('legal_consent_at')) {
+    database.exec(`ALTER TABLE billing_orders ADD COLUMN legal_consent_at TEXT`);
+  }
 }
 
 function migrateUsersTable(database) {
@@ -426,13 +429,31 @@ export function getOrCreateCustomerKey(userId) {
   return customerKey;
 }
 
-export function createBillingOrder({ userId, orderId, planId, amount, orderName, customerKey, orderKind = 'payment' }) {
+export function createBillingOrder({
+  userId,
+  orderId,
+  planId,
+  amount,
+  orderName,
+  customerKey,
+  orderKind = 'payment',
+  legalConsentAt = null,
+}) {
   const result = getDb()
     .prepare(
-      `INSERT INTO billing_orders (user_id, order_id, plan_id, amount, order_name, customer_key, status, order_kind)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`
+      `INSERT INTO billing_orders (user_id, order_id, plan_id, amount, order_name, customer_key, status, order_kind, legal_consent_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
     )
-    .run(userId, orderId, normalizePlanId(planId), amount, orderName, customerKey, orderKind);
+    .run(
+      userId,
+      orderId,
+      normalizePlanId(planId),
+      amount,
+      orderName,
+      customerKey,
+      orderKind,
+      legalConsentAt
+    );
   return findBillingOrder(result.lastInsertRowid);
 }
 
