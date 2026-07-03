@@ -12,8 +12,10 @@ import {
   registerUser,
 } from './auth.js';
 import {
+  confirmBillingAuthCheckout,
   confirmCheckout,
   getBillingConfig,
+  mockConfirmBillingAuth,
   mockConfirmCheckout,
   prepareCheckout,
 } from './billing.js';
@@ -36,6 +38,7 @@ import {
   normalizeSamples,
 } from './prompts.js';
 import { assertSubscriptionActive, SubscriptionError, cancelUserSubscriptionAtPeriodEnd, undoCancelSubscription } from './subscription.js';
+import { startRenewalScheduler } from './renewal.js';
 import { assertWithinLimit, getUsageSummary, recordUsage, UsageLimitError } from './usage.js';
 import {
   buildAuthorizeUrl,
@@ -343,6 +346,61 @@ app.post('/api/billing/mock-confirm', authenticate, async (req, res) => {
   }
 });
 
+app.post('/api/billing/confirm-billing-auth', authenticate, async (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(400).json({ ok: false, error: '로그인 계정으로만 결제할 수 있습니다.' });
+    return;
+  }
+
+  try {
+    const result = await confirmBillingAuthCheckout(req.auth.user.id, {
+      authKey: req.body?.authKey,
+      customerKey: req.body?.customerKey,
+      orderId: req.body?.orderId,
+    });
+    res.json({
+      ok: true,
+      alreadyPaid: result.alreadyPaid,
+      user: result.user
+        ? {
+            id: result.user.id,
+            email: result.user.email,
+            planId: result.user.plan_id,
+            plan: getPlan(result.user.plan_id),
+            subscription: result.subscription,
+          }
+        : null,
+      usage: getUsageSummary(req.auth.user.id, result.user.plan_id, undefined, true),
+    });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.post('/api/billing/mock-billing-auth', authenticate, async (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(400).json({ ok: false, error: '로그인 계정으로만 결제할 수 있습니다.' });
+    return;
+  }
+
+  try {
+    const result = await mockConfirmBillingAuth(req.auth.user.id, req.body?.orderId);
+    res.json({
+      ok: true,
+      user: {
+        id: result.user.id,
+        email: result.user.email,
+        planId: result.user.plan_id,
+        plan: getPlan(result.user.plan_id),
+        subscription: result.subscription,
+      },
+      usage: getUsageSummary(req.auth.user.id, result.user.plan_id, undefined, true),
+    });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
 app.post('/api/billing/cancel-subscription', authenticate, (req, res) => {
   if (req.auth.mode !== 'user') {
     res.status(400).json({ ok: false, error: '로그인 계정으로만 구독을 취소할 수 있습니다.' });
@@ -600,6 +658,9 @@ app.listen(PORT, '0.0.0.0', () => {
   const billing = getBillingConfig();
   if (billing.mockMode) {
     console.log('BILLING_MOCK enabled (test payments without Toss)');
+  }
+  if (String(process.env.RENEWAL_ENABLED || 'true').toLowerCase() !== 'false') {
+    startRenewalScheduler();
   }
   if (REQUIRE_SUBSCRIPTION) {
     console.log('REQUIRE_SUBSCRIPTION enabled (paid subscription required for AI)');

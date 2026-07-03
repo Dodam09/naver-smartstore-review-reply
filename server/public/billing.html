@@ -48,7 +48,7 @@
 <body>
   <div class="wrap">
     <h1>스마트스토어 답글 구독</h1>
-    <div class="sub">업그레이드는 차액만 결제(만료일 유지). 취소 후에는 만료일까지 현재 플랜 이용, 플랜 변경은 만료 후에만 가능합니다.</div>
+    <div class="sub">신규 구독은 카드 자동결제 등록(만료일 자동 갱신). 업그레이드는 차액만 결제(만료일 유지). 취소하면 자동결제가 중단되고 만료일까지 이용 가능합니다.</div>
     <div class="plans" id="plans"></div>
     <div class="status" id="status">불러오는 중…</div>
   </div>
@@ -108,7 +108,7 @@
           enabled: true,
           payLabel: `${plan.name} 결제하기`,
           mockLabel: `${plan.name} 테스트 결제`,
-          note: '신규 구독 30일',
+          note: '신규 구독 30일 · 만료일 자동 갱신',
           priceLabel: `${plan.price.toLocaleString()}원 / 30일`,
           current: false,
         };
@@ -153,7 +153,7 @@
         const current = findPlan(config, sub.planId);
         setStatus(
           `구독 취소 예약 · ${current?.name || sub.planName || sub.planId} (만료: ${sub.expiresAt || '-'})\n` +
-            '만료일까지 현재 플랜을 이용할 수 있습니다.\n' +
+            '만료일까지 현재 플랜을 이용할 수 있습니다. 자동 결제는 중단되었습니다.\n' +
             '다른 플랜(다운그레이드 포함)은 만료 후 [구독하기]에서 선택하세요.\n' +
             '취소를 되돌리려면 확장 [설정] → [취소 철회]를 눌러 주세요.'
         );
@@ -163,13 +163,18 @@
       if (isActivePaidSubscription(sub)) {
         const current = findPlan(config, sub.planId);
         const hasUpgrade = (config.plans || []).some((p) => p.rank > (current?.rank || 0));
+        const renewLine = sub.autoRenew ? '만료일에 같은 플랜으로 자동 결제됩니다.' : '';
         if (hasUpgrade) {
           setStatus(
             `현재 ${current?.name || sub.planName} 플랜 (만료: ${sub.expiresAt || '-'})\n` +
+              `${renewLine ? renewLine + '\n' : ''}` +
               '더 높은 플랜은 차액 결제로 즉시 업그레이드할 수 있습니다.'
           );
         } else {
-          setStatus(`현재 ${current?.name || sub.planName} 최고 플랜을 이용 중입니다. (만료: ${sub.expiresAt || '-'})`);
+          setStatus(
+            `현재 ${current?.name || sub.planName} 최고 플랜을 이용 중입니다. (만료: ${sub.expiresAt || '-'})\n` +
+              (renewLine || '만료일에 자동 갱신됩니다.')
+          );
         }
         return;
       }
@@ -285,14 +290,22 @@
         });
         const checkout = data.checkout;
         const tossPayments = TossPayments(checkout.clientKey);
-        await tossPayments.requestPayment('카드', {
-          amount: checkout.amount,
-          orderId: checkout.orderId,
-          orderName: checkout.orderName,
-          customerKey: checkout.customerKey,
-          successUrl: checkout.successUrl,
-          failUrl: checkout.failUrl,
-        });
+        if (checkout.checkoutType === 'subscribe' && checkout.useBillingAuth) {
+          await tossPayments.requestBillingAuth('카드', {
+            customerKey: checkout.customerKey,
+            successUrl: checkout.billingAuthSuccessUrl,
+            failUrl: checkout.failUrl,
+          });
+        } else {
+          await tossPayments.requestPayment('카드', {
+            amount: checkout.amount,
+            orderId: checkout.orderId,
+            orderName: checkout.orderName,
+            customerKey: checkout.customerKey,
+            successUrl: checkout.successUrl,
+            failUrl: checkout.failUrl,
+          });
+        }
       } catch (err) {
         if (err?.code === 'USER_CANCEL') {
           setStatus('결제가 취소되었습니다.');
@@ -316,14 +329,23 @@
           method: 'POST',
           body: { planId },
         });
-        const result = await api('/api/billing/mock-confirm', {
-          method: 'POST',
-          body: { orderId: prepared.checkout.orderId },
-        });
         const checkoutType = prepared.checkout.checkoutType || 'subscribe';
-        const typeLabel = checkoutType === 'upgrade' ? '업그레이드 완료' : '결제 완료';
+        const result =
+          checkoutType === 'subscribe'
+            ? await api('/api/billing/mock-billing-auth', {
+                method: 'POST',
+                body: { orderId: prepared.checkout.orderId },
+              })
+            : await api('/api/billing/mock-confirm', {
+                method: 'POST',
+                body: { orderId: prepared.checkout.orderId },
+              });
+        const typeLabel =
+          checkoutType === 'upgrade'
+            ? '업그레이드 완료'
+            : '구독 시작 (자동결제 등록)';
         setStatus(
-          `${typeLabel}!\n플랜: ${result.user.plan.name}\n만료: ${result.user.subscription.expiresAt || '-'}\n\n확장프로그램 [설정] 탭을 다시 열면 자동 반영됩니다.`
+          `${typeLabel}!\n플랜: ${result.user.plan.name}\n만료: ${result.user.subscription.expiresAt || '-'}\n만료일에 같은 플랜으로 자동 갱신됩니다.\n\n확장프로그램 [설정] 탭을 다시 열면 자동 반영됩니다.`
         );
         await refreshBillingView();
       } catch (err) {

@@ -106,6 +106,12 @@ function migrateUsersTable(database) {
   if (!cols.includes('display_name')) {
     database.exec(`ALTER TABLE users ADD COLUMN display_name TEXT`);
   }
+  if (!cols.includes('auto_renew')) {
+    database.exec(`ALTER TABLE users ADD COLUMN auto_renew INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!cols.includes('billing_key')) {
+    database.exec(`ALTER TABLE users ADD COLUMN billing_key TEXT`);
+  }
 
   database.exec(`
     UPDATE users
@@ -185,7 +191,7 @@ export function markUserSubscriptionCancelled(userId) {
   getDb()
     .prepare(
       `UPDATE users
-       SET subscription_status = 'cancelled', updated_at = datetime('now')
+       SET subscription_status = 'cancelled', auto_renew = 0, updated_at = datetime('now')
        WHERE id = ?`
     )
     .run(userId);
@@ -193,13 +199,16 @@ export function markUserSubscriptionCancelled(userId) {
 }
 
 export function resumeUserSubscription(userId) {
+  const user = findUserById(userId);
+  if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+  const canAutoRenew = !!user.billing_key;
   getDb()
     .prepare(
       `UPDATE users
-       SET subscription_status = 'active', updated_at = datetime('now')
+       SET subscription_status = 'active', auto_renew = ?, updated_at = datetime('now')
        WHERE id = ?`
     )
-    .run(userId);
+    .run(canAutoRenew ? 1 : 0, userId);
   return findUserById(userId);
 }
 
@@ -209,11 +218,55 @@ export function deactivateUserSubscription(userId) {
   getDb()
     .prepare(
       `UPDATE users
-       SET plan_id = 'none', subscription_status = 'none', subscription_expires_at = NULL, updated_at = datetime('now')
+       SET plan_id = 'none', subscription_status = 'none', subscription_expires_at = NULL,
+           auto_renew = 0, billing_key = NULL, updated_at = datetime('now')
        WHERE id = ?`
     )
     .run(userId);
   return findUserById(userId);
+}
+
+export function setUserBillingKey(userId, billingKey) {
+  getDb()
+    .prepare(
+      `UPDATE users
+       SET billing_key = ?, auto_renew = 1, updated_at = datetime('now')
+       WHERE id = ?`
+    )
+    .run(String(billingKey || ''), userId);
+  return findUserById(userId);
+}
+
+export function listUsersDueForRenewal(nowIso = new Date().toISOString().slice(0, 19).replace('T', ' ')) {
+  return getDb()
+    .prepare(
+      `SELECT * FROM users
+       WHERE auto_renew = 1
+         AND subscription_status = 'active'
+         AND billing_key IS NOT NULL
+         AND subscription_expires_at IS NOT NULL
+         AND subscription_expires_at <= ?`
+    )
+    .all(nowIso);
+}
+
+export function expireEndedSubscriptions(nowIso = new Date().toISOString().slice(0, 19).replace('T', ' ')) {
+  const result = getDb()
+    .prepare(
+      `UPDATE users
+       SET plan_id = 'none', subscription_status = 'none', subscription_expires_at = NULL,
+           auto_renew = 0, billing_key = NULL, updated_at = datetime('now')
+       WHERE subscription_expires_at IS NOT NULL
+         AND subscription_expires_at <= ?
+         AND (
+           auto_renew = 0
+           OR subscription_status = 'cancelled'
+           OR billing_key IS NULL
+         )
+         AND subscription_status IN ('active', 'cancelled')`
+    )
+    .run(nowIso);
+  return result.changes || 0;
 }
 
 export function createSession(userId, token, expiresAtIso) {
@@ -322,9 +375,10 @@ export function markBillingOrderPaid(orderDbId, paymentKey) {
     .run(paymentKey, orderDbId);
 }
 
-export function activateUserSubscription(userId, planId, days = 30) {
+export function activateUserSubscription(userId, planId, days = 30, options = {}) {
   const user = findUserById(userId);
   if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+  const { billingKey = null, autoRenew = null } = options;
 
   const now = new Date();
   let base = now;
@@ -342,13 +396,38 @@ export function activateUserSubscription(userId, planId, days = 30) {
   }
 
   const expiresAt = addDaysIsoLocal(days, base);
+  const nextBillingKey = billingKey != null ? billingKey : user.billing_key;
+  const nextAutoRenew =
+    autoRenew != null ? (autoRenew ? 1 : 0) : billingKey != null ? 1 : user.auto_renew ? 1 : 0;
+
   getDb()
     .prepare(
       `UPDATE users
-       SET plan_id = ?, subscription_status = 'active', subscription_expires_at = ?, updated_at = datetime('now')
+       SET plan_id = ?, subscription_status = 'active', subscription_expires_at = ?,
+           billing_key = ?, auto_renew = ?, updated_at = datetime('now')
        WHERE id = ?`
     )
-    .run(normalizePlanId(planId), expiresAt, userId);
+    .run(normalizePlanId(planId), expiresAt, nextBillingKey, nextAutoRenew, userId);
+
+  return findUserById(userId);
+}
+
+export function renewUserSubscriptionPeriod(userId, days = 30) {
+  const user = findUserById(userId);
+  if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+  if (!user.subscription_expires_at) {
+    throw new Error('갱신할 구독 만료일이 없습니다.');
+  }
+
+  const base = new Date(String(user.subscription_expires_at).replace(' ', 'T') + 'Z');
+  const expiresAt = addDaysIsoLocal(days, base);
+  getDb()
+    .prepare(
+      `UPDATE users
+       SET subscription_status = 'active', subscription_expires_at = ?, auto_renew = 1, updated_at = datetime('now')
+       WHERE id = ?`
+    )
+    .run(expiresAt, userId);
 
   return findUserById(userId);
 }

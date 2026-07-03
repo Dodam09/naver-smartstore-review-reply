@@ -30,6 +30,7 @@ function formatAdminUser(user, period = currentPeriod()) {
     planId: active ? user.plan_id : 'none',
     planName: plan.name,
     activationPlanId: active ? user.plan_id : 'basic',
+    billingKeyRegistered: !!user.billing_key,
     subscription,
     usage,
     createdAt: user.created_at,
@@ -51,6 +52,9 @@ export function getAdminDashboard() {
       row.subscription.status === 'active' &&
       !row.subscription.cancelled
   ).length;
+  const autoRenewCount = rows.filter(
+    (row) => row.subscription.active && row.subscription.autoRenew
+  ).length;
 
   return {
     period,
@@ -59,6 +63,7 @@ export function getAdminDashboard() {
       activeSubscriptions: activeCount,
       paidActiveSubscriptions: paidActiveCount,
       cancelledPending: cancelledPendingCount,
+      autoRenewSubscriptions: autoRenewCount,
     },
     plans: listPaidPlans().map((plan) => ({
       id: plan.id,

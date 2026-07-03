@@ -20,6 +20,7 @@ export function getSubscriptionSummary(user) {
     status,
     active,
     cancelled,
+    autoRenew: !!(user.auto_renew && user.billing_key),
     expiresAt,
     planId: active ? user.plan_id : 'none',
     planName: active ? plan.name : '구독 전',

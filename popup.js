@@ -1216,7 +1216,7 @@ async function onConfirmCancelSubscription() {
     await cancelSubscription();
     onHideCancelSubscriptionConfirm();
     await renderAccountUi();
-    await setAccountMessage('구독 취소가 예약되었습니다. 만료일까지 현재 플랜을 이용할 수 있습니다.');
+    await setAccountMessage('구독 취소가 예약되었습니다. 만료일까지 현재 플랜을 이용할 수 있으며, 자동 결제는 중단됩니다.');
   } catch (err) {
     const message = err.message || '구독 취소에 실패했습니다.';
     setCancelConfirmMessage(message);
@@ -1338,7 +1338,7 @@ async function onUndoCancelSubscription() {
   try {
     await undoCancelSubscription();
     await renderAccountUi();
-    await setAccountMessage('구독 취소를 철회했습니다. 기존 플랜이 계속 유지됩니다.');
+    await setAccountMessage('구독 취소를 철회했습니다. 만료일에 같은 플랜으로 자동 갱신됩니다.');
   } catch (err) {
     await setAccountMessage(err.message || '취소 철회에 실패했습니다.');
   } finally {

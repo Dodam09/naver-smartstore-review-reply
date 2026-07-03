@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>결제 완료</title>
+  <title>자동결제 등록 완료</title>
   <style>
     body {
       margin: 0;
@@ -25,43 +25,43 @@
 </head>
 <body>
   <div class="wrap">
-    <div class="card" id="status">결제 확인 중…</div>
+    <div class="card" id="status">자동결제 등록 확인 중…</div>
   </div>
   <script>
     const params = new URLSearchParams(location.search);
     const statusEl = document.getElementById('status');
-    const paymentKey = params.get('paymentKey');
+    const authKey = params.get('authKey');
+    const customerKey = params.get('customerKey');
     const orderId = params.get('orderId');
-    const amount = Number(params.get('amount'));
     const token = sessionStorage.getItem('billingToken') || '';
 
-    async function confirmPayment() {
+    async function confirmBillingAuth() {
       if (!token) throw new Error('로그인 정보가 없습니다. 확장프로그램에서 다시 시도해 주세요.');
-      if (!paymentKey || !orderId || !Number.isFinite(amount)) {
-        throw new Error('결제 정보가 올바르지 않습니다.');
+      if (!authKey || !customerKey || !orderId) {
+        throw new Error('자동결제 등록 정보가 올바르지 않습니다.');
       }
 
-      const response = await fetch('/api/billing/confirm', {
+      const response = await fetch('/api/billing/confirm-billing-auth', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ paymentKey, orderId, amount }),
+        body: JSON.stringify({ authKey, customerKey, orderId }),
       });
       const raw = await response.text();
       let data = {};
       try { data = raw ? JSON.parse(raw) : {}; } catch (_) {}
       if (!response.ok || data.ok === false) {
-        throw new Error(data.error || `결제 확인 실패 (${response.status})`);
+        throw new Error(data.error || `등록 확인 실패 (${response.status})`);
       }
       return data;
     }
 
-    confirmPayment()
+    confirmBillingAuth()
       .then((data) => {
         statusEl.textContent =
-          `결제가 완료되었습니다.\n\n플랜: ${data.user.plan.name}\n만료: ${data.user.subscription.expiresAt || '-'}\n\n확장프로그램 [설정] 탭을 다시 열면 자동 반영됩니다.\n(업그레이드 결제 — 자동 갱신 설정은 기존과 동일)\n이 창은 닫아도 됩니다.`;
+          `구독이 시작되었습니다.\n\n플랜: ${data.user.plan.name}\n만료: ${data.user.subscription.expiresAt || '-'}\n만료일에 같은 플랜으로 자동 결제됩니다.\n\n확장프로그램 [설정] 탭을 다시 열면 자동 반영됩니다.\n이 창은 닫아도 됩니다.`;
       })
       .catch((err) => {
         statusEl.className = 'card error';

@@ -7,6 +7,7 @@ import {
   findUserById,
   getOrCreateCustomerKey,
   markBillingOrderPaid,
+  setUserBillingKey,
   upgradeUserSubscription,
 } from './db.js';
 import { getPlan, getPlanRank, listPaidPlans, normalizePaidPlanId } from './plans.js';
@@ -37,6 +38,7 @@ export function getBillingConfig() {
     clientKey: TOSS_CLIENT_KEY || null,
     appBaseUrl: APP_BASE_URL,
     subscriptionDays: SUBSCRIPTION_DAYS,
+    autoRenewEnabled: String(process.env.RENEWAL_ENABLED || 'true').toLowerCase() !== 'false',
     plans: listPaidPlans().map((plan) => ({
       id: plan.id,
       name: plan.name,
@@ -48,23 +50,31 @@ export function getBillingConfig() {
   };
 }
 
-function createOrderId(userId) {
+export function createOrderId(userId) {
   const rand = crypto.randomBytes(6).toString('hex');
   return `order_${userId}_${Date.now()}_${rand}`;
+}
+
+export function isMockBillingKey(billingKey) {
+  return BILLING_MOCK && String(billingKey || '').startsWith('mock_bill_');
+}
+
+function mockBillingKeyForUser(userId) {
+  return `mock_bill_${userId}`;
 }
 
 function tossAuthHeader() {
   return `Basic ${Buffer.from(`${TOSS_SECRET_KEY}:`).toString('base64')}`;
 }
 
-async function confirmTossPayment({ paymentKey, orderId, amount }) {
-  const response = await fetch('https://api.tosspayments.com/v1/payments/confirm', {
+async function tossRequest(url, body) {
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       Authorization: tossAuthHeader(),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ paymentKey, orderId, amount }),
+    body: JSON.stringify(body),
   });
 
   const raw = await response.text();
@@ -76,11 +86,45 @@ async function confirmTossPayment({ paymentKey, orderId, amount }) {
   }
 
   if (!response.ok) {
-    const message = data?.message || raw.slice(0, 200) || `결제 승인 실패 (${response.status})`;
+    const message = data?.message || raw.slice(0, 200) || `Toss 요청 실패 (${response.status})`;
     throw new Error(message);
   }
 
   return data;
+}
+
+async function confirmTossPayment({ paymentKey, orderId, amount }) {
+  return tossRequest('https://api.tosspayments.com/v1/payments/confirm', {
+    paymentKey,
+    orderId,
+    amount,
+  });
+}
+
+export async function issueTossBillingKey({ authKey, customerKey }) {
+  if (!TOSS_SECRET_KEY) throw new Error('TOSS_SECRET_KEY가 설정되지 않았습니다.');
+  const data = await tossRequest('https://api.tosspayments.com/v1/billing/authorizations/issue', {
+    authKey,
+    customerKey,
+  });
+  if (!data?.billingKey) {
+    throw new Error('빌링키 발급에 실패했습니다.');
+  }
+  return data;
+}
+
+export async function chargeWithBillingKey({ billingKey, customerKey, amount, orderId, orderName }) {
+  if (!TOSS_SECRET_KEY) throw new Error('TOSS_SECRET_KEY가 설정되지 않았습니다.');
+  const data = await tossRequest(`https://api.tosspayments.com/v1/billing/${billingKey}`, {
+    customerKey,
+    amount,
+    orderId,
+    orderName,
+  });
+  return {
+    paymentKey: data.paymentKey || null,
+    raw: data,
+  };
 }
 
 export function prepareCheckout(userId, planId) {
@@ -100,6 +144,8 @@ export function prepareCheckout(userId, planId) {
     customerKey,
   });
 
+  const useBillingAuth = action.type === 'subscribe';
+
   return {
     orderId,
     amount: action.amount,
@@ -108,8 +154,10 @@ export function prepareCheckout(userId, planId) {
     planId: plan.id,
     planName: plan.name,
     checkoutType: action.type,
+    useBillingAuth,
     clientKey: TOSS_CLIENT_KEY || null,
     successUrl: `${APP_BASE_URL}/billing-success.html`,
+    billingAuthSuccessUrl: `${APP_BASE_URL}/billing-auth-success.html?orderId=${encodeURIComponent(orderId)}`,
     failUrl: `${APP_BASE_URL}/billing-fail.html`,
     mockMode: BILLING_MOCK,
   };
@@ -147,16 +195,63 @@ export async function confirmCheckout(userId, { paymentKey, orderId, amount }) {
 
   const userBeforeActivate = findUserById(userId);
   const action = resolveCheckoutAction(userBeforeActivate, order.plan_id);
-  if (Number(order.amount) !== action.amount) {
-    throw new Error('주문 금액이 일치하지 않습니다.');
-  }
 
   let user;
   if (action.type === 'upgrade') {
     user = upgradeUserSubscription(userId, action.planId);
   } else {
-    user = activateUserSubscription(userId, order.plan_id, SUBSCRIPTION_DAYS);
+    user = activateUserSubscription(userId, order.plan_id, SUBSCRIPTION_DAYS, {
+      autoRenew: false,
+    });
   }
+
+  return {
+    order: findBillingOrder(order.id),
+    user,
+    subscription: getSubscriptionSummary(user),
+    alreadyPaid: false,
+  };
+}
+
+export async function confirmBillingAuthCheckout(userId, { authKey, customerKey, orderId }) {
+  const order = findBillingOrderByOrderId(orderId);
+  if (!order) throw new Error('주문을 찾을 수 없습니다.');
+  if (Number(order.user_id) !== Number(userId)) {
+    throw new Error('주문 정보가 일치하지 않습니다.');
+  }
+  if (order.status === 'paid') {
+    const user = findUserById(userId);
+    return {
+      order,
+      user,
+      subscription: getSubscriptionSummary(user),
+      alreadyPaid: true,
+    };
+  }
+
+  const userBeforeActivate = findUserById(userId);
+  const action = resolveCheckoutAction(userBeforeActivate, order.plan_id);
+  if (action.type !== 'subscribe') {
+    throw new Error('자동결제 등록은 신규 구독 결제에서만 사용할 수 있습니다.');
+  }
+
+  let billingKey;
+  if (BILLING_MOCK && String(authKey || '').startsWith('mock_auth_')) {
+    billingKey = mockBillingKeyForUser(userId);
+  } else {
+    if (!TOSS_SECRET_KEY) throw new Error('TOSS_SECRET_KEY가 설정되지 않았습니다.');
+    const issued = await issueTossBillingKey({ authKey, customerKey });
+    billingKey = issued.billingKey;
+  }
+
+  setUserBillingKey(userId, billingKey);
+  markBillingOrderPaid(order.id, billingKey);
+
+  const user = activateUserSubscription(userId, order.plan_id, SUBSCRIPTION_DAYS, {
+    billingKey,
+    autoRenew: true,
+  });
+
   return {
     order: findBillingOrder(order.id),
     user,
@@ -175,9 +270,39 @@ export async function mockConfirmCheckout(userId, orderId) {
     throw new Error('주문 정보가 일치하지 않습니다.');
   }
 
+  const userBeforeActivate = findUserById(userId);
+  const action = resolveCheckoutAction(userBeforeActivate, order.plan_id);
+
+  if (action.type === 'subscribe') {
+    const billingKey = mockBillingKeyForUser(userId);
+    setUserBillingKey(userId, billingKey);
+    markBillingOrderPaid(order.id, billingKey);
+    const user = activateUserSubscription(userId, order.plan_id, SUBSCRIPTION_DAYS, {
+      billingKey,
+      autoRenew: true,
+    });
+    return {
+      order: findBillingOrder(order.id),
+      user,
+      subscription: getSubscriptionSummary(user),
+      alreadyPaid: false,
+    };
+  }
+
   return confirmCheckout(userId, {
     paymentKey: `mock_${orderId}`,
     orderId,
     amount: order.amount,
+  });
+}
+
+export async function mockConfirmBillingAuth(userId, orderId) {
+  if (!BILLING_MOCK) {
+    throw new Error('BILLING_MOCK 모드에서만 사용할 수 있습니다.');
+  }
+  return confirmBillingAuthCheckout(userId, {
+    authKey: `mock_auth_${orderId}`,
+    customerKey: getOrCreateCustomerKey(userId),
+    orderId,
   });
 }
