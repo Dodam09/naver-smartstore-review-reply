@@ -1,11 +1,13 @@
 import crypto from 'node:crypto';
 import {
+  createKakaoUser,
   createSession,
   createUser,
   deleteSession,
   findSession,
   findUserByEmail,
   findUserById,
+  findUserByKakaoId,
   setUserSubscriptionActive,
 } from './db.js';
 import { DEFAULT_PLAN_ID, getPlan, normalizePlanId } from './plans.js';
@@ -45,12 +47,29 @@ function sanitizeUser(user) {
   return {
     id: user.id,
     email: user.email,
+    displayName: user.display_name || null,
+    authProvider: user.auth_provider || 'email',
     planId: subscription.active ? user.plan_id : 'none',
     plan: subscription.active
       ? plan
       : { id: 'none', name: '구독 전', price: 0, replyLimit: 0, toneLimit: 0 },
     subscription,
   };
+}
+
+function buildLoginResult(user) {
+  const token = createToken();
+  createSession(user.id, token, sessionExpiryIso());
+  return {
+    token,
+    user: sanitizeUser(user),
+    usage: getUsageSummary(user.id, user.plan_id, undefined, isSubscriptionActive(user)),
+    subscription: getSubscriptionSummary(user),
+  };
+}
+
+function isOAuthOnlyUser(user) {
+  return String(user?.password_hash || '').startsWith('oauth:');
 }
 
 export function registerUser({ email, password, planId = DEFAULT_PLAN_ID }) {
@@ -73,18 +92,45 @@ export function registerUser({ email, password, planId = DEFAULT_PLAN_ID }) {
 
 export function loginUser({ email, password }) {
   const user = findUserByEmail(email);
-  if (!user || !verifyPassword(password, user.password_hash)) {
+  if (!user) {
+    throw new Error('이메일 또는 비밀번호가 올바르지 않습니다.');
+  }
+  if (isOAuthOnlyUser(user)) {
+    throw new Error('카카오 로그인으로 접속해 주세요.');
+  }
+  if (!verifyPassword(password, user.password_hash)) {
     throw new Error('이메일 또는 비밀번호가 올바르지 않습니다.');
   }
 
-  const token = createToken();
-  createSession(user.id, token, sessionExpiryIso());
-  return {
-    token,
-    user: sanitizeUser(user),
-    usage: getUsageSummary(user.id, user.plan_id, undefined, isSubscriptionActive(user)),
-    subscription: getSubscriptionSummary(user),
-  };
+  return buildLoginResult(user);
+}
+
+export function loginWithKakao({ kakaoId, email, nickname }) {
+  const normalizedKakaoId = String(kakaoId || '').trim();
+  if (!normalizedKakaoId) {
+    throw new Error('카카오 계정 정보가 올바르지 않습니다.');
+  }
+
+  let user = findUserByKakaoId(normalizedKakaoId);
+  if (!user) {
+    const preferredEmail = String(email || '').trim().toLowerCase();
+    const fallbackEmail = `kakao_${normalizedKakaoId}@kakao.user`;
+    let resolvedEmail = preferredEmail && preferredEmail.includes('@') ? preferredEmail : fallbackEmail;
+    if (findUserByEmail(resolvedEmail)) {
+      resolvedEmail = fallbackEmail;
+    }
+    if (findUserByEmail(resolvedEmail)) {
+      throw new Error('이미 연결된 계정이 있습니다. 관리자에게 문의해 주세요.');
+    }
+
+    user = createKakaoUser({
+      kakaoId: normalizedKakaoId,
+      email: resolvedEmail,
+      displayName: nickname || null,
+    });
+  }
+
+  return buildLoginResult(user);
 }
 
 export function logoutUser(token) {

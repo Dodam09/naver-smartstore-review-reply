@@ -94,6 +94,18 @@ function migrateUsersTable(database) {
   if (!cols.includes('customer_key')) {
     database.exec(`ALTER TABLE users ADD COLUMN customer_key TEXT`);
   }
+  if (!cols.includes('kakao_id')) {
+    database.exec(`ALTER TABLE users ADD COLUMN kakao_id TEXT`);
+    database.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_kakao_id ON users(kakao_id) WHERE kakao_id IS NOT NULL`
+    );
+  }
+  if (!cols.includes('auth_provider')) {
+    database.exec(`ALTER TABLE users ADD COLUMN auth_provider TEXT NOT NULL DEFAULT 'email'`);
+  }
+  if (!cols.includes('display_name')) {
+    database.exec(`ALTER TABLE users ADD COLUMN display_name TEXT`);
+  }
 }
 
 export function getDb() {
@@ -120,6 +132,22 @@ export function findUserByEmail(email) {
 
 export function findUserById(id) {
   return getDb().prepare('SELECT * FROM users WHERE id = ?').get(id);
+}
+
+export function findUserByKakaoId(kakaoId) {
+  return getDb().prepare('SELECT * FROM users WHERE kakao_id = ?').get(String(kakaoId || ''));
+}
+
+export function createKakaoUser({ kakaoId, email, displayName, planId = DEFAULT_PLAN_ID }) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const normalizedPlan = normalizePlanId(planId);
+  const result = getDb()
+    .prepare(
+      `INSERT INTO users (email, password_hash, plan_id, kakao_id, auth_provider, display_name)
+       VALUES (?, 'oauth:kakao', ?, ?, 'kakao', ?)`
+    )
+    .run(normalizedEmail, normalizedPlan, String(kakaoId), displayName || null);
+  return findUserById(result.lastInsertRowid);
 }
 
 export function createUser(email, passwordHash, planId = DEFAULT_PLAN_ID) {

@@ -6,6 +6,7 @@ import {
   ensureAdminUser,
   getAuthFromToken,
   loginUser,
+  loginWithKakao,
   logoutUser,
   parseBearerToken,
   registerUser,
@@ -27,6 +28,16 @@ import {
 } from './prompts.js';
 import { assertSubscriptionActive, SubscriptionError } from './subscription.js';
 import { assertWithinLimit, getUsageSummary, recordUsage, UsageLimitError } from './usage.js';
+import {
+  buildAuthorizeUrl,
+  buildKakaoSuccessUrl,
+  consumeOAuthState,
+  createOAuthState,
+  exchangeCodeForToken,
+  fetchKakaoUser,
+  getKakaoRedirectUri,
+  isKakaoConfigured,
+} from './kakao.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -123,10 +134,11 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'naver-smartstore-reply-api',
-    version: '1.3.0',
+    version: '1.3.3',
     geminiConfigured: !!String(process.env.GEMINI_API_KEY || '').trim(),
     authEnabled: true,
     registrationOpen: ALLOW_REGISTRATION,
+    kakaoLoginEnabled: isKakaoConfigured(),
     billing: getBillingConfig(),
     requireSubscription: REQUIRE_SUBSCRIPTION,
   });
@@ -160,6 +172,60 @@ app.post('/api/auth/login', (req, res) => {
   } catch (err) {
     res.status(401).json({ ok: false, error: err.message || String(err) });
   }
+});
+
+app.get('/api/auth/kakao/login', (req, res) => {
+  if (!isKakaoConfigured()) {
+    res.status(503).json({ ok: false, error: '카카오 로그인이 설정되지 않았습니다.' });
+    return;
+  }
+
+  const source = req.query.source === 'extension' ? 'extension' : 'web';
+  const state = createOAuthState(source);
+  res.redirect(buildAuthorizeUrl(state));
+});
+
+app.get('/api/auth/kakao/callback', async (req, res) => {
+  if (!isKakaoConfigured()) {
+    res.redirect(buildKakaoSuccessUrl({ error: '카카오 로그인이 설정되지 않았습니다.' }));
+    return;
+  }
+
+  const code = String(req.query.code || '');
+  const state = String(req.query.state || '');
+  const kakaoError = String(req.query.error || '');
+
+  if (kakaoError) {
+    res.redirect(buildKakaoSuccessUrl({ error: '카카오 로그인이 취소되었습니다.' }));
+    return;
+  }
+
+  if (!code || !consumeOAuthState(state)) {
+    res.redirect(buildKakaoSuccessUrl({ error: '로그인 요청이 만료되었거나 올바르지 않습니다.' }));
+    return;
+  }
+
+  try {
+    const tokenData = await exchangeCodeForToken(code);
+    const profile = await fetchKakaoUser(tokenData.access_token);
+    const kakaoAccount = profile.kakao_account || {};
+    const result = loginWithKakao({
+      kakaoId: profile.id,
+      email: kakaoAccount.email || null,
+      nickname: kakaoAccount.profile?.nickname || profile.properties?.nickname || null,
+    });
+    res.redirect(buildKakaoSuccessUrl({ token: result.token }));
+  } catch (err) {
+    res.redirect(buildKakaoSuccessUrl({ error: err.message || '카카오 로그인에 실패했습니다.' }));
+  }
+});
+
+app.get('/api/auth/kakao/config', (_req, res) => {
+  res.json({
+    ok: true,
+    enabled: isKakaoConfigured(),
+    redirectUri: isKakaoConfigured() ? getKakaoRedirectUri() : null,
+  });
 });
 
 app.post('/api/auth/logout', authenticate, (req, res) => {
@@ -415,5 +481,8 @@ app.listen(PORT, '0.0.0.0', () => {
   }
   if (REQUIRE_SUBSCRIPTION) {
     console.log('REQUIRE_SUBSCRIPTION enabled (paid subscription required for AI)');
+  }
+  if (isKakaoConfigured()) {
+    console.log(`Kakao login enabled (redirect: ${getKakaoRedirectUri()})`);
   }
 });

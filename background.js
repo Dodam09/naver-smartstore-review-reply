@@ -8,6 +8,13 @@ let abortController = null;
 let inquiryAbortController = null;
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === 'KAKAO_LOGIN') {
+    startKakaoLoginFlow()
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((err) => sendResponse({ ok: false, error: err.message || String(err) }));
+    return true;
+  }
+
   if (message.type === 'START_GENERATE') {
     if (isRunning) {
       sendResponse({ ok: false, error: '이미 답변 생성이 진행 중입니다.' });

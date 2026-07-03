@@ -270,6 +270,29 @@
 
     }
 
+    .account-divider {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 14px 0 10px;
+      color: #6b7280;
+      font-size: 12px;
+    }
+
+    .account-divider::before,
+    .account-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: #e5e7eb;
+    }
+
+    button.kakao-login {
+      background: #fee500;
+      color: #191919;
+      border: 1px solid #e5d200;
+    }
+
     button {
 
       width: 100%;
@@ -766,9 +789,13 @@
 
       <div class="card-title">계정</div>
 
-      <div class="card-desc">처음이면 가입, 이미 있으면 로그인하세요.</div>
+      <div class="card-desc">카카오로 간편 로그인하거나 이메일로 가입·로그인하세요.</div>
 
       <div id="accountLoggedOut">
+
+        <button id="kakaoLoginBtn" class="kakao-login" type="button" hidden>카카오로 로그인</button>
+
+        <div class="account-divider" id="accountDivider" hidden>또는</div>
 
         <div class="account-auth-tabs">
 

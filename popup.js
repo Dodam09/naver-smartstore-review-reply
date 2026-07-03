@@ -71,6 +71,8 @@ const els = {
   accountCard: document.getElementById('accountCard'),
   accountLoggedOut: document.getElementById('accountLoggedOut'),
   accountLoggedIn: document.getElementById('accountLoggedIn'),
+  kakaoLoginBtn: document.getElementById('kakaoLoginBtn'),
+  accountDivider: document.getElementById('accountDivider'),
   loginEmail: document.getElementById('loginEmail'),
   loginPassword: document.getElementById('loginPassword'),
   loginBtn: document.getElementById('loginBtn'),
@@ -99,6 +101,7 @@ let inquiryJobPollTimer = null;
 let reviewStyle;
 let inquiryStyle;
 let accountAuthMode = 'login';
+let kakaoLoginEnabled = false;
 let registrationOpen = true;
 
 init();
@@ -190,6 +193,7 @@ async function init() {
   els.inquiryFetchDays.addEventListener('change', scheduleSaveSettings);
   els.loginBtn?.addEventListener('click', onLoginAccount);
   els.registerBtn?.addEventListener('click', onRegisterAccount);
+  els.kakaoLoginBtn?.addEventListener('click', onKakaoLogin);
   els.accountTabLogin?.addEventListener('click', () => setAccountAuthMode('login'));
   els.accountTabRegister?.addEventListener('click', () => setAccountAuthMode('register'));
   els.logoutBtn?.addEventListener('click', onLogoutAccount);
@@ -1012,8 +1016,17 @@ async function initAccountUi() {
   try {
     const health = await fetchServerHealth();
     registrationOpen = health?.registrationOpen !== false;
+    kakaoLoginEnabled = health?.kakaoLoginEnabled === true;
   } catch (_) {
     registrationOpen = true;
+    kakaoLoginEnabled = false;
+  }
+
+  if (els.kakaoLoginBtn) {
+    els.kakaoLoginBtn.hidden = !kakaoLoginEnabled;
+  }
+  if (els.accountDivider) {
+    els.accountDivider.hidden = !kakaoLoginEnabled;
   }
 
   if (els.accountTabRegister) {
@@ -1039,9 +1052,11 @@ function setAccountAuthMode(mode) {
     els.accountStatus.textContent =
       mode === 'register'
         ? '이메일과 비밀번호(8자 이상)로 가입할 수 있습니다.'
-        : registrationOpen
-          ? '로그인하거나 [가입하기] 탭에서 새 계정을 만드세요.'
-          : '이메일과 비밀번호로 로그인해 주세요.';
+        : kakaoLoginEnabled
+          ? '카카오 로그인을 권장합니다. 이메일 로그인도 이용할 수 있습니다.'
+          : registrationOpen
+            ? '로그인하거나 [가입하기] 탭에서 새 계정을 만드세요.'
+            : '이메일과 비밀번호로 로그인해 주세요.';
   }
 }
 
@@ -1063,8 +1078,10 @@ async function renderAccountUi() {
     const planLabel = session.subscription?.active
       ? session.planName || session.planId || '플랜'
       : '구독 전';
+    const accountLabel = session.displayName || session.email || '계정';
+    const providerLabel = session.authProvider === 'kakao' ? '카카오' : '이메일';
     els.accountSummary.innerHTML = `
-      <div><strong>${session.email || '계정'}</strong></div>
+      <div><strong>${accountLabel}</strong> <span style="color:#6b7280;font-size:12px;">(${providerLabel})</span></div>
       <div>${planLabel}</div>
       <div>${subText || '구독 정보 없음'}</div>
       <div>${usageText || '사용량 정보 없음'}</div>
@@ -1103,6 +1120,21 @@ async function onRegisterAccount() {
     if (els.accountStatus) els.accountStatus.textContent = err.message || '가입에 실패했습니다.';
   } finally {
     if (els.registerBtn) els.registerBtn.disabled = false;
+  }
+}
+
+async function onKakaoLogin() {
+  if (els.kakaoLoginBtn) els.kakaoLoginBtn.disabled = true;
+  if (els.accountStatus) els.accountStatus.textContent = '카카오 로그인 창을 여는 중…';
+
+  try {
+    await loginWithKakao();
+    if (els.accountStatus) els.accountStatus.textContent = '카카오 로그인되었습니다.';
+    await renderAccountUi();
+  } catch (err) {
+    if (els.accountStatus) els.accountStatus.textContent = err.message || '카카오 로그인에 실패했습니다.';
+  } finally {
+    if (els.kakaoLoginBtn) els.kakaoLoginBtn.disabled = false;
   }
 }
 
