@@ -100,19 +100,42 @@ export async function exchangeCodeForToken(code) {
     body,
   });
 
-  const data = await response.json().catch(() => ({}));
+  const rawText = await response.text();
+  let data = {};
+  try {
+    data = rawText ? JSON.parse(rawText) : {};
+  } catch {
+    data = {};
+  }
+
   if (!response.ok || !data.access_token) {
-    const code = data.error || '';
-    const detail = data.error_description || data.error_code || '';
-    if (code === 'invalid_client') {
-      throw new Error('REST API 키 또는 Client Secret이 올바르지 않습니다. Railway 변수를 확인해 주세요.');
-    }
-    if (code === 'invalid_grant') {
+    const errCode = data.error || '';
+    const errCodeId = data.error_code || '';
+    const detail =
+      data.error_description || data.msg || rawText.slice(0, 160) || `HTTP ${response.status}`;
+
+    console.error('Kakao token exchange failed', {
+      status: response.status,
+      error: errCode,
+      error_code: errCodeId,
+      redirectUri: getKakaoRedirectUri(),
+      hasClientSecret: !!KAKAO_CLIENT_SECRET,
+    });
+
+    if (errCode === 'invalid_client' || errCodeId === 'KOE010') {
       throw new Error(
-        'Redirect URI가 일치하지 않거나 인증 코드가 만료되었습니다. 카카오 콘솔 Redirect URI를 확인해 주세요.'
+        'REST API 키와 Client Secret이 맞지 않습니다. 플랫폼 키 > REST API 키 > 클라이언트 시크릿에서 코드를 재발급해 Railway에 넣어 주세요.'
       );
     }
-    throw new Error(detail || code || '카카오 토큰 발급에 실패했습니다.');
+    if (errCode === 'invalid_grant') {
+      throw new Error(
+        'Redirect URI가 일치하지 않습니다. 플랫폼 키의 Redirect URI가 아래와 같은지 확인해 주세요: ' +
+          getKakaoRedirectUri()
+      );
+    }
+    throw new Error(
+      errCodeId ? `${detail} (${errCodeId})` : detail || errCode || '카카오 토큰 발급에 실패했습니다.'
+    );
   }
   return data;
 }
