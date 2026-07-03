@@ -34,7 +34,7 @@ const PORT = Number(process.env.PORT) || 8787;
 const DEV_SECRET = String(process.env.DEV_API_SECRET || '').trim();
 const ADMIN_SECRET = String(process.env.ADMIN_SECRET || '').trim();
 const ALLOW_REGISTRATION = String(process.env.ALLOW_REGISTRATION || 'false').toLowerCase() === 'true';
-const REQUIRE_SUBSCRIPTION = String(process.env.REQUIRE_SUBSCRIPTION || 'false').toLowerCase() === 'true';
+const REQUIRE_SUBSCRIPTION = String(process.env.REQUIRE_SUBSCRIPTION ?? 'true').toLowerCase() === 'true';
 
 getDb();
 
@@ -180,7 +180,12 @@ app.get('/api/auth/me', authenticate, (req, res) => {
     return;
   }
 
-  const usage = getUsageSummary(req.auth.user.id, req.auth.user.planId);
+  const usage = getUsageSummary(
+    req.auth.user.id,
+    req.auth.user.planId,
+    undefined,
+    !!req.auth.user.subscription?.active
+  );
   res.json({
     ok: true,
     mode: 'user',
@@ -230,7 +235,7 @@ app.post('/api/billing/confirm', authenticate, async (req, res) => {
         plan: getPlan(result.user.plan_id),
         subscription: result.subscription,
       } : null,
-      usage: getUsageSummary(req.auth.user.id, result.user.plan_id),
+      usage: getUsageSummary(req.auth.user.id, result.user.plan_id, undefined, true),
     });
   } catch (err) {
     res.status(400).json({ ok: false, error: err.message || String(err) });
@@ -254,7 +259,7 @@ app.post('/api/billing/mock-confirm', authenticate, async (req, res) => {
         plan: getPlan(result.user.plan_id),
         subscription: result.subscription,
       },
-      usage: getUsageSummary(req.auth.user.id, result.user.plan_id),
+      usage: getUsageSummary(req.auth.user.id, result.user.plan_id, undefined, true),
     });
   } catch (err) {
     res.status(400).json({ ok: false, error: err.message || String(err) });
@@ -325,7 +330,7 @@ app.post('/api/analyze-tone', authenticate, async (req, res) => {
     let usage;
     if (req.auth.mode === 'user') {
       recordUsage(req.auth.user.id, 'tone', context);
-      usage = getUsageSummary(req.auth.user.id, req.auth.user.planId);
+      usage = getUsageSummary(req.auth.user.id, req.auth.user.planId, undefined, !!req.auth.user.subscription?.active);
     }
 
     res.json({ ok: true, prompt: prompt.trim(), sampleCount: normalized.length, usage: usage || null });
@@ -373,7 +378,7 @@ app.post('/api/generate-reply', authenticate, async (req, res) => {
     let usage;
     if (req.auth.mode === 'user') {
       recordUsage(req.auth.user.id, 'reply', channel);
-      usage = getUsageSummary(req.auth.user.id, req.auth.user.planId);
+      usage = getUsageSummary(req.auth.user.id, req.auth.user.planId, undefined, !!req.auth.user.subscription?.active);
     }
 
     res.json({ ok: true, text, usage: usage || null });

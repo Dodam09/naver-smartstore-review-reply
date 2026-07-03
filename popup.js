@@ -1060,9 +1060,12 @@ async function renderAccountUi() {
   if (els.accountSummary) {
     const usageText = formatUsageSummary(session.usage);
     const subText = formatSubscriptionSummary(session.subscription);
+    const planLabel = session.subscription?.active
+      ? session.planName || session.planId || '플랜'
+      : '구독 전';
     els.accountSummary.innerHTML = `
       <div><strong>${session.email || '계정'}</strong></div>
-      <div>${session.planName || session.planId || '플랜'}</div>
+      <div>${planLabel}</div>
       <div>${subText || '구독 정보 없음'}</div>
       <div>${usageText || '사용량 정보 없음'}</div>
     `;
@@ -1094,7 +1097,7 @@ async function onRegisterAccount() {
     await registerWithPassword(email, password);
     if (els.loginPassword) els.loginPassword.value = '';
     if (els.registerPasswordConfirm) els.registerPasswordConfirm.value = '';
-    if (els.accountStatus) els.accountStatus.textContent = '가입 완료! 로그인되었습니다.';
+    if (els.accountStatus) els.accountStatus.textContent = '가입 완료! [구독하기]에서 플랜을 선택해 주세요.';
     await renderAccountUi();
   } catch (err) {
     if (els.accountStatus) els.accountStatus.textContent = err.message || '가입에 실패했습니다.';

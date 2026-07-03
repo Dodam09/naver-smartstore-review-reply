@@ -9,7 +9,7 @@ import {
   setUserSubscriptionActive,
 } from './db.js';
 import { DEFAULT_PLAN_ID, getPlan, normalizePlanId } from './plans.js';
-import { getSubscriptionSummary } from './subscription.js';
+import { getSubscriptionSummary, isSubscriptionActive } from './subscription.js';
 import { getUsageSummary } from './usage.js';
 
 const SESSION_DAYS = Number(process.env.SESSION_DAYS || 30);
@@ -40,12 +40,16 @@ function sessionExpiryIso(days = SESSION_DAYS) {
 
 function sanitizeUser(user) {
   if (!user) return null;
+  const subscription = getSubscriptionSummary(user);
+  const plan = getPlan(user.plan_id);
   return {
     id: user.id,
     email: user.email,
-    planId: user.plan_id,
-    plan: getPlan(user.plan_id),
-    subscription: getSubscriptionSummary(user),
+    planId: subscription.active ? user.plan_id : 'none',
+    plan: subscription.active
+      ? plan
+      : { id: 'none', name: '구독 전', price: 0, replyLimit: 0, toneLimit: 0 },
+    subscription,
   };
 }
 
@@ -78,7 +82,7 @@ export function loginUser({ email, password }) {
   return {
     token,
     user: sanitizeUser(user),
-    usage: getUsageSummary(user.id, user.plan_id),
+    usage: getUsageSummary(user.id, user.plan_id, undefined, isSubscriptionActive(user)),
     subscription: getSubscriptionSummary(user),
   };
 }
@@ -95,7 +99,7 @@ export function getAuthFromToken(token) {
   return {
     token,
     user: sanitizeUser(user),
-    usage: getUsageSummary(user.id, user.plan_id),
+    usage: getUsageSummary(user.id, user.plan_id, undefined, isSubscriptionActive(user)),
     subscription: getSubscriptionSummary(user),
   };
 }

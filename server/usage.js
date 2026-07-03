@@ -1,7 +1,22 @@
 import { currentPeriod, ensureUsageRow, getUsageRow, incrementUsage } from './db.js';
 import { getPlan } from './plans.js';
 
-export function getUsageSummary(userId, planId, period = currentPeriod()) {
+export function getUsageSummary(userId, planId, period = currentPeriod(), subscriptionActive = true) {
+  if (!subscriptionActive) {
+    return {
+      period: currentPeriod(),
+      planId: 'none',
+      planName: '구독 전',
+      replyUsed: 0,
+      replyLimit: 0,
+      replyRemaining: 0,
+      toneUsed: 0,
+      toneLimit: 0,
+      toneRemaining: 0,
+      locked: true,
+    };
+  }
+
   const plan = getPlan(planId);
   const row = ensureUsageRow(userId, period);
   const replyUsed = row.reply_count || 0;

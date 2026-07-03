@@ -20,9 +20,9 @@ export function getSubscriptionSummary(user) {
     status,
     active,
     expiresAt,
-    planId: user.plan_id,
-    planName: plan.name,
-    price: plan.price,
+    planId: active ? user.plan_id : 'none',
+    planName: active ? plan.name : '구독 전',
+    price: active ? plan.price : 0,
   };
 }
 
