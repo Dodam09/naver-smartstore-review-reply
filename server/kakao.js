@@ -94,7 +94,7 @@ export async function exchangeCodeForToken(code) {
     body.set('client_secret', KAKAO_CLIENT_SECRET);
   }
 
-  const response = await fetch('https://kapi.kakao.com/oauth/token', {
+  const response = await fetch('https://kauth.kakao.com/oauth/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
     body,
