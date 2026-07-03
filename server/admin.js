@@ -83,6 +83,7 @@ export function getAdminDashboard() {
       planName: getPlan(order.plan_id).name,
       amount: order.amount,
       kind: order.order_kind || 'payment',
+      status: order.status,
       paidAt: order.paid_at || order.created_at,
       orderName: order.order_name,
     })),

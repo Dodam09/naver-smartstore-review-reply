@@ -84,6 +84,9 @@ const els = {
   logoutBtn: document.getElementById('logoutBtn'),
   refreshUsageBtn: document.getElementById('refreshUsageBtn'),
   openBillingBtn: document.getElementById('openBillingBtn'),
+  openBillingManageBtn: document.getElementById('openBillingManageBtn'),
+  paymentHistorySection: document.getElementById('paymentHistorySection'),
+  paymentHistoryList: document.getElementById('paymentHistoryList'),
   undoCancelBtn: document.getElementById('undoCancelBtn'),
   cancelSubscriptionBtn: document.getElementById('cancelSubscriptionBtn'),
   cancelConfirmBox: document.getElementById('cancelConfirmBox'),
@@ -209,6 +212,7 @@ async function init() {
   els.logoutBtn?.addEventListener('click', onLogoutAccount);
   els.refreshUsageBtn?.addEventListener('click', onRefreshAccountUsage);
   els.openBillingBtn?.addEventListener('click', onOpenBillingPage);
+  els.openBillingManageBtn?.addEventListener('click', onOpenBillingManagePage);
   els.undoCancelBtn?.addEventListener('click', onUndoCancelSubscription);
   els.cancelSubscriptionBtn?.addEventListener('click', onShowCancelSubscriptionConfirm);
   els.cancelConfirmOk?.addEventListener('click', onConfirmCancelSubscription);
@@ -1173,7 +1177,38 @@ async function renderAccountUi() {
   }
   if (els.undoCancelBtn) els.undoCancelBtn.hidden = !canUndoCancel;
   if (els.cancelSubscriptionBtn) els.cancelSubscriptionBtn.hidden = !canCancel;
+  if (els.openBillingManageBtn) els.openBillingManageBtn.hidden = false;
   if (!canCancel && els.cancelConfirmBox) els.cancelConfirmBox.hidden = true;
+  await renderPaymentHistory();
+}
+
+async function renderPaymentHistory() {
+  if (!els.paymentHistorySection || !els.paymentHistoryList) return;
+  if (!useAiProxy()) {
+    els.paymentHistorySection.hidden = true;
+    return;
+  }
+  try {
+    const rows = await fetchPaymentHistory();
+    els.paymentHistorySection.hidden = false;
+    if (!rows.length) {
+      els.paymentHistoryList.innerHTML =
+        '<div class="hint">결제 내역이 없습니다. [구독하기]에서 시작하세요.</div>';
+      return;
+    }
+    els.paymentHistoryList.innerHTML = rows
+      .slice(0, 8)
+      .map((row) => {
+        const refunded = row.status === 'refunded';
+        return `<div style="padding:6px 0;border-bottom:1px solid #eef1f6;font-size:12px;">
+          <div><strong>${row.kindLabel || row.kind}</strong> · ${row.planName || row.planId}${refunded ? ' · <span style="color:#b45309;">환불</span>' : ''}</div>
+          <div style="color:#6b7280;">${row.paidAt || '-'} · ${Number(row.amount || 0).toLocaleString()}원</div>
+        </div>`;
+      })
+      .join('');
+  } catch (_) {
+    els.paymentHistorySection.hidden = true;
+  }
 }
 
 function setCancelConfirmMessage(text) {
@@ -1318,6 +1353,12 @@ async function onRefreshAccountUsage() {
   } finally {
     if (els.refreshUsageBtn) els.refreshUsageBtn.disabled = false;
   }
+}
+
+function onOpenBillingManagePage() {
+  openBillingManagePage().catch(async (err) => {
+    await setAccountMessage(err.message || '결제 관리 페이지를 열 수 없습니다.');
+  });
 }
 
 function onOpenBillingPage() {

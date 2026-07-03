@@ -8,6 +8,7 @@ import {
   getOrCreateCustomerKey,
   listBillingOrdersForUser,
   markBillingOrderPaid,
+  markBillingOrderRefunded,
   setUserBillingKey,
   upgradeUserSubscription,
 } from './db.js';
@@ -93,8 +94,31 @@ export function getPaymentHistory(userId, limit = 20) {
     orderName: order.order_name,
     kind: order.order_kind || 'payment',
     kindLabel: formatOrderKind(order.order_kind),
+    status: order.status,
     paidAt: order.paid_at || order.created_at,
   }));
+}
+
+export async function refundBillingOrder(orderDbId, { reason = '관리자 환불' } = {}) {
+  const order = findBillingOrder(orderDbId);
+  if (!order) throw new Error('주문을 찾을 수 없습니다.');
+  if (order.status === 'refunded') throw new Error('이미 환불된 주문입니다.');
+  if (order.status !== 'paid') throw new Error('결제 완료된 주문만 환불할 수 있습니다.');
+
+  const paymentKey = String(order.payment_key || '').trim();
+  if (!paymentKey) throw new Error('환불할 payment_key가 없습니다.');
+
+  if (BILLING_MOCK || paymentKey.startsWith('mock_') || paymentKey.startsWith('mock_bill_')) {
+    markBillingOrderRefunded(order.id);
+  } else {
+    if (!TOSS_SECRET_KEY) throw new Error('TOSS_SECRET_KEY가 설정되지 않았습니다.');
+    await tossRequest(`https://api.tosspayments.com/v1/payments/${encodeURIComponent(paymentKey)}/cancel`, {
+      cancelReason: reason,
+    });
+    markBillingOrderRefunded(order.id);
+  }
+
+  return findBillingOrder(order.id);
 }
 
 export function createOrderId(userId) {

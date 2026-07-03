@@ -370,6 +370,7 @@
                 <th>종류</th>
                 <th>플랜</th>
                 <th>금액</th>
+                <th>관리</th>
               </tr>
             </thead>
             <tbody id="ordersBody"></tbody>
@@ -584,7 +585,7 @@
     function renderRecentOrders() {
       const rows = dashboardData?.recentOrders || [];
       if (!rows.length) {
-        ordersBody.innerHTML = '<tr><td colspan="5">결제 내역이 없습니다.</td></tr>';
+        ordersBody.innerHTML = '<tr><td colspan="6">결제 내역이 없습니다.</td></tr>';
         return;
       }
       ordersBody.innerHTML = rows
@@ -598,11 +599,39 @@
               </td>
               <td>${escapeHtml(orderKindLabel(row.kind))}</td>
               <td>${escapeHtml(row.planName || row.planId || '-')}</td>
-              <td><strong>${Number(row.amount || 0).toLocaleString()}원</strong></td>
+              <td>
+                <strong>${Number(row.amount || 0).toLocaleString()}원</strong>
+                ${row.status === 'refunded' ? '<div style="color:#b45309;font-size:11px;">환불</div>' : ''}
+              </td>
+              <td>
+                ${
+                  row.status === 'paid'
+                    ? `<button class="warn small refund-btn" type="button" data-order-id="${row.id}">환불</button>`
+                    : '-'
+                }
+              </td>
             </tr>
           `
         )
         .join('');
+
+      ordersBody.querySelectorAll('.refund-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const orderId = Number(btn.dataset.orderId);
+          if (!orderId) return;
+          if (!window.confirm('이 결제를 환불할까요?\n(토스 취소 · 구독 해지는 별도)')) return;
+          try {
+            await adminApi(`/api/admin/orders/${orderId}/refund`, {
+              method: 'POST',
+              body: { reason: '관리자 환불' },
+            });
+            await loadDashboard();
+            showToast('환불 처리했습니다.');
+          } catch (err) {
+            showToast(err.message || '환불 실패', true);
+          }
+        });
+      });
     }
 
     function renderUsers() {

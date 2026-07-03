@@ -84,7 +84,7 @@
     <div class="legal" id="legalBox">
       <strong>정기결제 안내</strong>
       <div id="legalText" style="margin:8px 0;">불러오는 중…</div>
-      <label><input id="legalAgree" type="checkbox" /> 위 정기결제 조건에 동의합니다.</label>
+      <label><input id="legalAgree" type="checkbox" /> 위 정기결제 조건에 동의합니다. (<a href="/billing-terms.html" target="_blank" rel="noopener">자세히</a>)</label>
     </div>
     <div class="plans" id="plans"></div>
     <div class="panel" id="accountPanel" hidden>
@@ -162,6 +162,7 @@
                   <div class="history-meta">${row.paidAt || '-'} · ${row.orderName || ''}</div>
                 </div>
                 <div><strong>${Number(row.amount || 0).toLocaleString()}원</strong></div>
+                ${row.status === 'refunded' ? '<div style="color:#b45309;font-size:11px;">환불됨</div>' : ''}
               </div>
             `
           )
@@ -533,6 +534,10 @@
       }
       billingConfig = await api('/api/billing/config');
       await refreshBillingView();
+      if (params.get('view') === 'manage') {
+        accountPanel.hidden = false;
+        accountPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
       if (initialPlan && billingConfig.plans?.some((p) => p.id === initialPlan)) {
         const note = document.createElement('div');
         note.className = 'sub';

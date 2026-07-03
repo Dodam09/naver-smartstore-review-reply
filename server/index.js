@@ -23,6 +23,7 @@ import {
   mockConfirmCheckout,
   prepareCardUpdate,
   prepareCheckout,
+  refundBillingOrder,
 } from './billing.js';
 import {
   adminActivateSubscription,
@@ -612,6 +613,22 @@ app.patch('/api/admin/users/:id/subscription', requireAdmin, (req, res) => {
 
     const user = adminActivateSubscription(userId, req.body?.planId, req.body?.days);
     res.json({ ok: true, user });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.post('/api/admin/orders/:id/refund', requireAdmin, async (req, res) => {
+  try {
+    const orderDbId = Number(req.params.id);
+    if (!orderDbId) {
+      res.status(400).json({ ok: false, error: 'order id가 필요합니다.' });
+      return;
+    }
+    const order = await refundBillingOrder(orderDbId, {
+      reason: String(req.body?.reason || '관리자 환불').slice(0, 200),
+    });
+    res.json({ ok: true, order: { id: order.id, status: order.status, orderId: order.order_id } });
   } catch (err) {
     res.status(400).json({ ok: false, error: err.message || String(err) });
   }

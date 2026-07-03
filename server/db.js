@@ -454,6 +454,17 @@ export function markBillingOrderPaid(orderDbId, paymentKey) {
     .run(paymentKey, orderDbId);
 }
 
+export function markBillingOrderRefunded(orderDbId) {
+  getDb()
+    .prepare(
+      `UPDATE billing_orders
+       SET status = 'refunded'
+       WHERE id = ? AND status = 'paid'`
+    )
+    .run(orderDbId);
+  return findBillingOrder(orderDbId);
+}
+
 export function activateUserSubscription(userId, planId, days = 30, options = {}) {
   const user = findUserById(userId);
   if (!user) throw new Error('사용자를 찾을 수 없습니다.');
@@ -544,7 +555,7 @@ export function listBillingOrdersForUser(userId, limit = 20) {
   return getDb()
     .prepare(
       `SELECT * FROM billing_orders
-       WHERE user_id = ? AND status = 'paid'
+       WHERE user_id = ? AND status IN ('paid', 'refunded')
        ORDER BY COALESCE(paid_at, created_at) DESC
        LIMIT ?`
     )
@@ -557,7 +568,7 @@ export function listRecentBillingOrders(limit = 50) {
       `SELECT o.*, u.email, u.display_name
        FROM billing_orders o
        JOIN users u ON u.id = o.user_id
-       WHERE o.status = 'paid'
+       WHERE o.status IN ('paid', 'refunded')
        ORDER BY COALESCE(o.paid_at, o.created_at) DESC
        LIMIT ?`
     )
