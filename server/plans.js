@@ -1,4 +1,11 @@
 export const PLANS = {
+  none: {
+    id: 'none',
+    name: '구독 전',
+    price: 0,
+    replyLimit: 0,
+    toneLimit: 0,
+  },
   basic: {
     id: 'basic',
     name: '베이직',
@@ -22,12 +29,21 @@ export const PLANS = {
   },
 };
 
-export const DEFAULT_PLAN_ID = 'basic';
+export const PAID_PLAN_IDS = ['basic', 'standard', 'pro'];
+export const DEFAULT_PLAN_ID = 'none';
 
 export function getPlan(planId) {
-  return PLANS[planId] || PLANS[DEFAULT_PLAN_ID];
+  return PLANS[planId] || PLANS.none;
 }
 
 export function normalizePlanId(planId) {
   return PLANS[planId] ? planId : DEFAULT_PLAN_ID;
+}
+
+export function normalizePaidPlanId(planId) {
+  return PAID_PLAN_IDS.includes(planId) ? planId : 'basic';
+}
+
+export function listPaidPlans() {
+  return PAID_PLAN_IDS.map((id) => PLANS[id]);
 }

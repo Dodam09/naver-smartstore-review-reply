@@ -8,7 +8,7 @@ import {
   getOrCreateCustomerKey,
   markBillingOrderPaid,
 } from './db.js';
-import { getPlan, normalizePlanId, PLANS } from './plans.js';
+import { getPlan, listPaidPlans, normalizePaidPlanId } from './plans.js';
 import { addDaysIso, getSubscriptionSummary } from './subscription.js';
 
 const TOSS_SECRET_KEY = String(process.env.TOSS_SECRET_KEY || '').trim();
@@ -36,7 +36,7 @@ export function getBillingConfig() {
     clientKey: TOSS_CLIENT_KEY || null,
     appBaseUrl: APP_BASE_URL,
     subscriptionDays: SUBSCRIPTION_DAYS,
-    plans: Object.values(PLANS).map((plan) => ({
+    plans: listPaidPlans().map((plan) => ({
       id: plan.id,
       name: plan.name,
       price: plan.price,
@@ -85,7 +85,7 @@ export function prepareCheckout(userId, planId) {
   const user = findUserById(userId);
   if (!user) throw new Error('사용자를 찾을 수 없습니다.');
 
-  const plan = getPlan(normalizePlanId(planId));
+  const plan = getPlan(normalizePaidPlanId(planId));
   const orderId = createOrderId(userId);
   const customerKey = getOrCreateCustomerKey(userId);
 

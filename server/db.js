@@ -106,6 +106,13 @@ function migrateUsersTable(database) {
   if (!cols.includes('display_name')) {
     database.exec(`ALTER TABLE users ADD COLUMN display_name TEXT`);
   }
+
+  database.exec(`
+    UPDATE users
+    SET plan_id = 'none', updated_at = datetime('now')
+    WHERE COALESCE(subscription_status, 'none') != 'active'
+      AND plan_id IN ('basic', 'standard', 'pro')
+  `);
 }
 
 export function getDb() {
@@ -180,7 +187,7 @@ export function deactivateUserSubscription(userId) {
   getDb()
     .prepare(
       `UPDATE users
-       SET subscription_status = 'none', subscription_expires_at = NULL, updated_at = datetime('now')
+       SET plan_id = 'none', subscription_status = 'none', subscription_expires_at = NULL, updated_at = datetime('now')
        WHERE id = ?`
     )
     .run(userId);

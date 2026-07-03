@@ -5,7 +5,7 @@ import {
   findUserById,
   listAllUsers,
 } from './db.js';
-import { getPlan, normalizePlanId, PLANS } from './plans.js';
+import { getPlan, listPaidPlans, normalizePaidPlanId } from './plans.js';
 import { getSubscriptionSummary, isSubscriptionActive } from './subscription.js';
 import { getUsageSummary } from './usage.js';
 
@@ -13,7 +13,7 @@ function formatAdminUser(user, period = currentPeriod()) {
   const subscription = getSubscriptionSummary(user);
   const active = isSubscriptionActive(user);
   const usage = getUsageSummary(user.id, user.plan_id, period, active);
-  const plan = getPlan(user.plan_id);
+  const plan = getPlan(active ? user.plan_id : 'none');
 
   return {
     id: user.id,
@@ -21,8 +21,9 @@ function formatAdminUser(user, period = currentPeriod()) {
     displayName: user.display_name || null,
     authProvider: user.auth_provider || 'email',
     kakaoId: user.kakao_id || null,
-    planId: user.plan_id,
+    planId: active ? user.plan_id : 'none',
     planName: plan.name,
+    activationPlanId: active ? user.plan_id : 'basic',
     subscription,
     usage,
     createdAt: user.created_at,
@@ -42,7 +43,7 @@ export function getAdminDashboard() {
       totalUsers: rows.length,
       activeSubscriptions: activeCount,
     },
-    plans: Object.values(PLANS).map((plan) => ({
+    plans: listPaidPlans().map((plan) => ({
       id: plan.id,
       name: plan.name,
       price: plan.price,
@@ -63,7 +64,8 @@ export function adminActivateSubscription(userId, planId, days = 30) {
   const user = findUserById(userId);
   if (!user) throw new Error('사용자를 찾을 수 없습니다.');
   const normalizedDays = Math.max(1, Math.min(3650, Number(days) || 30));
-  const updated = activateUserSubscription(userId, normalizePlanId(planId || user.plan_id), normalizedDays);
+  const targetPlan = normalizePaidPlanId(planId || user.plan_id);
+  const updated = activateUserSubscription(userId, targetPlan, normalizedDays);
   return formatAdminUser(updated);
 }
 

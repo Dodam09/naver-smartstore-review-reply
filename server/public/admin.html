@@ -249,7 +249,7 @@
             : '아직 결제·활성화 전';
           const planLine = sub.active
             ? `적용 플랜: ${escapeHtml(sub.planName || user.planName || '-')}`
-            : `가입 플랜: ${escapeHtml(user.planName || user.planId || '-')} (미적용)`;
+            : '유료 플랜 없음';
 
           return `
             <tr data-user-id="${user.id}">
@@ -268,7 +268,7 @@
               <td>${escapeHtml(usageText)}</td>
               <td style="min-width:220px;">
                 <label>활성화할 플랜</label>
-                <select class="plan-select">${planOptions(user.planId)}</select>
+                <select class="plan-select">${planOptions(user.activationPlanId || 'basic')}</select>
                 <label style="margin-top:8px;">구독 기간(일)</label>
                 <input class="days-input" type="number" min="1" max="3650" value="30" />
                 <div class="actions">
