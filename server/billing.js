@@ -368,6 +368,14 @@ export async function mockConfirmCheckout(userId, orderId) {
   });
 }
 
+export async function mockSubscribe(userId, planId) {
+  if (!BILLING_MOCK) {
+    throw new Error('BILLING_MOCK 모드에서만 사용할 수 있습니다.');
+  }
+  const checkout = prepareCheckout(userId, planId);
+  return mockConfirmBillingAuth(userId, checkout.orderId);
+}
+
 export async function mockConfirmBillingAuth(userId, orderId) {
   if (!BILLING_MOCK) {
     throw new Error('BILLING_MOCK 모드에서만 사용할 수 있습니다.');

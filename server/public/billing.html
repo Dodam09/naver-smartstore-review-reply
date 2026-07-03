@@ -86,6 +86,7 @@
       <div id="legalText" style="margin:8px 0;">불러오는 중…</div>
       <label><input id="legalAgree" type="checkbox" /> 위 정기결제 조건에 동의합니다. (<a href="/billing-terms.html" target="_blank" rel="noopener">자세히</a>)</label>
     </div>
+    <div class="status" id="status">불러오는 중…</div>
     <div class="plans" id="plans"></div>
     <div class="panel" id="accountPanel" hidden>
       <h3>내 구독 관리</h3>
@@ -98,7 +99,6 @@
       <h3>결제 내역</h3>
       <div id="historyList"></div>
     </div>
-    <div class="status" id="status">불러오는 중…</div>
   </div>
   <script>
     const params = new URLSearchParams(location.search);
@@ -120,12 +120,28 @@
     let billingConfig = null;
     let currentSub = null;
 
+    function setStatus(message, isError) {
+      statusEl.textContent = message;
+      statusEl.classList.toggle('error', !!isError);
+      statusEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function highlightLegalBox(on) {
+      const box = document.getElementById('legalBox');
+      if (!box) return;
+      box.style.borderColor = on ? '#f59e0b' : '#e5e7ef';
+      box.style.background = on ? '#fffbeb' : '#fff';
+    }
+
     function requireLegalConsent(forSubscribe) {
       if (!forSubscribe) return true;
-      if (!legalAgree.checked) {
-        setStatus('정기결제 안내에 동의해 주세요.', true);
+      if (!legalAgree?.checked) {
+        highlightLegalBox(true);
+        setStatus('정기결제 안내에 동의 체크가 필요합니다.', true);
+        legalAgree?.focus();
         return false;
       }
+      highlightLegalBox(false);
       return true;
     }
 
@@ -190,14 +206,9 @@
       cardUpdateBtn.hidden = !canUpdateCard;
     }
 
-    function setStatus(message, isError) {
-      statusEl.textContent = message;
-      statusEl.classList.toggle('error', !!isError);
-    }
-
     function setPayButtonsDisabled(disabled) {
       plansEl.querySelectorAll('button[data-pay]').forEach((btn) => {
-        btn.disabled = disabled || btn.dataset.enabled !== '1';
+        btn.disabled = disabled ? true : btn.dataset.enabled !== '1';
       });
     }
 
@@ -336,7 +347,7 @@
 
     function renderPlans(config, sub) {
       plansEl.innerHTML = '';
-      const tossReady = !!config.tossConfigured;
+      const tossReady = !!config.tossConfigured && !!config.productionReady;
       const mockReady = !!config.mockMode;
 
       (config.plans || []).forEach((plan) => {
@@ -368,7 +379,9 @@
           mockBtn.disabled = !ui.enabled;
           mockBtn.className = tossReady ? 'secondary' : '';
           mockBtn.textContent = ui.mockLabel;
-          if (ui.enabled) mockBtn.addEventListener('click', () => mockCheckout(plan.id));
+          if (ui.enabled) {
+            mockBtn.addEventListener('click', () => mockCheckout(plan.id, mockBtn));
+          }
           card.appendChild(mockBtn);
         }
 
@@ -391,7 +404,13 @@
       try {
         const me = await api('/api/auth/me');
         sub = me.subscription || me.user?.subscription;
-      } catch (_) {}
+      } catch (err) {
+        setStatus(
+          (err.message || '로그인 확인 실패') +
+            '\n\n확장 [설정]에서 다시 로그인한 뒤 [구독하기]를 눌러 주세요.',
+          true
+        );
+      }
       currentSub = sub;
       renderPlans(config, sub);
       updateStatusForSub(sub, config);
@@ -477,35 +496,44 @@
           return;
         }
         setStatus(err.message || String(err), true);
-        await refreshBillingView();
+        try { await refreshBillingView(); } catch (_) {}
       } finally {
         checkoutBusy = false;
+        setPayButtonsDisabled(false);
       }
     }
 
-    async function mockCheckout(planId) {
-      if (checkoutBusy) return;
+    async function mockCheckout(planId, clickedBtn) {
+      if (checkoutBusy) {
+        setStatus('결제 처리 중입니다. 잠시만 기다려 주세요.');
+        return;
+      }
       const isSubscribe = !currentSub?.active;
       if (isSubscribe && !requireLegalConsent(true)) return;
+
       checkoutBusy = true;
       setPayButtonsDisabled(true);
+      const prevLabel = clickedBtn?.textContent;
+      if (clickedBtn) clickedBtn.textContent = '처리 중…';
       try {
         setStatus('모의 결제 처리 중…');
-        const prepared = await api('/api/billing/prepare', {
-          method: 'POST',
-          body: { planId },
-        });
-        const checkoutType = prepared.checkout.checkoutType || 'subscribe';
-        const result =
-          checkoutType === 'subscribe'
-            ? await api('/api/billing/mock-billing-auth', {
-                method: 'POST',
-                body: { orderId: prepared.checkout.orderId },
-              })
-            : await api('/api/billing/mock-confirm', {
-                method: 'POST',
-                body: { orderId: prepared.checkout.orderId },
-              });
+        let result;
+        if (isSubscribe) {
+          result = await api('/api/billing/mock-subscribe', {
+            method: 'POST',
+            body: { planId },
+          });
+        } else {
+          const prepared = await api('/api/billing/prepare', {
+            method: 'POST',
+            body: { planId },
+          });
+          result = await api('/api/billing/mock-confirm', {
+            method: 'POST',
+            body: { orderId: prepared.checkout.orderId },
+          });
+        }
+        const checkoutType = isSubscribe ? 'subscribe' : 'upgrade';
         const typeLabel =
           checkoutType === 'upgrade'
             ? '업그레이드 완료'
@@ -516,11 +544,17 @@
         await refreshBillingView();
       } catch (err) {
         setStatus(err.message || String(err), true);
-        await refreshBillingView();
+        try { await refreshBillingView(); } catch (_) {}
       } finally {
         checkoutBusy = false;
+        setPayButtonsDisabled(false);
+        if (clickedBtn && prevLabel) clickedBtn.textContent = prevLabel;
       }
     }
+
+    legalAgree?.addEventListener('change', () => {
+      if (legalAgree.checked) highlightLegalBox(false);
+    });
 
     cardUpdateBtn?.addEventListener('click', () => {
       if (!billingConfig) return;

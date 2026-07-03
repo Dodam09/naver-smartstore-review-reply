@@ -21,6 +21,7 @@ import {
   mockConfirmBillingAuth,
   mockConfirmCardUpdate,
   mockConfirmCheckout,
+  mockSubscribe,
   prepareCardUpdate,
   prepareCheckout,
   refundBillingOrder,
@@ -394,6 +395,30 @@ app.post('/api/billing/confirm', authenticate, async (req, res) => {
         plan: getPlan(result.user.plan_id),
         subscription: result.subscription,
       } : null,
+      usage: getUsageSummary(req.auth.user.id, result.user.plan_id, undefined, true),
+    });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.post('/api/billing/mock-subscribe', authenticate, async (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(400).json({ ok: false, error: '로그인 계정으로만 결제할 수 있습니다.' });
+    return;
+  }
+
+  try {
+    const result = await mockSubscribe(req.auth.user.id, req.body?.planId);
+    res.json({
+      ok: true,
+      user: {
+        id: result.user.id,
+        email: result.user.email,
+        planId: result.user.plan_id,
+        plan: getPlan(result.user.plan_id),
+        subscription: result.subscription,
+      },
       usage: getUsageSummary(req.auth.user.id, result.user.plan_id, undefined, true),
     });
   } catch (err) {
