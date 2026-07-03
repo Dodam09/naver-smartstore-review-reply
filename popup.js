@@ -1125,7 +1125,7 @@ async function onRegisterAccount() {
 
 async function onKakaoLogin() {
   if (els.kakaoLoginBtn) els.kakaoLoginBtn.disabled = true;
-  if (els.accountStatus) els.accountStatus.textContent = '카카오 로그인 창을 여는 중…';
+  if (els.accountStatus) els.accountStatus.textContent = '카카오 로그인 창을 여는 중… (창이 닫히면 [설정]을 다시 확인하세요)';
 
   try {
     await loginWithKakao();

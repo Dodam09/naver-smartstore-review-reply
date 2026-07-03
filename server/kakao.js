@@ -4,6 +4,7 @@ const KAKAO_REST_API_KEY = String(
   process.env.KAKAO_REST_API_KEY || process.env.KAKAO_CLIENT_ID || ''
 ).trim();
 const KAKAO_CLIENT_SECRET = String(process.env.KAKAO_CLIENT_SECRET || '').trim();
+const STATE_TTL_MS = 10 * 60 * 1000;
 
 function resolveAppBaseUrl() {
   const explicit = String(process.env.APP_BASE_URL || '').trim().replace(/\/$/, '');
@@ -16,16 +17,16 @@ function resolveAppBaseUrl() {
   return `http://127.0.0.1:${port}`;
 }
 
-const pendingStates = new Map();
-const STATE_TTL_MS = 10 * 60 * 1000;
+function getStateSecret() {
+  return KAKAO_CLIENT_SECRET || KAKAO_REST_API_KEY || 'kakao-oauth-state';
+}
 
-function cleanupExpiredStates() {
-  const now = Date.now();
-  for (const [state, entry] of pendingStates.entries()) {
-    if (now - entry.createdAt > STATE_TTL_MS) {
-      pendingStates.delete(state);
-    }
-  }
+function encodePayload(payload) {
+  return Buffer.from(JSON.stringify(payload)).toString('base64url');
+}
+
+function decodePayload(encoded) {
+  return JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
 }
 
 export function isKakaoConfigured() {
@@ -39,19 +40,37 @@ export function getKakaoRedirectUri() {
 }
 
 export function createOAuthState(source = 'web') {
-  cleanupExpiredStates();
-  const state = crypto.randomBytes(16).toString('hex');
-  pendingStates.set(state, { source, createdAt: Date.now() });
-  return state;
+  const payload = {
+    source,
+    t: Date.now(),
+    n: crypto.randomBytes(8).toString('hex'),
+  };
+  const data = encodePayload(payload);
+  const sig = crypto.createHmac('sha256', getStateSecret()).update(data).digest('base64url');
+  return `${data}.${sig}`;
 }
 
 export function consumeOAuthState(state) {
-  cleanupExpiredStates();
-  const entry = pendingStates.get(String(state || ''));
-  if (!entry) return null;
-  pendingStates.delete(String(state));
-  if (Date.now() - entry.createdAt > STATE_TTL_MS) return null;
-  return entry;
+  const raw = String(state || '');
+  const dot = raw.lastIndexOf('.');
+  if (dot <= 0) return null;
+
+  const data = raw.slice(0, dot);
+  const sig = raw.slice(dot + 1);
+  const expected = crypto.createHmac('sha256', getStateSecret()).update(data).digest('base64url');
+  const sigBuf = Buffer.from(sig);
+  const expectedBuf = Buffer.from(expected);
+  if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
+    return null;
+  }
+
+  try {
+    const payload = decodePayload(data);
+    if (Date.now() - payload.t > STATE_TTL_MS) return null;
+    return { source: payload.source };
+  } catch {
+    return null;
+  }
 }
 
 export function buildAuthorizeUrl(state) {
@@ -109,7 +128,7 @@ export function buildKakaoSuccessUrl({ token, error }) {
   const base = `${resolveAppBaseUrl()}/kakao-success.html`;
   const params = new URLSearchParams();
   if (token) params.set('token', token);
-  if (error) params.set('error', error);
+  if (error) params.set('error', String(error));
   const query = params.toString();
   return query ? `${base}?${query}` : base;
 }
