@@ -102,8 +102,17 @@ export async function exchangeCodeForToken(code) {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data.access_token) {
-    const message = data.error_description || data.error || '카카오 토큰 발급에 실패했습니다.';
-    throw new Error(message);
+    const code = data.error || '';
+    const detail = data.error_description || data.error_code || '';
+    if (code === 'invalid_client') {
+      throw new Error('REST API 키 또는 Client Secret이 올바르지 않습니다. Railway 변수를 확인해 주세요.');
+    }
+    if (code === 'invalid_grant') {
+      throw new Error(
+        'Redirect URI가 일치하지 않거나 인증 코드가 만료되었습니다. 카카오 콘솔 Redirect URI를 확인해 주세요.'
+      );
+    }
+    throw new Error(detail || code || '카카오 토큰 발급에 실패했습니다.');
   }
   return data;
 }
