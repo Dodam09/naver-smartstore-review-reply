@@ -752,6 +752,8 @@
       bindUserActions();
       renderRecentOrders();
     }
+
+    async function updateSubscription(userId, action, planId, days) {
       try {
         const body = { action };
         if (planId) body.planId = planId;
@@ -780,6 +782,9 @@
         setLoginStatus('ADMIN_SECRET을 입력해 주세요.', true);
         return;
       }
+      const loginBtn = document.getElementById('loginBtn');
+      if (loginBtn) loginBtn.disabled = true;
+      setLoginStatus('확인 중…');
       setSecret(secret);
       try {
         await loadDashboard();
@@ -787,7 +792,14 @@
         setLoginStatus('');
       } catch (err) {
         setSecret('');
-        setLoginStatus(err.message || '입장에 실패했습니다.', true);
+        const msg = err.message || '입장에 실패했습니다.';
+        if (/관리자 권한|403/.test(msg)) {
+          setLoginStatus('비밀키가 올바르지 않습니다. Railway ADMIN_SECRET과 동일한지 확인해 주세요.', true);
+        } else {
+          setLoginStatus(msg, true);
+        }
+      } finally {
+        if (loginBtn) loginBtn.disabled = false;
       }
     }
 
