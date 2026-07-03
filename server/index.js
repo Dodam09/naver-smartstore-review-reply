@@ -19,8 +19,11 @@ import {
 } from './billing.js';
 import {
   adminActivateSubscription,
+  adminCancelSubscription,
+  adminChangePlanKeepExpiry,
   adminDeactivateSubscription,
   adminGetUser,
+  adminUndoCancelSubscription,
   getAdminDashboard,
 } from './admin.js';
 import { getDb, findUserById, updateUserPlan } from './db.js';
@@ -140,7 +143,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'naver-smartstore-reply-api',
-    version: '1.3.14',
+    version: '1.3.15',
     geminiConfigured: !!String(process.env.GEMINI_API_KEY || '').trim(),
     authEnabled: true,
     registrationOpen: ALLOW_REGISTRATION,
@@ -452,6 +455,21 @@ app.patch('/api/admin/users/:id/subscription', requireAdmin, (req, res) => {
     const action = String(req.body?.action || 'activate').trim();
     if (action === 'deactivate') {
       const user = adminDeactivateSubscription(userId);
+      res.json({ ok: true, user });
+      return;
+    }
+    if (action === 'cancel') {
+      const user = adminCancelSubscription(userId);
+      res.json({ ok: true, user });
+      return;
+    }
+    if (action === 'undo-cancel') {
+      const user = adminUndoCancelSubscription(userId);
+      res.json({ ok: true, user });
+      return;
+    }
+    if (action === 'change-plan') {
+      const user = adminChangePlanKeepExpiry(userId, req.body?.planId);
       res.json({ ok: true, user });
       return;
     }

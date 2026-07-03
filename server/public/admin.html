@@ -84,6 +84,7 @@
       font-weight: 700;
     }
     .badge.active { background: #dcfce7; color: #166534; }
+    .badge.cancelled { background: #fef3c7; color: #92400e; }
     .badge.inactive { background: #f3f4f6; color: #6b7280; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
     .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
@@ -97,7 +98,7 @@
 <body>
   <div class="wrap">
     <h1>관리자</h1>
-    <div class="sub">유저·구독·사용량 관리</div>
+    <div class="sub">유저·구독·사용량 관리 · 취소 예약 / 취소 철회 / 만료 후 플랜 변경 규칙 반영</div>
 
     <section id="loginSection" class="card">
       <label for="adminSecret">관리자 비밀키 (ADMIN_SECRET)</label>
@@ -126,8 +127,16 @@
             <div class="stat-value" id="statTotal">0</div>
           </div>
           <div class="stat">
-            <div class="stat-label">구독 중</div>
+            <div class="stat-label">이용 가능</div>
             <div class="stat-value" id="statActive">0</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">구독 중</div>
+            <div class="stat-value" id="statPaidActive">0</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">취소 예약</div>
+            <div class="stat-value" id="statCancelled">0</div>
           </div>
         </div>
       </div>
@@ -166,6 +175,8 @@
     const periodLabel = document.getElementById('periodLabel');
     const statTotal = document.getElementById('statTotal');
     const statActive = document.getElementById('statActive');
+    const statPaidActive = document.getElementById('statPaidActive');
+    const statCancelled = document.getElementById('statCancelled');
 
     let plans = [];
     let dashboardData = null;
@@ -226,6 +237,49 @@
         .join('');
     }
 
+    function describeSubscription(sub) {
+      if (!sub?.active) {
+        return {
+          badge: `<span class="badge inactive">구독 전 / 만료</span>`,
+          planLine: '유료 플랜 없음',
+          statusLine: '아직 결제·활성화 전이거나 만료됨',
+        };
+      }
+      if (sub.status === 'cancelled' || sub.cancelled) {
+        return {
+          badge: `<span class="badge cancelled">취소 예약</span>`,
+          planLine: `현재 플랜: ${escapeHtml(sub.planName || sub.planId || '-')}`,
+          statusLine: `${escapeHtml(sub.expiresAt || '-')}까지 이용 · 만료 후 플랜 선택`,
+        };
+      }
+      return {
+        badge: `<span class="badge active">구독 중</span>`,
+        planLine: `적용 플랜: ${escapeHtml(sub.planName || sub.planId || '-')}`,
+        statusLine: `만료 ${escapeHtml(sub.expiresAt || '-')} · 업그레이드만 즉시`,
+      };
+    }
+
+    function renderActionButtons(user, sub) {
+      const isActive = !!sub?.active;
+      const isCancelled = !!(sub?.cancelled || sub.status === 'cancelled');
+      const isPaidActive = isActive && !isCancelled && sub.status === 'active';
+
+      const buttons = [];
+      if (isPaidActive) {
+        buttons.push('<button class="warn small cancel-btn" type="button">취소 예약</button>');
+      }
+      if (isActive && isCancelled) {
+        buttons.push('<button class="secondary small undo-cancel-btn" type="button">취소 철회</button>');
+      }
+      if (isActive) {
+        buttons.push('<button class="secondary small change-plan-btn" type="button">플랜 변경</button>');
+      }
+      buttons.push('<button class="success small activate-btn" type="button">구독 활성화</button>');
+      buttons.push('<button class="secondary small extend-btn" type="button">연장</button>');
+      buttons.push('<button class="warn small deactivate-btn" type="button">즉시 해지</button>');
+      return buttons.join('');
+    }
+
     function renderUsers() {
       if (!dashboardData?.users?.length) {
         usersBody.innerHTML = '<tr><td colspan="5">등록된 유저가 없습니다.</td></tr>';
@@ -238,22 +292,10 @@
           const provider = user.authProvider === 'kakao' ? '카카오' : '이메일';
           const sub = user.subscription || {};
           const usage = user.usage || {};
-          const subBadge = sub.active
-            ? sub.status === 'cancelled' || sub.cancelled
-              ? `<span class="badge inactive">취소 예약</span>`
-              : `<span class="badge active">구독 중</span>`
-            : `<span class="badge inactive">구독 전</span>`;
+          const subInfo = describeSubscription(sub);
           const usageText = sub.active
             ? `답글 ${usage.replyUsed}/${usage.replyLimit} · 말투 ${usage.toneUsed}/${usage.toneLimit}`
             : '-';
-          const statusLine = sub.active
-            ? sub.status === 'cancelled' || sub.cancelled
-              ? `${escapeHtml(sub.expiresAt || '-')}까지 이용 가능`
-              : `만료 ${escapeHtml(sub.expiresAt || '-')}`
-            : '아직 결제·활성화 전';
-          const planLine = sub.active
-            ? `적용 플랜: ${escapeHtml(sub.planName || user.planName || '-')}`
-            : '유료 플랜 없음';
 
           return `
             <tr data-user-id="${user.id}">
@@ -265,20 +307,18 @@
                 <div style="color:#6b7280;margin-top:4px;">가입 ${escapeHtml(user.createdAt || '-')}</div>
               </td>
               <td>
-                ${subBadge}
-                <div style="margin-top:6px;">${planLine}</div>
-                <div>${statusLine}</div>
+                ${subInfo.badge}
+                <div style="margin-top:6px;">${subInfo.planLine}</div>
+                <div>${subInfo.statusLine}</div>
               </td>
               <td>${escapeHtml(usageText)}</td>
-              <td style="min-width:220px;">
-                <label>활성화할 플랜</label>
-                <select class="plan-select">${planOptions(user.activationPlanId || 'basic')}</select>
-                <label style="margin-top:8px;">구독 기간(일)</label>
+              <td style="min-width:240px;">
+                <label>플랜</label>
+                <select class="plan-select">${planOptions(user.activationPlanId || user.planId || 'basic')}</select>
+                <label style="margin-top:8px;">구독 기간(일) · 활성화/연장</label>
                 <input class="days-input" type="number" min="1" max="3650" value="30" />
                 <div class="actions">
-                  <button class="success small activate-btn" type="button">구독 활성화</button>
-                  <button class="secondary small extend-btn" type="button">연장</button>
-                  <button class="warn small deactivate-btn" type="button">해지</button>
+                  ${renderActionButtons(user, sub)}
                 </div>
               </td>
             </tr>
@@ -299,9 +339,21 @@
         row.querySelector('.extend-btn')?.addEventListener('click', () =>
           updateSubscription(userId, 'activate', planSelect.value, daysInput.value)
         );
-        row.querySelector('.deactivate-btn')?.addEventListener('click', () =>
-          updateSubscription(userId, 'deactivate')
+        row.querySelector('.cancel-btn')?.addEventListener('click', () => {
+          if (!window.confirm('구독 취소를 예약할까요?\n만료일까지 현재 플랜을 이용할 수 있습니다.')) return;
+          updateSubscription(userId, 'cancel');
+        });
+        row.querySelector('.undo-cancel-btn')?.addEventListener('click', () =>
+          updateSubscription(userId, 'undo-cancel')
         );
+        row.querySelector('.change-plan-btn')?.addEventListener('click', () => {
+          if (!window.confirm('만료일은 유지하고 선택한 플랜으로 변경할까요?')) return;
+          updateSubscription(userId, 'change-plan', planSelect.value);
+        });
+        row.querySelector('.deactivate-btn')?.addEventListener('click', () => {
+          if (!window.confirm('즉시 해지하면 구독과 만료일이 모두 삭제됩니다. 계속할까요?')) return;
+          updateSubscription(userId, 'deactivate');
+        });
       });
     }
 
@@ -313,6 +365,8 @@
       periodLabel.textContent = `기준 월: ${data.period || '-'}`;
       statTotal.textContent = String(data.stats?.totalUsers ?? 0);
       statActive.textContent = String(data.stats?.activeSubscriptions ?? 0);
+      statPaidActive.textContent = String(data.stats?.paidActiveSubscriptions ?? 0);
+      statCancelled.textContent = String(data.stats?.cancelledPending ?? 0);
       renderUsers();
       bindUserActions();
       setDashboardStatus('');
@@ -321,13 +375,14 @@
     async function updateSubscription(userId, action, planId, days) {
       try {
         setDashboardStatus('저장 중…');
+        const body = { action };
+        if (planId) body.planId = planId;
+        if (days != null && action !== 'cancel' && action !== 'undo-cancel' && action !== 'deactivate') {
+          body.days = Number(days) || 30;
+        }
         await adminApi(`/api/admin/users/${userId}/subscription`, {
           method: 'PATCH',
-          body: {
-            action,
-            planId,
-            days: Number(days) || 30,
-          },
+          body,
         });
         await loadDashboard();
         setDashboardStatus('저장했습니다.');

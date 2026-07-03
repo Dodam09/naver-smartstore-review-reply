@@ -4,9 +4,15 @@ import {
   deactivateUserSubscription,
   findUserById,
   listAllUsers,
+  upgradeUserSubscription,
 } from './db.js';
 import { getPlan, listPaidPlans, normalizePaidPlanId } from './plans.js';
-import { getSubscriptionSummary, isSubscriptionActive } from './subscription.js';
+import {
+  cancelUserSubscriptionAtPeriodEnd,
+  getSubscriptionSummary,
+  isSubscriptionActive,
+  undoCancelSubscription,
+} from './subscription.js';
 import { getUsageSummary } from './usage.js';
 
 function formatAdminUser(user, period = currentPeriod()) {
@@ -36,12 +42,23 @@ export function getAdminDashboard() {
   const users = listAllUsers();
   const rows = users.map((user) => formatAdminUser(user, period));
   const activeCount = rows.filter((row) => row.subscription.active).length;
+  const cancelledPendingCount = rows.filter(
+    (row) => row.subscription.active && (row.subscription.cancelled || row.subscription.status === 'cancelled')
+  ).length;
+  const paidActiveCount = rows.filter(
+    (row) =>
+      row.subscription.active &&
+      row.subscription.status === 'active' &&
+      !row.subscription.cancelled
+  ).length;
 
   return {
     period,
     stats: {
       totalUsers: rows.length,
       activeSubscriptions: activeCount,
+      paidActiveSubscriptions: paidActiveCount,
+      cancelledPending: cancelledPendingCount,
     },
     plans: listPaidPlans().map((plan) => ({
       id: plan.id,
@@ -74,4 +91,28 @@ export function adminDeactivateSubscription(userId) {
   if (!user) throw new Error('사용자를 찾을 수 없습니다.');
   const updated = deactivateUserSubscription(userId);
   return formatAdminUser(updated);
+}
+
+export function adminCancelSubscription(userId) {
+  const user = findUserById(userId);
+  if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+  cancelUserSubscriptionAtPeriodEnd(userId);
+  return formatAdminUser(findUserById(userId));
+}
+
+export function adminUndoCancelSubscription(userId) {
+  const user = findUserById(userId);
+  if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+  undoCancelSubscription(userId);
+  return formatAdminUser(findUserById(userId));
+}
+
+export function adminChangePlanKeepExpiry(userId, planId) {
+  const user = findUserById(userId);
+  if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+  if (!isSubscriptionActive(user)) {
+    throw new Error('만료일이 남은 활성 구독이 없습니다. [구독 활성화]를 사용하세요.');
+  }
+  upgradeUserSubscription(userId, normalizePaidPlanId(planId));
+  return formatAdminUser(findUserById(userId));
 }
