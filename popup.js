@@ -88,6 +88,8 @@ const els = {
   cancelConfirmBox: document.getElementById('cancelConfirmBox'),
   cancelConfirmOk: document.getElementById('cancelConfirmOk'),
   cancelConfirmBack: document.getElementById('cancelConfirmBack'),
+  cancelConfirmStatus: document.getElementById('cancelConfirmStatus'),
+  accountActionStatus: document.getElementById('accountActionStatus'),
   accountStatus: document.getElementById('accountStatus'),
   accountSummary: document.getElementById('accountSummary'),
   apiKeyCard: document.getElementById('apiKeyCard'),
@@ -1137,31 +1139,55 @@ async function renderAccountUi() {
   if (!canCancel && els.cancelConfirmBox) els.cancelConfirmBox.hidden = true;
 }
 
+function setCancelConfirmMessage(text) {
+  if (els.cancelConfirmStatus) {
+    els.cancelConfirmStatus.textContent = text || '';
+    els.cancelConfirmStatus.style.color = text && /실패|오류|없습니다|필요/.test(text) ? '#b91c1c' : '#92400e';
+  }
+}
+
+async function setAccountMessage(text) {
+  const session = await loadAuthSession();
+  const loggedIn = !!session?.token;
+  if (loggedIn && els.accountActionStatus) {
+    els.accountActionStatus.textContent = text || '';
+    return;
+  }
+  if (els.accountStatus) els.accountStatus.textContent = text || '';
+}
+
 function onShowCancelSubscriptionConfirm() {
   if (els.cancelConfirmBox) els.cancelConfirmBox.hidden = false;
   if (els.cancelSubscriptionBtn) els.cancelSubscriptionBtn.hidden = true;
-  if (els.accountStatus) els.accountStatus.textContent = '';
+  setCancelConfirmMessage('');
+  void setAccountMessage('');
 }
 
 function onHideCancelSubscriptionConfirm() {
   if (els.cancelConfirmBox) els.cancelConfirmBox.hidden = true;
+  setCancelConfirmMessage('');
   renderAccountUi();
 }
 
-async function requestCancelSubscriptionViaBackground() {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage({ type: 'CANCEL_SUBSCRIPTION' }, (response) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      if (!response?.ok) {
-        reject(new Error(response?.error || '구독 취소에 실패했습니다.'));
-        return;
-      }
-      resolve(response.data);
-    });
-  });
+async function onConfirmCancelSubscription() {
+  if (els.cancelConfirmOk) els.cancelConfirmOk.disabled = true;
+  if (els.cancelConfirmBack) els.cancelConfirmBack.disabled = true;
+  setCancelConfirmMessage('구독 취소 처리 중…');
+  await setAccountMessage('구독 취소 처리 중…');
+
+  try {
+    await cancelSubscription();
+    onHideCancelSubscriptionConfirm();
+    await renderAccountUi();
+    await setAccountMessage('구독 취소가 예약되었습니다. 만료일까지 이용할 수 있습니다.');
+  } catch (err) {
+    const message = err.message || '구독 취소에 실패했습니다.';
+    setCancelConfirmMessage(message);
+    await setAccountMessage(message);
+  } finally {
+    if (els.cancelConfirmOk) els.cancelConfirmOk.disabled = false;
+    if (els.cancelConfirmBack) els.cancelConfirmBack.disabled = false;
+  }
 }
 
 async function onRegisterAccount() {
@@ -1241,7 +1267,7 @@ async function onLoginAccount() {
 async function onLogoutAccount() {
   await logoutAccount();
   await renderAccountUi();
-  if (els.accountStatus) els.accountStatus.textContent = '로그아웃되었습니다.';
+  await setAccountMessage('로그아웃되었습니다.');
   switchTab('settings');
 }
 
@@ -1250,38 +1276,18 @@ async function onRefreshAccountUsage() {
   try {
     await refreshAccountUsage();
     await renderAccountUi();
-    if (els.accountStatus) els.accountStatus.textContent = '사용량을 새로고침했습니다.';
+    await setAccountMessage('사용량을 새로고침했습니다.');
   } catch (err) {
-    if (els.accountStatus) els.accountStatus.textContent = err.message || '새로고침에 실패했습니다.';
+    await setAccountMessage(err.message || '새로고침에 실패했습니다.');
   } finally {
     if (els.refreshUsageBtn) els.refreshUsageBtn.disabled = false;
   }
 }
 
 function onOpenBillingPage() {
-  openBillingPage('standard').catch((err) => {
-    if (els.accountStatus) els.accountStatus.textContent = err.message || '결제 페이지를 열 수 없습니다.';
+  openBillingPage('standard').catch(async (err) => {
+    await setAccountMessage(err.message || '결제 페이지를 열 수 없습니다.');
   });
-}
-
-async function onConfirmCancelSubscription() {
-  if (els.cancelConfirmOk) els.cancelConfirmOk.disabled = true;
-  if (els.cancelConfirmBack) els.cancelConfirmBack.disabled = true;
-  if (els.accountStatus) els.accountStatus.textContent = '구독 취소 처리 중…';
-
-  try {
-    await requestCancelSubscriptionViaBackground();
-    onHideCancelSubscriptionConfirm();
-    await renderAccountUi();
-    if (els.accountStatus) {
-      els.accountStatus.textContent = '구독 취소가 예약되었습니다. 만료일까지 이용할 수 있습니다.';
-    }
-  } catch (err) {
-    if (els.accountStatus) els.accountStatus.textContent = err.message || '구독 취소에 실패했습니다.';
-  } finally {
-    if (els.cancelConfirmOk) els.cancelConfirmOk.disabled = false;
-    if (els.cancelConfirmBack) els.cancelConfirmBack.disabled = false;
-  }
 }
 
 function storageGet(keys) {
