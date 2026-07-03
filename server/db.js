@@ -192,6 +192,17 @@ export function markUserSubscriptionCancelled(userId) {
   return findUserById(userId);
 }
 
+export function resumeUserSubscription(userId) {
+  getDb()
+    .prepare(
+      `UPDATE users
+       SET subscription_status = 'active', updated_at = datetime('now')
+       WHERE id = ?`
+    )
+    .run(userId);
+  return findUserById(userId);
+}
+
 export function deactivateUserSubscription(userId) {
   const user = findUserById(userId);
   if (!user) throw new Error('사용자를 찾을 수 없습니다.');

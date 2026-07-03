@@ -32,7 +32,7 @@ import {
   buildReviewUserContent,
   normalizeSamples,
 } from './prompts.js';
-import { assertSubscriptionActive, SubscriptionError, cancelUserSubscriptionAtPeriodEnd } from './subscription.js';
+import { assertSubscriptionActive, SubscriptionError, cancelUserSubscriptionAtPeriodEnd, undoCancelSubscription } from './subscription.js';
 import { assertWithinLimit, getUsageSummary, recordUsage, UsageLimitError } from './usage.js';
 import {
   buildAuthorizeUrl,
@@ -140,7 +140,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'naver-smartstore-reply-api',
-    version: '1.3.13',
+    version: '1.3.14',
     geminiConfigured: !!String(process.env.GEMINI_API_KEY || '').trim(),
     authEnabled: true,
     registrationOpen: ALLOW_REGISTRATION,
@@ -348,6 +348,32 @@ app.post('/api/billing/cancel-subscription', authenticate, (req, res) => {
 
   try {
     const subscription = cancelUserSubscriptionAtPeriodEnd(req.auth.user.id);
+    const user = findUserById(req.auth.user.id);
+    res.json({
+      ok: true,
+      subscription,
+      usage: getUsageSummary(user.id, user.plan_id, undefined, true),
+      user: {
+        id: user.id,
+        email: user.email,
+        planId: user.plan_id,
+        plan: getPlan(user.plan_id),
+        subscription,
+      },
+    });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.post('/api/billing/undo-cancel', authenticate, (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(400).json({ ok: false, error: '로그인 계정으로만 취소를 철회할 수 있습니다.' });
+    return;
+  }
+
+  try {
+    const subscription = undoCancelSubscription(req.auth.user.id);
     const user = findUserById(req.auth.user.id);
     res.json({
       ok: true,

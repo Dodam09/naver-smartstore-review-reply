@@ -1,4 +1,4 @@
-import { findUserById, markUserSubscriptionCancelled } from './db.js';
+import { findUserById, markUserSubscriptionCancelled, resumeUserSubscription } from './db.js';
 import { getPlan, getUpgradePrice, normalizePaidPlanId } from './plans.js';
 export class SubscriptionError extends Error {
   constructor(message, subscription) {
@@ -62,6 +62,20 @@ export function cancelUserSubscriptionAtPeriodEnd(userId) {
   return getSubscriptionSummary(updated);
 }
 
+export function undoCancelSubscription(userId) {
+  const user = findUserById(userId);
+  if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+  if (String(user.subscription_status || 'none') !== 'cancelled') {
+    throw new Error('취소 예약된 구독이 없습니다.');
+  }
+  if (!isSubscriptionActive(user)) {
+    throw new Error('만료된 구독입니다. [구독하기]에서 새로 시작해 주세요.');
+  }
+
+  const updated = resumeUserSubscription(userId);
+  return getSubscriptionSummary(updated);
+}
+
 export function assertCanPurchaseSubscription(user) {
   if (!user) throw new Error('사용자를 찾을 수 없습니다.');
   const status = String(user.subscription_status || 'none');
@@ -93,12 +107,12 @@ export function resolveCheckoutAction(user, targetPlanId) {
   }
 
   if (status === 'cancelled') {
-    return {
-      type: 'resume',
-      planId: target,
-      amount: targetPlan.price,
-      orderName: `스마트스토어 답글 ${targetPlan.name} (재구독)`,
-    };
+    const summary = getSubscriptionSummary(user);
+    throw new Error(
+      `구독 취소 예약 중입니다. (만료: ${summary.expiresAt || '-'})\n` +
+        '만료일까지 현재 플랜을 이용할 수 있으며, 플랜 변경·재구독은 만료 후에 가능합니다.\n' +
+        '취소를 되돌리려면 [취소 철회]를 눌러 주세요.'
+    );
   }
 
   if (status === 'active') {

@@ -84,6 +84,7 @@ const els = {
   logoutBtn: document.getElementById('logoutBtn'),
   refreshUsageBtn: document.getElementById('refreshUsageBtn'),
   openBillingBtn: document.getElementById('openBillingBtn'),
+  undoCancelBtn: document.getElementById('undoCancelBtn'),
   cancelSubscriptionBtn: document.getElementById('cancelSubscriptionBtn'),
   cancelConfirmBox: document.getElementById('cancelConfirmBox'),
   cancelConfirmOk: document.getElementById('cancelConfirmOk'),
@@ -208,6 +209,7 @@ async function init() {
   els.logoutBtn?.addEventListener('click', onLogoutAccount);
   els.refreshUsageBtn?.addEventListener('click', onRefreshAccountUsage);
   els.openBillingBtn?.addEventListener('click', onOpenBillingPage);
+  els.undoCancelBtn?.addEventListener('click', onUndoCancelSubscription);
   els.cancelSubscriptionBtn?.addEventListener('click', onShowCancelSubscriptionConfirm);
   els.cancelConfirmOk?.addEventListener('click', onConfirmCancelSubscription);
   els.cancelConfirmBack?.addEventListener('click', onHideCancelSubscriptionConfirm);
@@ -1135,19 +1137,19 @@ async function renderAccountUi() {
   const isCancelled = !!(sub?.cancelled || sub?.status === 'cancelled');
   const planRank = { basic: 1, standard: 2, pro: 3 };
   const currentRank = planRank[sub?.planId] || 0;
-  const canSubscribe = !sub?.active || isCancelled;
+  const canSubscribe = !sub?.active;
   const canUpgrade = sub?.active && sub?.status === 'active' && !isCancelled && currentRank < 3;
+  const canUndoCancel = isCancelled && sub?.active;
   const canCancel = sub?.active && sub?.status === 'active' && !sub?.cancelled;
   if (els.openBillingBtn) {
     els.openBillingBtn.hidden = !canSubscribe && !canUpgrade;
-    if (canUpgrade && !canSubscribe) {
+    if (canUpgrade) {
       els.openBillingBtn.textContent = '플랜 업그레이드';
-    } else if (isCancelled) {
-      els.openBillingBtn.textContent = '다시 구독하기';
     } else {
       els.openBillingBtn.textContent = '구독하기';
     }
   }
+  if (els.undoCancelBtn) els.undoCancelBtn.hidden = !canUndoCancel;
   if (els.cancelSubscriptionBtn) els.cancelSubscriptionBtn.hidden = !canCancel;
   if (!canCancel && els.cancelConfirmBox) els.cancelConfirmBox.hidden = true;
 }
@@ -1192,7 +1194,7 @@ async function onConfirmCancelSubscription() {
     await cancelSubscription();
     onHideCancelSubscriptionConfirm();
     await renderAccountUi();
-    await setAccountMessage('구독 취소가 예약되었습니다. 만료일까지 이용할 수 있습니다.');
+    await setAccountMessage('구독 취소가 예약되었습니다. 만료일까지 현재 플랜을 이용할 수 있습니다.');
   } catch (err) {
     const message = err.message || '구독 취소에 실패했습니다.';
     setCancelConfirmMessage(message);
@@ -1307,6 +1309,20 @@ function onOpenBillingPage() {
     .catch(async (err) => {
       await setAccountMessage(err.message || '결제 페이지를 열 수 없습니다.');
     });
+}
+
+async function onUndoCancelSubscription() {
+  if (els.undoCancelBtn) els.undoCancelBtn.disabled = true;
+  await setAccountMessage('취소 철회 처리 중…');
+  try {
+    await undoCancelSubscription();
+    await renderAccountUi();
+    await setAccountMessage('구독 취소를 철회했습니다. 기존 플랜이 계속 유지됩니다.');
+  } catch (err) {
+    await setAccountMessage(err.message || '취소 철회에 실패했습니다.');
+  } finally {
+    if (els.undoCancelBtn) els.undoCancelBtn.disabled = false;
+  }
 }
 
 function storageGet(keys) {
