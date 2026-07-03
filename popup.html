@@ -645,6 +645,29 @@
 
     }
 
+    body.auth-gate .tabs {
+      display: none;
+    }
+
+    body.auth-gate .panel {
+      display: none !important;
+    }
+
+    body.auth-gate #panelSettings {
+      display: block !important;
+      padding-top: 8px;
+    }
+
+    body.auth-gate #panelSettings .settings-section,
+    body.auth-gate #panelSettings #apiKeyCard,
+    body.auth-gate #panelSettings .danger-zone {
+      display: none !important;
+    }
+
+    body.auth-gate #accountCard .card-title {
+      font-size: 15px;
+    }
+
   </style>
 
 </head>
@@ -655,7 +678,7 @@
 
     <h1>스마트스토어 답글 도우미</h1>
 
-    <p class="sub">리뷰·상품문의 답글을 쉽게 만들고 올립니다</p>
+    <p class="sub" id="headerSub">리뷰·상품문의 답글을 쉽게 만들고 올립니다</p>
 
     <nav class="tabs">
 
@@ -789,7 +812,7 @@
 
       <div class="card-title">계정</div>
 
-      <div class="card-desc">카카오로 간편 로그인하거나 이메일로 가입·로그인하세요.</div>
+      <div class="card-desc" id="accountCardDesc">카카오로 간편 로그인하거나 이메일로 가입·로그인하세요.</div>
 
       <div id="accountLoggedOut">
 

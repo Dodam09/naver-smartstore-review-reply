@@ -170,6 +170,23 @@ export function updateUserPlan(userId, planId) {
   return findUserById(userId);
 }
 
+export function listAllUsers() {
+  return getDb().prepare('SELECT * FROM users ORDER BY id DESC').all();
+}
+
+export function deactivateUserSubscription(userId) {
+  const user = findUserById(userId);
+  if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+  getDb()
+    .prepare(
+      `UPDATE users
+       SET subscription_status = 'none', subscription_expires_at = NULL, updated_at = datetime('now')
+       WHERE id = ?`
+    )
+    .run(userId);
+  return findUserById(userId);
+}
+
 export function createSession(userId, token, expiresAtIso) {
   getDb()
     .prepare(`INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)`)

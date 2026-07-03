@@ -88,6 +88,8 @@ const els = {
   accountSummary: document.getElementById('accountSummary'),
   apiKeyCard: document.getElementById('apiKeyCard'),
   apiKeyHint: document.getElementById('apiKeyHint'),
+  headerSub: document.getElementById('headerSub'),
+  accountCardDesc: document.getElementById('accountCardDesc'),
 };
 
 let parsedRows = [];
@@ -103,6 +105,7 @@ let inquiryStyle;
 let accountAuthMode = 'login';
 let kakaoLoginEnabled = false;
 let registrationOpen = true;
+let authGateActive = false;
 
 init();
 
@@ -263,6 +266,8 @@ function initTabs() {
 }
 
 function switchTab(name) {
+  if (authGateActive && name !== 'settings') return;
+
   const panels = {
     work: els.panelWork,
     inquiry: els.panelInquiry,
@@ -997,6 +1002,33 @@ function setStatus(message) {
   els.status.textContent = message;
 }
 
+function requiresAuthGate() {
+  const devBypass = !!String(CONFIG.API_DEV_SECRET || '').trim();
+  return useAiProxy() && !devBypass;
+}
+
+function applyAuthGate(loggedIn) {
+  authGateActive = requiresAuthGate() && !loggedIn;
+  document.body.classList.toggle('auth-gate', authGateActive);
+
+  if (els.headerSub) {
+    els.headerSub.textContent = authGateActive
+      ? '로그인 후 답글·말투 분석을 이용할 수 있습니다.'
+      : '리뷰·상품문의 답글을 쉽게 만들고 올립니다';
+  }
+
+  if (els.accountCardDesc) {
+    els.accountCardDesc.textContent = authGateActive
+      ? '카카오 로그인으로 시작하세요. 처음이면 자동 가입됩니다.'
+      : '카카오로 간편 로그인하거나 이메일로 가입·로그인하세요.';
+  }
+
+  if (authGateActive) {
+    switchTab('settings');
+    if (els.accountCard) els.accountCard.hidden = false;
+  }
+}
+
 async function initAccountUi() {
   const proxyMode = useAiProxy();
   const devBypass = !!String(CONFIG.API_DEV_SECRET || '').trim();
@@ -1063,6 +1095,8 @@ function setAccountAuthMode(mode) {
 async function renderAccountUi() {
   const session = await loadAuthSession();
   const loggedIn = !!session?.token;
+
+  applyAuthGate(loggedIn);
 
   if (els.accountLoggedOut) els.accountLoggedOut.hidden = loggedIn;
   if (els.accountLoggedIn) els.accountLoggedIn.hidden = !loggedIn;
@@ -1131,6 +1165,7 @@ async function onKakaoLogin() {
     await loginWithKakao();
     if (els.accountStatus) els.accountStatus.textContent = '카카오 로그인되었습니다.';
     await renderAccountUi();
+    switchTab('work');
   } catch (err) {
     if (els.accountStatus) els.accountStatus.textContent = err.message || '카카오 로그인에 실패했습니다.';
   } finally {
@@ -1154,6 +1189,7 @@ async function onLoginAccount() {
     if (els.loginPassword) els.loginPassword.value = '';
     if (els.accountStatus) els.accountStatus.textContent = '로그인되었습니다.';
     await renderAccountUi();
+    switchTab('work');
   } catch (err) {
     if (els.accountStatus) els.accountStatus.textContent = err.message || '로그인에 실패했습니다.';
   } finally {
@@ -1165,6 +1201,7 @@ async function onLogoutAccount() {
   await logoutAccount();
   await renderAccountUi();
   if (els.accountStatus) els.accountStatus.textContent = '로그아웃되었습니다.';
+  switchTab('settings');
 }
 
 async function onRefreshAccountUsage() {

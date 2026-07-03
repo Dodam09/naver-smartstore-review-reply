@@ -17,6 +17,12 @@ import {
   mockConfirmCheckout,
   prepareCheckout,
 } from './billing.js';
+import {
+  adminActivateSubscription,
+  adminDeactivateSubscription,
+  adminGetUser,
+  getAdminDashboard,
+} from './admin.js';
 import { getDb, updateUserPlan } from './db.js';
 import { generateText, generateWithSystem } from './gemini.js';
 import { getPlan, normalizePlanId } from './plans.js';
@@ -134,11 +140,12 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'naver-smartstore-reply-api',
-    version: '1.3.6',
+    version: '1.3.7',
     geminiConfigured: !!String(process.env.GEMINI_API_KEY || '').trim(),
     authEnabled: true,
     registrationOpen: ALLOW_REGISTRATION,
     kakaoLoginEnabled: isKakaoConfigured(),
+    adminConfigured: !!ADMIN_SECRET,
     billing: getBillingConfig(),
     requireSubscription: REQUIRE_SUBSCRIPTION,
   });
@@ -346,17 +353,61 @@ app.patch('/api/admin/users/:id/plan', requireAdmin, (req, res) => {
       res.status(404).json({ ok: false, error: '사용자를 찾을 수 없습니다.' });
       return;
     }
-    res.json({
-      ok: true,
-      user: {
-        id: user.id,
-        email: user.email,
-        planId: user.plan_id,
-        plan: getPlan(user.plan_id),
-      },
-    });
+    res.json({ ok: true, user: adminGetUser(user.id) });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.get('/api/admin/status', (_req, res) => {
+  res.json({
+    ok: true,
+    configured: !!ADMIN_SECRET,
+    adminPage: '/admin.html',
+  });
+});
+
+app.get('/api/admin/users', requireAdmin, (_req, res) => {
+  try {
+    res.json({ ok: true, ...getAdminDashboard() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.get('/api/admin/users/:id', requireAdmin, (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    const user = adminGetUser(userId);
+    if (!user) {
+      res.status(404).json({ ok: false, error: '사용자를 찾을 수 없습니다.' });
+      return;
+    }
+    res.json({ ok: true, user });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.patch('/api/admin/users/:id/subscription', requireAdmin, (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    if (!userId) {
+      res.status(400).json({ ok: false, error: 'user id가 필요합니다.' });
+      return;
+    }
+
+    const action = String(req.body?.action || 'activate').trim();
+    if (action === 'deactivate') {
+      const user = adminDeactivateSubscription(userId);
+      res.json({ ok: true, user });
+      return;
+    }
+
+    const user = adminActivateSubscription(userId, req.body?.planId, req.body?.days);
+    res.json({ ok: true, user });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
   }
 });
 
@@ -485,5 +536,8 @@ app.listen(PORT, '0.0.0.0', () => {
   }
   if (isKakaoConfigured()) {
     console.log(`Kakao login enabled (redirect: ${getKakaoRedirectUri()})`);
+  }
+  if (ADMIN_SECRET) {
+    console.log('Admin page: /admin.html');
   }
 });
