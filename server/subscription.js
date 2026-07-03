@@ -63,6 +63,18 @@ export function cancelUserSubscriptionAtPeriodEnd(userId) {
   return getSubscriptionSummary(updated);
 }
 
+export function assertCanPurchaseSubscription(user) {
+  if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+  const status = String(user.subscription_status || 'none');
+  if (status === 'active' && isSubscriptionActive(user)) {
+    const summary = getSubscriptionSummary(user);
+    throw new Error(
+      `이미 구독 중입니다. (만료: ${summary.expiresAt || '-'})\n` +
+        '추가 결제는 [구독 취소] 후 다시 구독하거나, 만료 이후에 가능합니다.'
+    );
+  }
+}
+
 export function addDaysIso(days, from = new Date()) {
   const next = new Date(from.getTime());
   next.setUTCDate(next.getUTCDate() + days);

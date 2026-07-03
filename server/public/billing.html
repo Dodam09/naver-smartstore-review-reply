@@ -60,9 +60,45 @@
 
     if (token) sessionStorage.setItem('billingToken', token);
 
+    let checkoutBusy = false;
+
     function setStatus(message, isError) {
       statusEl.textContent = message;
       statusEl.classList.toggle('error', !!isError);
+    }
+
+    function setPayButtonsDisabled(disabled) {
+      plansEl.querySelectorAll('button').forEach((btn) => {
+        btn.disabled = disabled;
+      });
+    }
+
+    function isActivePaidSubscription(sub) {
+      return !!sub?.active && sub?.status === 'active' && !sub?.cancelled;
+    }
+
+    function buildActiveSubscriptionMessage(sub) {
+      return (
+        `이미 구독 중입니다. (만료: ${sub?.expiresAt || '-'})\n` +
+        '추가 결제는 [설정]에서 구독 취소 후 다시 구독하거나, 만료 이후에 가능합니다.\n' +
+        '확장프로그램 [설정] 탭으로 돌아가 사용량 새로고침을 눌러 주세요.'
+      );
+    }
+
+    async function refreshSubscriptionGate() {
+      try {
+        const me = await api('/api/auth/me');
+        const sub = me.subscription || me.user?.subscription;
+        if (isActivePaidSubscription(sub)) {
+          setPayButtonsDisabled(true);
+          setStatus(buildActiveSubscriptionMessage(sub));
+          return sub;
+        }
+        setPayButtonsDisabled(false);
+        return sub;
+      } catch (_) {
+        return null;
+      }
     }
 
     async function api(path, options = {}) {
@@ -128,6 +164,7 @@
     }
 
     async function startCheckout(planId, config) {
+      if (checkoutBusy) return;
       try {
         if (!config.tossConfigured) {
           if (config.mockMode) {
@@ -137,6 +174,8 @@
           throw new Error('TOSS_CLIENT_KEY가 없습니다. server/.env 에 BILLING_MOCK=true 를 넣고 서버를 재시작하세요.');
         }
 
+        checkoutBusy = true;
+        setPayButtonsDisabled(true);
         setStatus('결제 준비 중…');
         const data = await api('/api/billing/prepare', {
           method: 'POST',
@@ -155,13 +194,20 @@
       } catch (err) {
         if (err?.code === 'USER_CANCEL') {
           setStatus('결제가 취소되었습니다.');
+          await refreshSubscriptionGate();
           return;
         }
         setStatus(err.message || String(err), true);
+        await refreshSubscriptionGate();
+      } finally {
+        checkoutBusy = false;
       }
     }
 
     async function mockCheckout(planId) {
+      if (checkoutBusy) return;
+      checkoutBusy = true;
+      setPayButtonsDisabled(true);
       try {
         setStatus('모의 결제 처리 중…');
         const prepared = await api('/api/billing/prepare', {
@@ -175,8 +221,12 @@
         setStatus(
           `테스트 결제 완료!\n플랜: ${result.user.plan.name}\n만료: ${result.user.subscription.expiresAt || '-'}\n\n확장프로그램 [설정]에서 사용량 새로고침 후 닫았다가 다시 열어 주세요.`
         );
+        setPayButtonsDisabled(true);
       } catch (err) {
         setStatus(err.message || String(err), true);
+        await refreshSubscriptionGate();
+      } finally {
+        checkoutBusy = false;
       }
     }
 
@@ -188,16 +238,23 @@
       const config = await api('/api/billing/config');
       renderPlans(config);
 
-      let statusMessage = '';
-      try {
-        const me = await api('/api/auth/me');
-        const sub = me.subscription || me.user?.subscription;
-        if (sub?.cancelled || sub?.status === 'cancelled') {
-          statusMessage =
-            `구독 취소 상태입니다. ${sub.expiresAt || '-'}까지 이용할 수 있습니다.\n` +
-            '아래에서 다시 구독하면 취소가 해제되고 30일이 연장됩니다.';
+      const sub = await refreshSubscriptionGate();
+      if (isActivePaidSubscription(sub)) {
+        if (initialPlan && config.plans?.some((p) => p.id === initialPlan)) {
+          const note = document.createElement('div');
+          note.className = 'sub';
+          note.textContent = `추천 플랜: ${initialPlan}`;
+          plansEl.before(note);
         }
-      } catch (_) {}
+        return;
+      }
+
+      let statusMessage = '';
+      if (sub?.cancelled || sub?.status === 'cancelled') {
+        statusMessage =
+          `구독 취소 상태입니다. ${sub.expiresAt || '-'}까지 이용할 수 있습니다.\n` +
+          '아래에서 다시 구독하면 취소가 해제되고 30일이 연장됩니다.';
+      }
 
       if (statusMessage) {
         setStatus(statusMessage);

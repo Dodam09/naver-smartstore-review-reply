@@ -9,7 +9,7 @@ import {
   markBillingOrderPaid,
 } from './db.js';
 import { getPlan, listPaidPlans, normalizePaidPlanId } from './plans.js';
-import { addDaysIso, getSubscriptionSummary } from './subscription.js';
+import { addDaysIso, assertCanPurchaseSubscription, getSubscriptionSummary } from './subscription.js';
 
 const TOSS_SECRET_KEY = String(process.env.TOSS_SECRET_KEY || '').trim();
 const TOSS_CLIENT_KEY = String(process.env.TOSS_CLIENT_KEY || '').trim();
@@ -84,6 +84,7 @@ async function confirmTossPayment({ paymentKey, orderId, amount }) {
 export function prepareCheckout(userId, planId) {
   const user = findUserById(userId);
   if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+  assertCanPurchaseSubscription(user);
 
   const plan = getPlan(normalizePaidPlanId(planId));
   const orderId = createOrderId(userId);
@@ -141,6 +142,9 @@ export async function confirmCheckout(userId, { paymentKey, orderId, amount }) {
     await confirmTossPayment({ paymentKey, orderId, amount: expectedAmount });
     markBillingOrderPaid(order.id, paymentKey);
   }
+
+  const userBeforeActivate = findUserById(userId);
+  assertCanPurchaseSubscription(userBeforeActivate);
 
   const user = activateUserSubscription(userId, order.plan_id, SUBSCRIPTION_DAYS);
   return {
