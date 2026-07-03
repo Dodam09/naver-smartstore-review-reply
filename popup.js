@@ -84,6 +84,10 @@ const els = {
   logoutBtn: document.getElementById('logoutBtn'),
   refreshUsageBtn: document.getElementById('refreshUsageBtn'),
   openBillingBtn: document.getElementById('openBillingBtn'),
+  cancelSubscriptionBtn: document.getElementById('cancelSubscriptionBtn'),
+  cancelConfirmBox: document.getElementById('cancelConfirmBox'),
+  cancelConfirmOk: document.getElementById('cancelConfirmOk'),
+  cancelConfirmBack: document.getElementById('cancelConfirmBack'),
   accountStatus: document.getElementById('accountStatus'),
   accountSummary: document.getElementById('accountSummary'),
   apiKeyCard: document.getElementById('apiKeyCard'),
@@ -202,6 +206,9 @@ async function init() {
   els.logoutBtn?.addEventListener('click', onLogoutAccount);
   els.refreshUsageBtn?.addEventListener('click', onRefreshAccountUsage);
   els.openBillingBtn?.addEventListener('click', onOpenBillingPage);
+  els.cancelSubscriptionBtn?.addEventListener('click', onShowCancelSubscriptionConfirm);
+  els.cancelConfirmOk?.addEventListener('click', onConfirmCancelSubscription);
+  els.cancelConfirmBack?.addEventListener('click', onHideCancelSubscriptionConfirm);
 
   chrome.storage.onChanged.addListener(onStorageChanged);
 
@@ -1121,6 +1128,40 @@ async function renderAccountUi() {
       <div>${usageText || '사용량 정보 없음'}</div>
     `;
   }
+
+  const sub = session.subscription;
+  const canSubscribe = !sub?.active;
+  const canCancel = sub?.active && sub?.status === 'active' && !sub?.cancelled;
+  if (els.openBillingBtn) els.openBillingBtn.hidden = !canSubscribe;
+  if (els.cancelSubscriptionBtn) els.cancelSubscriptionBtn.hidden = !canCancel;
+  if (!canCancel && els.cancelConfirmBox) els.cancelConfirmBox.hidden = true;
+}
+
+function onShowCancelSubscriptionConfirm() {
+  if (els.cancelConfirmBox) els.cancelConfirmBox.hidden = false;
+  if (els.cancelSubscriptionBtn) els.cancelSubscriptionBtn.hidden = true;
+  if (els.accountStatus) els.accountStatus.textContent = '';
+}
+
+function onHideCancelSubscriptionConfirm() {
+  if (els.cancelConfirmBox) els.cancelConfirmBox.hidden = true;
+  renderAccountUi();
+}
+
+async function requestCancelSubscriptionViaBackground() {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ type: 'CANCEL_SUBSCRIPTION' }, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      if (!response?.ok) {
+        reject(new Error(response?.error || '구독 취소에 실패했습니다.'));
+        return;
+      }
+      resolve(response.data);
+    });
+  });
 }
 
 async function onRegisterAccount() {
@@ -1221,6 +1262,26 @@ function onOpenBillingPage() {
   openBillingPage('standard').catch((err) => {
     if (els.accountStatus) els.accountStatus.textContent = err.message || '결제 페이지를 열 수 없습니다.';
   });
+}
+
+async function onConfirmCancelSubscription() {
+  if (els.cancelConfirmOk) els.cancelConfirmOk.disabled = true;
+  if (els.cancelConfirmBack) els.cancelConfirmBack.disabled = true;
+  if (els.accountStatus) els.accountStatus.textContent = '구독 취소 처리 중…';
+
+  try {
+    await requestCancelSubscriptionViaBackground();
+    onHideCancelSubscriptionConfirm();
+    await renderAccountUi();
+    if (els.accountStatus) {
+      els.accountStatus.textContent = '구독 취소가 예약되었습니다. 만료일까지 이용할 수 있습니다.';
+    }
+  } catch (err) {
+    if (els.accountStatus) els.accountStatus.textContent = err.message || '구독 취소에 실패했습니다.';
+  } finally {
+    if (els.cancelConfirmOk) els.cancelConfirmOk.disabled = false;
+    if (els.cancelConfirmBack) els.cancelConfirmBack.disabled = false;
+  }
 }
 
 function storageGet(keys) {

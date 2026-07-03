@@ -1,4 +1,4 @@
-import { findUserById } from './db.js';
+import { findUserById, markUserSubscriptionCancelled } from './db.js';
 import { getPlan } from './plans.js';
 
 export class SubscriptionError extends Error {
@@ -15,10 +15,12 @@ export function getSubscriptionSummary(user) {
   const status = String(user.subscription_status || 'none');
   const expiresAt = user.subscription_expires_at || null;
   const active = isSubscriptionActive(user);
+  const cancelled = status === 'cancelled';
 
   return {
     status,
     active,
+    cancelled,
     expiresAt,
     planId: active ? user.plan_id : 'none',
     planName: active ? plan.name : '구독 전',
@@ -29,7 +31,7 @@ export function getSubscriptionSummary(user) {
 export function isSubscriptionActive(user, now = new Date()) {
   if (!user) return false;
   const status = String(user.subscription_status || 'none');
-  if (status !== 'active') return false;
+  if (status !== 'active' && status !== 'cancelled') return false;
   if (!user.subscription_expires_at) return false;
   const expires = new Date(String(user.subscription_expires_at).replace(' ', 'T') + 'Z');
   return expires.getTime() > now.getTime();
@@ -45,6 +47,20 @@ export function assertSubscriptionActive(userId) {
     );
   }
   return subscription;
+}
+
+export function cancelUserSubscriptionAtPeriodEnd(userId) {
+  const user = findUserById(userId);
+  if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+  if (String(user.subscription_status || 'none') === 'cancelled') {
+    throw new Error('이미 구독 취소가 예약되어 있습니다.');
+  }
+  if (String(user.subscription_status || 'none') !== 'active' || !isSubscriptionActive(user)) {
+    throw new Error('취소할 활성 구독이 없습니다.');
+  }
+
+  const updated = markUserSubscriptionCancelled(userId);
+  return getSubscriptionSummary(updated);
 }
 
 export function addDaysIso(days, from = new Date()) {

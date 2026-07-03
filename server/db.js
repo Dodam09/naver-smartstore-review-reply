@@ -110,7 +110,7 @@ function migrateUsersTable(database) {
   database.exec(`
     UPDATE users
     SET plan_id = 'none', updated_at = datetime('now')
-    WHERE COALESCE(subscription_status, 'none') != 'active'
+    WHERE COALESCE(subscription_status, 'none') NOT IN ('active', 'cancelled')
       AND plan_id IN ('basic', 'standard', 'pro')
   `);
 }
@@ -179,6 +179,17 @@ export function updateUserPlan(userId, planId) {
 
 export function listAllUsers() {
   return getDb().prepare('SELECT * FROM users ORDER BY id DESC').all();
+}
+
+export function markUserSubscriptionCancelled(userId) {
+  getDb()
+    .prepare(
+      `UPDATE users
+       SET subscription_status = 'cancelled', updated_at = datetime('now')
+       WHERE id = ?`
+    )
+    .run(userId);
+  return findUserById(userId);
 }
 
 export function deactivateUserSubscription(userId) {
@@ -307,6 +318,12 @@ export function activateUserSubscription(userId, planId, days = 30) {
   const now = new Date();
   let base = now;
   if (user.subscription_status === 'active' && user.subscription_expires_at) {
+    const currentExpires = new Date(String(user.subscription_expires_at).replace(' ', 'T') + 'Z');
+    if (currentExpires.getTime() > now.getTime()) {
+      base = currentExpires;
+    }
+  }
+  if (user.subscription_status === 'cancelled' && user.subscription_expires_at) {
     const currentExpires = new Date(String(user.subscription_expires_at).replace(' ', 'T') + 'Z');
     if (currentExpires.getTime() > now.getTime()) {
       base = currentExpires;

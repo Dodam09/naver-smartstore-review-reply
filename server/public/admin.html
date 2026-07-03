@@ -239,13 +239,17 @@
           const sub = user.subscription || {};
           const usage = user.usage || {};
           const subBadge = sub.active
-            ? `<span class="badge active">구독 중</span>`
+            ? sub.status === 'cancelled' || sub.cancelled
+              ? `<span class="badge inactive">취소 예약</span>`
+              : `<span class="badge active">구독 중</span>`
             : `<span class="badge inactive">구독 전</span>`;
           const usageText = sub.active
             ? `답글 ${usage.replyUsed}/${usage.replyLimit} · 말투 ${usage.toneUsed}/${usage.toneLimit}`
             : '-';
           const statusLine = sub.active
-            ? `만료 ${escapeHtml(sub.expiresAt || '-')}`
+            ? sub.status === 'cancelled' || sub.cancelled
+              ? `${escapeHtml(sub.expiresAt || '-')}까지 이용 가능`
+              : `만료 ${escapeHtml(sub.expiresAt || '-')}`
             : '아직 결제·활성화 전';
           const planLine = sub.active
             ? `적용 플랜: ${escapeHtml(sub.planName || user.planName || '-')}`

@@ -319,6 +319,37 @@
 
     button:disabled { opacity: .55; cursor: not-allowed; }
 
+    .cancel-confirm-box {
+      margin-top: 10px;
+      padding: 12px;
+      border: 1px solid #fbbf24;
+      border-radius: 8px;
+      background: #fffbeb;
+    }
+
+    .cancel-confirm-box p {
+      margin: 0 0 10px;
+      font-size: 12px;
+      line-height: 1.5;
+      color: #92400e;
+    }
+
+    .cancel-confirm-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .cancel-confirm-actions button {
+      flex: 1;
+      margin-top: 0;
+    }
+
+    button.danger {
+      background: #dc2626;
+      color: #fff;
+      border: 1px solid #b91c1c;
+    }
+
     button.secondary {
 
       background: #fff;
@@ -859,6 +890,16 @@
         <button id="refreshUsageBtn" class="secondary" type="button" style="margin-top:8px;">사용량 새로고침</button>
 
         <button id="openBillingBtn" type="button" style="margin-top:8px;">구독하기</button>
+
+        <button id="cancelSubscriptionBtn" class="secondary" type="button" style="margin-top:8px;" hidden>구독 취소</button>
+
+        <div id="cancelConfirmBox" class="cancel-confirm-box" hidden>
+          <p>구독을 취소할까요?<br />결제하신 기간(만료일)까지는 그대로 이용할 수 있습니다.</p>
+          <div class="cancel-confirm-actions">
+            <button id="cancelConfirmOk" class="danger" type="button">취소 예약</button>
+            <button id="cancelConfirmBack" class="secondary" type="button">돌아가기</button>
+          </div>
+        </div>
 
         <button id="logoutBtn" class="secondary" type="button" style="margin-top:8px;">로그아웃</button>
 

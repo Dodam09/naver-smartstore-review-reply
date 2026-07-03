@@ -23,7 +23,7 @@ import {
   adminGetUser,
   getAdminDashboard,
 } from './admin.js';
-import { getDb, updateUserPlan } from './db.js';
+import { getDb, findUserById, updateUserPlan } from './db.js';
 import { generateText, generateWithSystem } from './gemini.js';
 import { getPlan, normalizePlanId } from './plans.js';
 import {
@@ -32,7 +32,7 @@ import {
   buildReviewUserContent,
   normalizeSamples,
 } from './prompts.js';
-import { assertSubscriptionActive, SubscriptionError } from './subscription.js';
+import { assertSubscriptionActive, SubscriptionError, cancelUserSubscriptionAtPeriodEnd } from './subscription.js';
 import { assertWithinLimit, getUsageSummary, recordUsage, UsageLimitError } from './usage.js';
 import {
   buildAuthorizeUrl,
@@ -140,7 +140,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'naver-smartstore-reply-api',
-    version: '1.3.7',
+    version: '1.3.9',
     geminiConfigured: !!String(process.env.GEMINI_API_KEY || '').trim(),
     authEnabled: true,
     registrationOpen: ALLOW_REGISTRATION,
@@ -334,6 +334,32 @@ app.post('/api/billing/mock-confirm', authenticate, async (req, res) => {
         subscription: result.subscription,
       },
       usage: getUsageSummary(req.auth.user.id, result.user.plan_id, undefined, true),
+    });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.post('/api/billing/cancel-subscription', authenticate, (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(400).json({ ok: false, error: '로그인 계정으로만 구독을 취소할 수 있습니다.' });
+    return;
+  }
+
+  try {
+    const subscription = cancelUserSubscriptionAtPeriodEnd(req.auth.user.id);
+    const user = findUserById(req.auth.user.id);
+    res.json({
+      ok: true,
+      subscription,
+      usage: getUsageSummary(user.id, user.plan_id, undefined, true),
+      user: {
+        id: user.id,
+        email: user.email,
+        planId: user.plan_id,
+        plan: getPlan(user.plan_id),
+        subscription,
+      },
     });
   } catch (err) {
     res.status(400).json({ ok: false, error: err.message || String(err) });
