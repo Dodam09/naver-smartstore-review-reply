@@ -1,281 +1,339 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>구독 결제</title>
-  <script src="https://js.tosspayments.com/v1/payment"></script>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f6f7fb;
-      color: #222;
-    }
-    .wrap { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
-    h1 { margin: 0 0 8px; font-size: 24px; }
-    .sub { color: #666; margin-bottom: 20px; }
-    .plans { display: grid; gap: 12px; }
-    .plan {
-      background: #fff;
-      border: 1px solid #e5e7ef;
-      border-radius: 12px;
-      padding: 16px;
-    }
-    .plan h2 { margin: 0 0 6px; font-size: 18px; }
-    .price { font-size: 22px; font-weight: 700; margin: 8px 0; }
-    .meta { color: #666; font-size: 13px; line-height: 1.5; }
-    button {
-      margin-top: 12px;
-      width: 100%;
-      border: 0;
-      border-radius: 10px;
-      padding: 12px 14px;
-      font-size: 15px;
-      font-weight: 600;
-      cursor: pointer;
-      background: #03c75a;
-      color: #fff;
-    }
-    button.secondary { background: #eef1f6; color: #333; }
-    button:disabled { opacity: 0.6; cursor: not-allowed; }
-    .status { margin-top: 16px; padding: 12px; border-radius: 10px; background: #fff; border: 1px solid #e5e7ef; white-space: pre-wrap; }
-    .status.error { border-color: #ffb4b4; background: #fff5f5; color: #b00020; }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <h1>스마트스토어 답글 구독</h1>
-    <div class="sub">플랜을 선택하고 결제하면 30일 동안 사용할 수 있습니다.</div>
-    <div class="plans" id="plans"></div>
-    <div class="status" id="status">불러오는 중…</div>
-  </div>
-  <script>
-    const params = new URLSearchParams(location.search);
-    const token = params.get('token') || '';
-    const initialPlan = params.get('plan') || 'standard';
-    const statusEl = document.getElementById('status');
-    const plansEl = document.getElementById('plans');
-
-    if (token) sessionStorage.setItem('billingToken', token);
-
-    let checkoutBusy = false;
-
-    function setStatus(message, isError) {
-      statusEl.textContent = message;
-      statusEl.classList.toggle('error', !!isError);
-    }
-
-    function setPayButtonsDisabled(disabled) {
-      plansEl.querySelectorAll('button').forEach((btn) => {
-        btn.disabled = disabled;
-      });
-    }
-
-    function isActivePaidSubscription(sub) {
-      return !!sub?.active && sub?.status === 'active' && !sub?.cancelled;
-    }
-
-    function buildActiveSubscriptionMessage(sub) {
-      return (
-        `이미 구독 중입니다. (만료: ${sub?.expiresAt || '-'})\n` +
-        '추가 결제는 [설정]에서 구독 취소 후 다시 구독하거나, 만료 이후에 가능합니다.\n' +
-        '확장프로그램 [설정] 탭으로 돌아가 사용량 새로고침을 눌러 주세요.'
-      );
-    }
-
-    async function refreshSubscriptionGate() {
-      try {
-        const me = await api('/api/auth/me');
-        const sub = me.subscription || me.user?.subscription;
-        if (isActivePaidSubscription(sub)) {
-          setPayButtonsDisabled(true);
-          setStatus(buildActiveSubscriptionMessage(sub));
-          return sub;
-        }
-        setPayButtonsDisabled(false);
-        return sub;
-      } catch (_) {
-        return null;
-      }
-    }
-
-    async function api(path, options = {}) {
-      const authToken = sessionStorage.getItem('billingToken') || token;
-      const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
-      if (authToken) headers.Authorization = `Bearer ${authToken}`;
-      const response = await fetch(path, {
-        method: options.method || 'GET',
-        headers,
-        body: options.body ? JSON.stringify(options.body) : undefined,
-      });
-      const raw = await response.text();
-      let data = {};
-      try { data = raw ? JSON.parse(raw) : {}; } catch (_) {}
-      if (!response.ok || data.ok === false) {
-        throw new Error(data.error || `요청 실패 (${response.status})`);
-      }
-      return data;
-    }
-
-    function renderPlans(config) {
-      plansEl.innerHTML = '';
-      const tossReady = !!config.tossConfigured;
-      const mockReady = !!config.mockMode;
-
-      (config.plans || []).forEach((plan) => {
-        const card = document.createElement('div');
-        card.className = 'plan';
-        card.innerHTML = `
-          <h2>${plan.name}</h2>
-          <div class="price">${plan.price.toLocaleString()}원 / 30일</div>
-          <div class="meta">답글 ${plan.replyLimit}건 · 말투 분석 ${plan.toneLimit}회 / 월</div>
-        `;
-
-        if (tossReady) {
-          const payBtn = document.createElement('button');
-          payBtn.type = 'button';
-          payBtn.textContent = `${plan.name} 결제하기`;
-          payBtn.addEventListener('click', () => startCheckout(plan.id, config));
-          card.appendChild(payBtn);
-        }
-
-        if (mockReady) {
-          const mockBtn = document.createElement('button');
-          mockBtn.type = 'button';
-          mockBtn.className = tossReady ? 'secondary' : '';
-          mockBtn.textContent = tossReady
-            ? `${plan.name} 테스트 결제 (모의)`
-            : `${plan.name} 테스트 결제`;
-          mockBtn.addEventListener('click', () => mockCheckout(plan.id));
-          card.appendChild(mockBtn);
-        }
-
-        if (!tossReady && !mockReady) {
-          const hint = document.createElement('div');
-          hint.className = 'meta';
-          hint.textContent = '결제 설정이 없습니다. server/.env 에 BILLING_MOCK=true 또는 TOSS_CLIENT_KEY 를 설정하세요.';
-          card.appendChild(hint);
-        }
-
-        plansEl.appendChild(card);
-      });
-    }
-
-    async function startCheckout(planId, config) {
-      if (checkoutBusy) return;
-      try {
-        if (!config.tossConfigured) {
-          if (config.mockMode) {
-            await mockCheckout(planId);
-            return;
-          }
-          throw new Error('TOSS_CLIENT_KEY가 없습니다. server/.env 에 BILLING_MOCK=true 를 넣고 서버를 재시작하세요.');
-        }
-
-        checkoutBusy = true;
-        setPayButtonsDisabled(true);
-        setStatus('결제 준비 중…');
-        const data = await api('/api/billing/prepare', {
-          method: 'POST',
-          body: { planId },
-        });
-        const checkout = data.checkout;
-        const tossPayments = TossPayments(checkout.clientKey);
-        await tossPayments.requestPayment('카드', {
-          amount: checkout.amount,
-          orderId: checkout.orderId,
-          orderName: checkout.orderName,
-          customerKey: checkout.customerKey,
-          successUrl: checkout.successUrl,
-          failUrl: checkout.failUrl,
-        });
-      } catch (err) {
-        if (err?.code === 'USER_CANCEL') {
-          setStatus('결제가 취소되었습니다.');
-          await refreshSubscriptionGate();
-          return;
-        }
-        setStatus(err.message || String(err), true);
-        await refreshSubscriptionGate();
-      } finally {
-        checkoutBusy = false;
-      }
-    }
-
-    async function mockCheckout(planId) {
-      if (checkoutBusy) return;
-      checkoutBusy = true;
-      setPayButtonsDisabled(true);
-      try {
-        setStatus('모의 결제 처리 중…');
-        const prepared = await api('/api/billing/prepare', {
-          method: 'POST',
-          body: { planId },
-        });
-        const result = await api('/api/billing/mock-confirm', {
-          method: 'POST',
-          body: { orderId: prepared.checkout.orderId },
-        });
-        setStatus(
-          `테스트 결제 완료!\n플랜: ${result.user.plan.name}\n만료: ${result.user.subscription.expiresAt || '-'}\n\n확장프로그램 [설정]에서 사용량 새로고침 후 닫았다가 다시 열어 주세요.`
-        );
-        setPayButtonsDisabled(true);
-      } catch (err) {
-        setStatus(err.message || String(err), true);
-        await refreshSubscriptionGate();
-      } finally {
-        checkoutBusy = false;
-      }
-    }
-
-    async function init() {
-      if (!token && !sessionStorage.getItem('billingToken')) {
-        setStatus('로그인이 필요합니다.\n확장프로그램 [설정]에서 로그인한 뒤, [구독하기]를 다시 눌러 주세요.', true);
-        return;
-      }
-      const config = await api('/api/billing/config');
-      renderPlans(config);
-
-      const sub = await refreshSubscriptionGate();
-      if (isActivePaidSubscription(sub)) {
-        if (initialPlan && config.plans?.some((p) => p.id === initialPlan)) {
-          const note = document.createElement('div');
-          note.className = 'sub';
-          note.textContent = `추천 플랜: ${initialPlan}`;
-          plansEl.before(note);
-        }
-        return;
-      }
-
-      let statusMessage = '';
-      if (sub?.cancelled || sub?.status === 'cancelled') {
-        statusMessage =
-          `구독 취소 상태입니다. ${sub.expiresAt || '-'}까지 이용할 수 있습니다.\n` +
-          '아래에서 다시 구독하면 취소가 해제되고 30일이 연장됩니다.';
-      }
-
-      if (statusMessage) {
-        setStatus(statusMessage);
-      } else if (config.mockMode && !config.tossConfigured) {
-        setStatus('테스트 모드입니다. 아래 「테스트 결제」 버튼을 누르세요.');
-      } else if (config.mockMode) {
-        setStatus('테스트 결제 또는 실제 토스 결제 중 선택하세요.');
-      } else if (config.tossConfigured) {
-        setStatus('원하는 플랜의 결제하기를 누르세요.');
-      } else {
-        setStatus('server/.env 에 BILLING_MOCK=true 또는 TOSS_CLIENT_KEY 를 설정한 뒤 서버를 재시작하세요.', true);
-      }
-      if (initialPlan && config.plans?.some((p) => p.id === initialPlan)) {
-        const note = document.createElement('div');
-        note.className = 'sub';
-        note.textContent = `추천 플랜: ${initialPlan}`;
-        plansEl.before(note);
-      }
-    }
-
-    init().catch((err) => setStatus(err.message || String(err), true));
-  </script>
-</body>
-</html>
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>구독 결제</title>
+  <script src="https://js.tosspayments.com/v1/payment"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f6f7fb;
+      color: #222;
+    }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    .sub { color: #666; margin-bottom: 20px; }
+    .plans { display: grid; gap: 12px; }
+    .plan {
+      background: #fff;
+      border: 1px solid #e5e7ef;
+      border-radius: 12px;
+      padding: 16px;
+    }
+    .plan.current { border-color: #03c75a; background: #f6fffa; }
+    .plan h2 { margin: 0 0 6px; font-size: 18px; }
+    .price { font-size: 22px; font-weight: 700; margin: 8px 0; }
+    .meta { color: #666; font-size: 13px; line-height: 1.5; }
+    button {
+      margin-top: 12px;
+      width: 100%;
+      border: 0;
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      background: #03c75a;
+      color: #fff;
+    }
+    button.secondary { background: #eef1f6; color: #333; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .status { margin-top: 16px; padding: 12px; border-radius: 10px; background: #fff; border: 1px solid #e5e7ef; white-space: pre-wrap; }
+    .status.error { border-color: #ffb4b4; background: #fff5f5; color: #b00020; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>스마트스토어 답글 구독</h1>
+    <div class="sub">플랜을 선택하고 결제하면 30일 동안 사용할 수 있습니다. 업그레이드는 차액만 결제하며 만료일은 유지됩니다.</div>
+    <div class="plans" id="plans"></div>
+    <div class="status" id="status">불러오는 중…</div>
+  </div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const token = params.get('token') || '';
+    const initialPlan = params.get('plan') || 'standard';
+    const statusEl = document.getElementById('status');
+    const plansEl = document.getElementById('plans');
+
+    if (token) sessionStorage.setItem('billingToken', token);
+
+    let checkoutBusy = false;
+    let billingConfig = null;
+
+    function setStatus(message, isError) {
+      statusEl.textContent = message;
+      statusEl.classList.toggle('error', !!isError);
+    }
+
+    function setPayButtonsDisabled(disabled) {
+      plansEl.querySelectorAll('button[data-pay]').forEach((btn) => {
+        btn.disabled = disabled || btn.dataset.enabled !== '1';
+      });
+    }
+
+    function isActivePaidSubscription(sub) {
+      return !!sub?.active && sub?.status === 'active' && !sub?.cancelled;
+    }
+
+    function findPlan(config, planId) {
+      return (config.plans || []).find((p) => p.id === planId) || null;
+    }
+
+    function resolvePlanUi(plan, sub, config) {
+      if (!isActivePaidSubscription(sub)) {
+        return {
+          enabled: true,
+          payLabel: `${plan.name} 결제하기`,
+          mockLabel: `${plan.name} 테스트 결제`,
+          note: sub?.cancelled ? '재구독 시 30일 연장' : '신규 구독 30일',
+          priceLabel: `${plan.price.toLocaleString()}원 / 30일`,
+          current: false,
+        };
+      }
+
+      const current = findPlan(config, sub.planId);
+      const currentRank = current?.rank || 0;
+      if (plan.id === sub.planId) {
+        return {
+          enabled: false,
+          payLabel: '현재 플랜',
+          mockLabel: '현재 플랜',
+          note: '지금 이용 중인 플랜입니다.',
+          priceLabel: `${plan.price.toLocaleString()}원 / 30일`,
+          current: true,
+        };
+      }
+      if (plan.rank < currentRank) {
+        return {
+          enabled: false,
+          payLabel: '다운그레이드 불가',
+          mockLabel: '다운그레이드 불가',
+          note: '만료 후 낮은 플랜으로 다시 구독할 수 있습니다.',
+          priceLabel: `${plan.price.toLocaleString()}원 / 30일`,
+          current: false,
+        };
+      }
+
+      const amount = plan.price - (current?.price || 0);
+      return {
+        enabled: true,
+        payLabel: `업그레이드 (+${amount.toLocaleString()}원)`,
+        mockLabel: `업그레이드 테스트 (+${amount.toLocaleString()}원)`,
+        note: `${current?.name || '현재 플랜'} → ${plan.name} · 만료일 유지`,
+        priceLabel: `차액 ${amount.toLocaleString()}원`,
+        current: false,
+      };
+    }
+
+    function updateStatusForSub(sub, config) {
+      if (isActivePaidSubscription(sub)) {
+        const current = findPlan(config, sub.planId);
+        const hasUpgrade = (config.plans || []).some((p) => p.rank > (current?.rank || 0));
+        if (hasUpgrade) {
+          setStatus(
+            `현재 ${current?.name || sub.planName} 플랜 (만료: ${sub.expiresAt || '-'})\n` +
+              '더 높은 플랜은 차액 결제로 즉시 업그레이드할 수 있습니다.'
+          );
+        } else {
+          setStatus(`현재 ${current?.name || sub.planName} 최고 플랜을 이용 중입니다. (만료: ${sub.expiresAt || '-'})`);
+        }
+        return;
+      }
+
+      if (sub?.cancelled || sub?.status === 'cancelled') {
+        setStatus(
+          `구독 취소 상태입니다. ${sub.expiresAt || '-'}까지 이용할 수 있습니다.\n` +
+            '아래에서 다시 구독하면 취소가 해제되고 30일이 연장됩니다.'
+        );
+        return;
+      }
+
+      if (config.mockMode && !config.tossConfigured) {
+        setStatus('테스트 모드입니다. 아래 「테스트 결제」 버튼을 누르세요.');
+      } else if (config.mockMode) {
+        setStatus('테스트 결제 또는 실제 토스 결제 중 선택하세요.');
+      } else if (config.tossConfigured) {
+        setStatus('원하는 플랜의 결제하기를 누르세요.');
+      } else {
+        setStatus('server/.env 에 BILLING_MOCK=true 또는 TOSS_CLIENT_KEY 를 설정한 뒤 서버를 재시작하세요.', true);
+      }
+    }
+
+    async function api(path, options = {}) {
+      const authToken = sessionStorage.getItem('billingToken') || token;
+      const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+      if (authToken) headers.Authorization = `Bearer ${authToken}`;
+      const response = await fetch(path, {
+        method: options.method || 'GET',
+        headers,
+        body: options.body ? JSON.stringify(options.body) : undefined,
+      });
+      const raw = await response.text();
+      let data = {};
+      try { data = raw ? JSON.parse(raw) : {}; } catch (_) {}
+      if (!response.ok || data.ok === false) {
+        throw new Error(data.error || `요청 실패 (${response.status})`);
+      }
+      return data;
+    }
+
+    function renderPlans(config, sub) {
+      plansEl.innerHTML = '';
+      const tossReady = !!config.tossConfigured;
+      const mockReady = !!config.mockMode;
+
+      (config.plans || []).forEach((plan) => {
+        const ui = resolvePlanUi(plan, sub, config);
+        const card = document.createElement('div');
+        card.className = ui.current ? 'plan current' : 'plan';
+        card.innerHTML = `
+          <h2>${plan.name}${ui.current ? ' · 이용 중' : ''}</h2>
+          <div class="price">${ui.priceLabel}</div>
+          <div class="meta">답글 ${plan.replyLimit}건 · 말투 분석 ${plan.toneLimit}회 / 월${ui.note ? `<br />${ui.note}` : ''}</div>
+        `;
+
+        if (tossReady) {
+          const payBtn = document.createElement('button');
+          payBtn.type = 'button';
+          payBtn.dataset.pay = '1';
+          payBtn.dataset.enabled = ui.enabled ? '1' : '0';
+          payBtn.disabled = !ui.enabled;
+          payBtn.textContent = ui.payLabel;
+          if (ui.enabled) payBtn.addEventListener('click', () => startCheckout(plan.id, config));
+          card.appendChild(payBtn);
+        }
+
+        if (mockReady) {
+          const mockBtn = document.createElement('button');
+          mockBtn.type = 'button';
+          mockBtn.dataset.pay = '1';
+          mockBtn.dataset.enabled = ui.enabled ? '1' : '0';
+          mockBtn.disabled = !ui.enabled;
+          mockBtn.className = tossReady ? 'secondary' : '';
+          mockBtn.textContent = tossReady ? ui.mockLabel : ui.mockLabel.replace(' (모의)', '');
+          if (ui.enabled) mockBtn.addEventListener('click', () => mockCheckout(plan.id));
+          card.appendChild(mockBtn);
+        }
+
+        if (!tossReady && !mockReady) {
+          const hint = document.createElement('div');
+          hint.className = 'meta';
+          hint.textContent = '결제 설정이 없습니다. server/.env 에 BILLING_MOCK=true 또는 TOSS_CLIENT_KEY 를 설정하세요.';
+          card.appendChild(hint);
+        }
+
+        plansEl.appendChild(card);
+      });
+    }
+
+    async function refreshBillingView() {
+      const config = billingConfig || (await api('/api/billing/config'));
+      billingConfig = config;
+      let sub = null;
+      try {
+        const me = await api('/api/auth/me');
+        sub = me.subscription || me.user?.subscription;
+      } catch (_) {}
+      renderPlans(config, sub);
+      updateStatusForSub(sub, config);
+      return sub;
+    }
+
+    async function startCheckout(planId, config) {
+      if (checkoutBusy) return;
+      try {
+        if (!config.tossConfigured) {
+          if (config.mockMode) {
+            await mockCheckout(planId);
+            return;
+          }
+          throw new Error('TOSS_CLIENT_KEY가 없습니다. server/.env 에 BILLING_MOCK=true 를 넣고 서버를 재시작하세요.');
+        }
+
+        checkoutBusy = true;
+        setPayButtonsDisabled(true);
+        setStatus('결제 준비 중…');
+        const data = await api('/api/billing/prepare', {
+          method: 'POST',
+          body: { planId },
+        });
+        const checkout = data.checkout;
+        const tossPayments = TossPayments(checkout.clientKey);
+        await tossPayments.requestPayment('카드', {
+          amount: checkout.amount,
+          orderId: checkout.orderId,
+          orderName: checkout.orderName,
+          customerKey: checkout.customerKey,
+          successUrl: checkout.successUrl,
+          failUrl: checkout.failUrl,
+        });
+      } catch (err) {
+        if (err?.code === 'USER_CANCEL') {
+          setStatus('결제가 취소되었습니다.');
+          await refreshBillingView();
+          return;
+        }
+        setStatus(err.message || String(err), true);
+        await refreshBillingView();
+      } finally {
+        checkoutBusy = false;
+      }
+    }
+
+    async function mockCheckout(planId) {
+      if (checkoutBusy) return;
+      checkoutBusy = true;
+      setPayButtonsDisabled(true);
+      try {
+        setStatus('모의 결제 처리 중…');
+        const prepared = await api('/api/billing/prepare', {
+          method: 'POST',
+          body: { planId },
+        });
+        const result = await api('/api/billing/mock-confirm', {
+          method: 'POST',
+          body: { orderId: prepared.checkout.orderId },
+        });
+        const checkoutType = prepared.checkout.checkoutType || 'subscribe';
+        const typeLabel =
+          checkoutType === 'upgrade'
+            ? '업그레이드 완료'
+            : checkoutType === 'resume'
+              ? '재구독 완료'
+              : '결제 완료';
+        setStatus(
+          `${typeLabel}!\n플랜: ${result.user.plan.name}\n만료: ${result.user.subscription.expiresAt || '-'}\n\n확장프로그램 [설정]에서 사용량 새로고침 후 닫았다가 다시 열어 주세요.`
+        );
+        await refreshBillingView();
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+        await refreshBillingView();
+      } finally {
+        checkoutBusy = false;
+      }
+    }
+
+    async function init() {
+      if (!token && !sessionStorage.getItem('billingToken')) {
+        setStatus('로그인이 필요합니다.\n확장프로그램 [설정]에서 로그인한 뒤, [구독하기]를 다시 눌러 주세요.', true);
+        return;
+      }
+      billingConfig = await api('/api/billing/config');
+      await refreshBillingView();
+      if (initialPlan && billingConfig.plans?.some((p) => p.id === initialPlan)) {
+        const note = document.createElement('div');
+        note.className = 'sub';
+        note.textContent = `추천 플랜: ${initialPlan}`;
+        plansEl.before(note);
+      }
+    }
+
+    init().catch((err) => setStatus(err.message || String(err), true));
+  </script>
+</body>
+</html>
+

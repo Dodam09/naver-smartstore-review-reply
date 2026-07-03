@@ -1133,11 +1133,20 @@ async function renderAccountUi() {
 
   const sub = session.subscription;
   const isCancelled = !!(sub?.cancelled || sub?.status === 'cancelled');
+  const planRank = { basic: 1, standard: 2, pro: 3 };
+  const currentRank = planRank[sub?.planId] || 0;
   const canSubscribe = !sub?.active || isCancelled;
+  const canUpgrade = sub?.active && sub?.status === 'active' && !isCancelled && currentRank < 3;
   const canCancel = sub?.active && sub?.status === 'active' && !sub?.cancelled;
   if (els.openBillingBtn) {
-    els.openBillingBtn.hidden = !canSubscribe;
-    els.openBillingBtn.textContent = isCancelled ? '다시 구독하기' : '구독하기';
+    els.openBillingBtn.hidden = !canSubscribe && !canUpgrade;
+    if (canUpgrade && !canSubscribe) {
+      els.openBillingBtn.textContent = '플랜 업그레이드';
+    } else if (isCancelled) {
+      els.openBillingBtn.textContent = '다시 구독하기';
+    } else {
+      els.openBillingBtn.textContent = '구독하기';
+    }
   }
   if (els.cancelSubscriptionBtn) els.cancelSubscriptionBtn.hidden = !canCancel;
   if (!canCancel && els.cancelConfirmBox) els.cancelConfirmBox.hidden = true;
@@ -1289,9 +1298,15 @@ async function onRefreshAccountUsage() {
 }
 
 function onOpenBillingPage() {
-  openBillingPage('standard').catch(async (err) => {
-    await setAccountMessage(err.message || '결제 페이지를 열 수 없습니다.');
-  });
+  loadAuthSession()
+    .then((session) => {
+      const planId =
+        session?.planId && session.planId !== 'none' ? session.planId : 'standard';
+      return openBillingPage(planId);
+    })
+    .catch(async (err) => {
+      await setAccountMessage(err.message || '결제 페이지를 열 수 없습니다.');
+    });
 }
 
 function storageGet(keys) {

@@ -47,3 +47,20 @@ export function normalizePaidPlanId(planId) {
 export function listPaidPlans() {
   return PAID_PLAN_IDS.map((id) => PLANS[id]);
 }
+
+const PLAN_RANK = { basic: 1, standard: 2, pro: 3 };
+
+export function getPlanRank(planId) {
+  return PLAN_RANK[normalizePaidPlanId(planId)] || 0;
+}
+
+export function comparePlans(fromPlanId, toPlanId) {
+  return getPlanRank(toPlanId) - getPlanRank(fromPlanId);
+}
+
+export function getUpgradePrice(fromPlanId, toPlanId) {
+  if (comparePlans(fromPlanId, toPlanId) <= 0) return null;
+  const from = getPlan(fromPlanId);
+  const to = getPlan(toPlanId);
+  return to.price - from.price;
+}

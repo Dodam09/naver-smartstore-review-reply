@@ -7,9 +7,10 @@ import {
   findUserById,
   getOrCreateCustomerKey,
   markBillingOrderPaid,
+  upgradeUserSubscription,
 } from './db.js';
-import { getPlan, listPaidPlans, normalizePaidPlanId } from './plans.js';
-import { addDaysIso, assertCanPurchaseSubscription, getSubscriptionSummary } from './subscription.js';
+import { getPlan, getPlanRank, listPaidPlans, normalizePaidPlanId } from './plans.js';
+import { getSubscriptionSummary, resolveCheckoutAction } from './subscription.js';
 
 const TOSS_SECRET_KEY = String(process.env.TOSS_SECRET_KEY || '').trim();
 const TOSS_CLIENT_KEY = String(process.env.TOSS_CLIENT_KEY || '').trim();
@@ -42,6 +43,7 @@ export function getBillingConfig() {
       price: plan.price,
       replyLimit: plan.replyLimit,
       toneLimit: plan.toneLimit,
+      rank: getPlanRank(plan.id),
     })),
   };
 }
@@ -84,9 +86,8 @@ async function confirmTossPayment({ paymentKey, orderId, amount }) {
 export function prepareCheckout(userId, planId) {
   const user = findUserById(userId);
   if (!user) throw new Error('사용자를 찾을 수 없습니다.');
-  assertCanPurchaseSubscription(user);
-
-  const plan = getPlan(normalizePaidPlanId(planId));
+  const action = resolveCheckoutAction(user, planId);
+  const plan = getPlan(action.planId);
   const orderId = createOrderId(userId);
   const customerKey = getOrCreateCustomerKey(userId);
 
@@ -94,18 +95,19 @@ export function prepareCheckout(userId, planId) {
     userId,
     orderId,
     planId: plan.id,
-    amount: plan.price,
-    orderName: `스마트스토어 답글 ${plan.name}`,
+    amount: action.amount,
+    orderName: action.orderName,
     customerKey,
   });
 
   return {
     orderId,
-    amount: plan.price,
-    orderName: `스마트스토어 답글 ${plan.name}`,
+    amount: action.amount,
+    orderName: action.orderName,
     customerKey,
     planId: plan.id,
     planName: plan.name,
+    checkoutType: action.type,
     clientKey: TOSS_CLIENT_KEY || null,
     successUrl: `${APP_BASE_URL}/billing-success.html`,
     failUrl: `${APP_BASE_URL}/billing-fail.html`,
@@ -144,9 +146,17 @@ export async function confirmCheckout(userId, { paymentKey, orderId, amount }) {
   }
 
   const userBeforeActivate = findUserById(userId);
-  assertCanPurchaseSubscription(userBeforeActivate);
+  const action = resolveCheckoutAction(userBeforeActivate, order.plan_id);
+  if (Number(order.amount) !== action.amount) {
+    throw new Error('주문 금액이 일치하지 않습니다.');
+  }
 
-  const user = activateUserSubscription(userId, order.plan_id, SUBSCRIPTION_DAYS);
+  let user;
+  if (action.type === 'upgrade') {
+    user = upgradeUserSubscription(userId, action.planId);
+  } else {
+    user = activateUserSubscription(userId, order.plan_id, SUBSCRIPTION_DAYS);
+  }
   return {
     order: findBillingOrder(order.id),
     user,

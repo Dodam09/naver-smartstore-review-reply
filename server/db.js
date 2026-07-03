@@ -342,6 +342,24 @@ export function activateUserSubscription(userId, planId, days = 30) {
   return findUserById(userId);
 }
 
+export function upgradeUserSubscription(userId, planId) {
+  const user = findUserById(userId);
+  if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+  if (!user.subscription_expires_at) {
+    throw new Error('업그레이드할 활성 구독이 없습니다.');
+  }
+
+  getDb()
+    .prepare(
+      `UPDATE users
+       SET plan_id = ?, subscription_status = 'active', updated_at = datetime('now')
+       WHERE id = ?`
+    )
+    .run(normalizePlanId(planId), userId);
+
+  return findUserById(userId);
+}
+
 export function setUserSubscriptionActive(userId, planId, days = 365) {
   return activateUserSubscription(userId, planId, days);
 }

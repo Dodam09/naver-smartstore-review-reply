@@ -1,6 +1,5 @@
 import { findUserById, markUserSubscriptionCancelled } from './db.js';
-import { getPlan } from './plans.js';
-
+import { getPlan, getUpgradePrice, normalizePaidPlanId } from './plans.js';
 export class SubscriptionError extends Error {
   constructor(message, subscription) {
     super(message);
@@ -70,11 +69,64 @@ export function assertCanPurchaseSubscription(user) {
     const summary = getSubscriptionSummary(user);
     throw new Error(
       `이미 구독 중입니다. (만료: ${summary.expiresAt || '-'})\n` +
-        '추가 결제는 [구독 취소] 후 다시 구독하거나, 만료 이후에 가능합니다.'
+        '더 높은 플랜은 [플랜 업그레이드]에서 차액 결제로 변경할 수 있습니다.'
     );
   }
 }
 
+export function resolveCheckoutAction(user, targetPlanId) {
+  if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+
+  const target = normalizePaidPlanId(targetPlanId);
+  const targetPlan = getPlan(target);
+  const status = String(user.subscription_status || 'none');
+  const active = isSubscriptionActive(user);
+  const currentPlanId = active ? normalizePaidPlanId(user.plan_id) : null;
+
+  if (!active) {
+    return {
+      type: 'subscribe',
+      planId: target,
+      amount: targetPlan.price,
+      orderName: `스마트스토어 답글 ${targetPlan.name}`,
+    };
+  }
+
+  if (status === 'cancelled') {
+    return {
+      type: 'resume',
+      planId: target,
+      amount: targetPlan.price,
+      orderName: `스마트스토어 답글 ${targetPlan.name} (재구독)`,
+    };
+  }
+
+  if (status === 'active') {
+    if (target === currentPlanId) {
+      throw new Error(`이미 ${targetPlan.name} 플랜을 이용 중입니다.`);
+    }
+
+    const upgradePrice = getUpgradePrice(currentPlanId, target);
+    if (upgradePrice == null) {
+      const currentPlan = getPlan(currentPlanId);
+      throw new Error(
+        `${currentPlan.name}에서 ${targetPlan.name}(으)로 다운그레이드는 지원하지 않습니다.\n` +
+          '구독 취소 후 만료일 이후 낮은 플랜으로 다시 구독해 주세요.'
+      );
+    }
+
+    const currentPlan = getPlan(currentPlanId);
+    return {
+      type: 'upgrade',
+      planId: target,
+      fromPlanId: currentPlanId,
+      amount: upgradePrice,
+      orderName: `스마트스토어 답글 ${currentPlan.name} → ${targetPlan.name} 업그레이드`,
+    };
+  }
+
+  throw new Error('결제할 수 없는 구독 상태입니다.');
+}
 export function addDaysIso(days, from = new Date()) {
   const next = new Date(from.getTime());
   next.setUTCDate(next.getUTCDate() + days);
