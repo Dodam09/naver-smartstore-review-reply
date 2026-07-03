@@ -1132,9 +1132,13 @@ async function renderAccountUi() {
   }
 
   const sub = session.subscription;
-  const canSubscribe = !sub?.active;
+  const isCancelled = !!(sub?.cancelled || sub?.status === 'cancelled');
+  const canSubscribe = !sub?.active || isCancelled;
   const canCancel = sub?.active && sub?.status === 'active' && !sub?.cancelled;
-  if (els.openBillingBtn) els.openBillingBtn.hidden = !canSubscribe;
+  if (els.openBillingBtn) {
+    els.openBillingBtn.hidden = !canSubscribe;
+    els.openBillingBtn.textContent = isCancelled ? '다시 구독하기' : '구독하기';
+  }
   if (els.cancelSubscriptionBtn) els.cancelSubscriptionBtn.hidden = !canCancel;
   if (!canCancel && els.cancelConfirmBox) els.cancelConfirmBox.hidden = true;
 }
