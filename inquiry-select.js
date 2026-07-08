@@ -446,7 +446,7 @@ async function onGenerate() {
   const apiKey = settings.apiKey || CONFIG.GEMINI_API_KEY;
 
   if (!(await hasAiCredentialsAsync(apiKey))) {
-    showProgress('AI 연결이 필요해요. [설정]에서 로그인하거나 API 키를 넣어 주세요.', true);
+    showProgress('AI 연결이 필요해요. [계정]에서 로그인하거나 API 키를 넣어 주세요.', true);
     return;
   }
 

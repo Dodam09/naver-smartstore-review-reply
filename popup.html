@@ -14,25 +14,88 @@
 
     * { box-sizing: border-box; }
 
+    :root {
+      --text-primary: #1e293b;
+      --text-secondary: #64748b;
+      --text-muted: #94a3b8;
+      --border: #e2e8f0;
+      --border-strong: #cbd5e1;
+      --surface: #ffffff;
+      --surface-muted: #f1f5f9;
+      --surface-page: #f8fafc;
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 12px;
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+      --font-caption: 11px;
+      --font-body: 12px;
+      --font-label: 13px;
+      --success-bg: #f0fdf4;
+      --success-text: #15803d;
+      --warn-bg: #fffbeb;
+      --warn-text: #b45309;
+      --accent: #03c75a;
+      --accent-hover: #02b350;
+      --accent-soft: #f0fdf4;
+      --accent-border: #bbf7d0;
+      --accent-text: #047857;
+    }
+
+    .panel.work {
+      --accent: #03c75a;
+      --accent-hover: #02b350;
+      --accent-soft: #f0fdf4;
+      --accent-border: #bbf7d0;
+      --accent-text: #047857;
+    }
+
+    .panel.inquiry {
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --accent-soft: #eff6ff;
+      --accent-border: #bfdbfe;
+      --accent-text: #1d40af;
+    }
+
+    html {
+      height: 100%;
+    }
+
     body {
 
       width: 360px;
+
+      height: 600px;
+
+      max-height: 600px;
 
       margin: 0;
 
       padding: 0;
 
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex;
 
-      font-size: 13px;
+      flex-direction: column;
 
-      color: #222;
+      overflow: hidden;
 
-      background: #f4f5f7;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard", sans-serif;
+
+      font-size: var(--font-body);
+
+      color: var(--text-primary);
+
+      background: var(--surface-page);
 
     }
 
     .header {
+
+      flex-shrink: 0;
 
       padding: 14px 16px 0;
 
@@ -110,9 +173,35 @@
 
     }
 
-    .panel { display: none; padding: 14px 16px 16px; }
+    .panel {
+
+      display: none;
+
+      flex: 1 1 auto;
+
+      min-height: 0;
+
+      padding: var(--space-3) var(--space-4) var(--space-4);
+
+      overflow-x: hidden;
+
+      overflow-y: auto;
+
+      overflow-anchor: none;
+
+      overscroll-behavior: contain;
+
+      scroll-behavior: auto;
+
+    }
 
     .panel.active { display: block; }
+
+    .panel.work.active,
+    .panel.inquiry.active {
+      /* 리뷰·문의 탭 동일 높이·동일 스크롤 영역 */
+      flex: 1 1 0;
+    }
 
     .flow-bar {
 
@@ -124,57 +213,217 @@
 
     }
 
+    .mode-bar {
+      display: flex;
+      gap: 0;
+      padding: 3px;
+      margin-bottom: var(--space-3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface-muted);
+    }
+
+    .mode-btn {
+      flex: 1;
+      padding: 10px 8px;
+      border: none;
+      border-radius: calc(var(--radius-md) - 3px);
+      background: transparent;
+      font-size: var(--font-body);
+      font-weight: 600;
+      line-height: 1.35;
+      text-align: center;
+      cursor: pointer;
+      font-family: inherit;
+      color: var(--text-secondary);
+      box-shadow: none;
+    }
+
+    .mode-btn:hover:not(:disabled) {
+      color: var(--text-primary);
+    }
+
+    .mode-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .panel .mode-btn.active {
+      background: var(--surface);
+      color: var(--accent-text);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .panel .mode-btn.style-tab.active {
+      background: var(--surface);
+      color: var(--text-primary);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .mode-panel {
+      display: none;
+    }
+
+    .mode-panel.active {
+      display: block;
+    }
+
+    .style-page-badge {
+      display: inline-block;
+      margin-bottom: var(--space-2);
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent-text);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .style-page-title {
+      font-weight: 700;
+      font-size: var(--font-label);
+      margin-bottom: var(--space-1);
+      color: var(--text-primary);
+    }
+
+    .style-page-desc {
+      font-size: var(--font-body);
+      color: var(--text-secondary);
+      line-height: 1.5;
+      margin-bottom: var(--space-3);
+    }
+
+    .active-style-panel {
+      width: 100%;
+      margin: 0 0 var(--space-3);
+      padding: var(--space-3);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      background: var(--surface);
+      font-family: inherit;
+      text-align: left;
+    }
+
+    .active-style-panel.learned,
+    .active-style-panel.custom,
+    .active-style-panel.preset {
+      border-left-color: var(--accent);
+      background: var(--surface);
+    }
+
+    .active-style-panel.learned .active-style-prompt-box,
+    .active-style-panel.custom .active-style-prompt-box,
+    .active-style-panel.preset .active-style-prompt-box {
+      color: var(--text-primary);
+      border-color: var(--border);
+      background: var(--surface-muted);
+    }
+
+    .active-style-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: var(--space-2);
+      margin-bottom: var(--space-2);
+    }
+
+    .active-style-header-main {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .active-style-label {
+      display: block;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 2px;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    .active-style-sub {
+      display: block;
+      font-size: var(--font-caption);
+      font-weight: 600;
+      color: var(--text-secondary);
+      line-height: 1.35;
+    }
+
+    .active-style-sub[hidden] {
+      display: none;
+    }
+
+    .active-style-prompt-box {
+      max-height: 120px;
+      overflow-y: auto;
+      padding: var(--space-2) 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface-muted);
+      font-size: var(--font-caption);
+      font-weight: 400;
+      color: var(--text-primary);
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
     .flow-chip {
 
       flex: 1;
 
       padding: 8px 6px;
 
-      border-radius: 10px;
+      border-radius: var(--radius-sm);
 
-      background: #e5e7eb;
+      background: var(--surface-muted);
 
-      color: #64748b;
+      color: var(--text-muted);
 
       font-size: 10px;
 
-      font-weight: 700;
+      font-weight: 600;
 
       text-align: center;
 
       line-height: 1.35;
 
+      border: 1px solid transparent;
+
+      font-family: inherit;
+
+      cursor: pointer;
+
+    }
+
+    .flow-chip:disabled {
+
+      opacity: 0.45;
+
+      cursor: not-allowed;
+
     }
 
     .flow-chip.done {
 
-      background: #dcfce7;
+      background: var(--success-bg);
 
-      color: #166534;
+      color: var(--success-text);
 
-    }
-
-    .flow-chip.active {
-
-      background: #dbeafe;
-
-      color: #1d4ed8;
+      border-color: transparent;
 
     }
 
-    .panel.inquiry .flow-chip.active {
+    .panel .flow-chip.active {
 
-      background: #dbeafe;
+      background: var(--accent-soft);
 
-      color: #1d4ed8;
+      color: var(--accent-text);
 
-    }
-
-    .panel.work .flow-chip.active {
-
-      background: #dcfce7;
-
-      color: #166534;
+      border-color: var(--accent-border);
 
     }
 
@@ -200,15 +449,19 @@
 
       width: 100%;
 
-      padding: 8px;
+      padding: var(--space-2);
 
-      border: 1px solid #ccc;
+      border: 1px solid var(--border-strong);
 
-      border-radius: 6px;
+      border-radius: var(--radius-sm);
 
-      background: #fff;
+      background: var(--surface);
 
       font-family: inherit;
+
+      font-size: var(--font-body);
+
+      color: var(--text-primary);
 
     }
 
@@ -216,11 +469,11 @@
 
     .hint {
 
-      color: #888;
+      color: var(--text-muted);
 
-      font-size: 11px;
+      font-size: var(--font-caption);
 
-      margin-top: 4px;
+      margin-top: var(--space-1);
 
       line-height: 1.4;
 
@@ -297,27 +550,63 @@
 
       width: 100%;
 
-      margin-top: 8px;
+      margin-top: var(--space-2);
 
-      padding: 10px;
+      padding: 10px var(--space-3);
 
       border: none;
 
-      border-radius: 8px;
+      border-radius: var(--radius-sm);
 
-      background: #03c75a;
+      background: var(--accent, #03c75a);
 
       color: #fff;
 
-      font-weight: 700;
+      font-weight: 600;
 
       cursor: pointer;
 
-      font-size: 13px;
+      font-size: var(--font-label);
+
+      font-family: inherit;
 
     }
 
     button:disabled { opacity: .55; cursor: not-allowed; }
+
+    button.active-style-change {
+      flex-shrink: 0;
+      margin-top: 0;
+      padding: 5px 10px;
+      width: auto;
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      font-size: var(--font-caption);
+      color: var(--text-secondary);
+      font-weight: 600;
+    }
+
+    button.active-style-change:hover {
+      border-color: var(--accent);
+      color: var(--accent-text);
+      background: var(--accent-soft);
+    }
+
+    button.step-back {
+      display: block;
+      width: 100%;
+      margin-top: var(--space-1);
+      padding: var(--space-2);
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      text-align: center;
+      font-size: var(--font-body);
+      font-weight: 600;
+    }
+
+    button.step-back:hover { color: var(--text-primary); }
 
     .cancel-confirm-box {
       margin-top: 10px;
@@ -352,12 +641,37 @@
 
     button.secondary {
 
-      background: #fff;
+      background: var(--surface);
 
-      color: #333;
+      color: var(--text-primary);
 
-      border: 1px solid #ccc;
+      border: 1px solid var(--border-strong);
 
+    }
+
+    button.secondary:hover:not(:disabled) {
+      background: var(--surface-muted);
+    }
+
+    .style-mode-body button.analyze {
+      margin-top: var(--space-2);
+    }
+
+    .style-mode-body .row-inline button {
+      margin-top: var(--space-2);
+    }
+
+    .style-mode-body .preset-note {
+      margin-top: var(--space-2);
+    }
+
+    .panel .style-hero-btn {
+      background: var(--accent, #03c75a);
+      font-weight: 600;
+    }
+
+    button.analyze.done {
+      background: var(--accent-text, #047857);
     }
 
     button.select {
@@ -392,42 +706,396 @@
 
     button.fetch-samples { background: #0369a1; }
 
-    button.analyze { background: #7c3aed; }
+    button.analyze { background: var(--accent, #03c75a); }
+
+    button.analyze:disabled {
+      background: var(--surface-muted);
+      color: var(--text-muted);
+      opacity: 1;
+    }
+
+    .style-step-hint {
+      margin: var(--space-1) 0 0;
+      font-size: var(--font-caption);
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+
+    .style-mode-intro {
+      font-size: var(--font-body);
+      color: var(--text-secondary);
+      line-height: 1.5;
+      margin-bottom: var(--space-3);
+      padding: var(--space-2) var(--space-3);
+      border-radius: var(--radius-sm);
+      background: var(--surface-muted);
+      border: 1px solid var(--border);
+    }
+
+    .style-mode-intro strong {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    .style-mode-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+    }
+
+    .style-mode-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      overflow: hidden;
+    }
+
+    .style-mode-card.active,
+    .style-mode-card.active.preset-mode,
+    .style-mode-card.active.custom-mode {
+      border-color: var(--accent-border);
+      background: var(--accent-soft);
+      box-shadow: none;
+    }
+
+    .style-mode-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 11px var(--space-3);
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      font-family: inherit;
+      text-align: left;
+      margin-top: 0;
+      scroll-margin: 0;
+    }
+
+    .style-mode-head:hover {
+      background: rgba(255, 255, 255, 0.45);
+    }
+
+    .style-mode-radio {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: 2px solid var(--border-strong);
+      flex-shrink: 0;
+      position: relative;
+      background: var(--surface);
+    }
+
+    .style-mode-card.active .style-mode-radio,
+    .style-mode-card.active.preset-mode .style-mode-radio,
+    .style-mode-card.active.custom-mode .style-mode-radio {
+      border-color: var(--accent);
+    }
+
+    .style-mode-card.active .style-mode-radio::after,
+    .style-mode-card.active.preset-mode .style-mode-radio::after,
+    .style-mode-card.active.custom-mode .style-mode-radio::after {
+      content: '';
+      position: absolute;
+      inset: 3px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    .style-mode-head-text {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .style-mode-title {
+      display: block;
+      font-size: var(--font-label);
+      font-weight: 600;
+      color: var(--text-primary);
+      line-height: 1.3;
+    }
+
+    .style-mode-desc {
+      display: block;
+      font-size: var(--font-caption);
+      color: var(--text-secondary);
+      margin-top: 2px;
+      line-height: 1.35;
+    }
+
+    .style-mode-badge {
+      flex-shrink: 0;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 600;
+      background: var(--surface-muted);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
+    .style-mode-badge.ready {
+      background: var(--success-bg);
+      color: var(--success-text);
+      border-color: transparent;
+    }
+
+    .style-mode-badge.applied {
+      background: var(--accent-soft);
+      color: var(--accent-text);
+      border-color: var(--accent-border);
+    }
+
+    .style-mode-badge.pending {
+      background: var(--warn-bg);
+      color: var(--warn-text);
+      border-color: transparent;
+    }
+
+    .style-mode-body {
+      padding: 0 var(--space-3) var(--space-3);
+      border-top: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.55);
+    }
+
+    .style-mode-card.active .style-mode-body {
+      background: rgba(255, 255, 255, 0.65);
+    }
+
+    .style-mode-body.is-collapsed {
+      display: none;
+    }
+
+    .style-mode-body .style-hero-btn {
+      margin-top: 10px;
+    }
+
+    .style-mode-body .sample-flow {
+      margin-top: 10px;
+    }
+
+    .style-mode-body label {
+      display: block;
+      font-size: var(--font-caption);
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-top: var(--space-2);
+      margin-bottom: var(--space-1);
+    }
+
+    .style-mode-body textarea,
+    .style-mode-body select {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      font-size: var(--font-body);
+      padding: var(--space-2);
+      background: var(--surface);
+    }
+
+    .style-mode-body textarea {
+      min-height: 72px;
+      resize: vertical;
+    }
+
+    .style-mode-body textarea:focus,
+    .style-mode-body select:focus,
+    input[type="file"]:focus,
+    input[type="password"]:focus,
+    select:focus,
+    textarea:focus {
+      outline: none;
+      border-color: var(--accent, #03c75a);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #03c75a) 18%, transparent);
+    }
+
+    .learned-prompt-editor {
+      margin-top: var(--space-3);
+      padding: var(--space-3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+    }
+
+    .style-mode-body .learned-prompt-editor {
+      margin-top: var(--space-3);
+    }
+
+    .learned-prompt-editor[hidden] {
+      display: none;
+    }
+
+    .learned-prompt-editor label {
+      display: block;
+      font-size: var(--font-body);
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: var(--space-1);
+    }
+
+    .learned-prompt-editor .hint {
+      margin: 0 0 var(--space-2);
+      font-size: var(--font-caption);
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    .learned-prompt-editor textarea {
+      width: 100%;
+      box-sizing: border-box;
+      min-height: 100px;
+      padding: var(--space-2) 10px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      font-size: var(--font-body);
+      line-height: 1.5;
+      resize: vertical;
+      font-family: inherit;
+      background: var(--surface-muted);
+    }
 
     .card {
-
-      background: #fff;
-
-      border: 1px solid #e5e7eb;
-
-      border-radius: 10px;
-
-      padding: 12px;
-
-      margin-bottom: 10px;
-
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--space-3);
+      margin-bottom: var(--space-3);
     }
 
     .card-title {
-
-      font-weight: 700;
-
-      font-size: 13px;
-
-      margin-bottom: 4px;
-
+      font-weight: 600;
+      font-size: var(--font-label);
+      margin-bottom: var(--space-1);
+      color: var(--text-primary);
     }
 
     .card-desc {
-
-      font-size: 11px;
-
-      color: #666;
-
+      font-size: var(--font-caption);
+      color: var(--text-secondary);
       line-height: 1.45;
+      margin-bottom: var(--space-2);
+    }
 
+    .style-card {
       margin-bottom: 10px;
+    }
 
+    .style-main .style-hero-btn {
+      margin-top: 0;
+      padding: 11px var(--space-3);
+      font-size: var(--font-label);
+      font-weight: 600;
+      background: var(--accent, #03c75a);
+    }
+
+    .style-main .sample-flow {
+      margin-top: 10px;
+      margin-bottom: 0;
+      padding: 10px 12px;
+    }
+
+    .style-sub .analyze {
+      margin-top: 8px;
+    }
+
+    .style-main .preset-note {
+      margin-top: 8px;
+      margin-bottom: 0;
+    }
+
+    .style-card .sample-steps {
+      display: none;
+    }
+
+    .style-sub {
+      margin-top: 10px;
+      margin-bottom: 0;
+      border: 1px solid #e8ecf2;
+      border-radius: 8px;
+      background: #fafbfc;
+      overflow: hidden;
+    }
+
+    .style-sub > summary {
+      padding: 9px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #64748b;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    .style-sub > summary::-webkit-details-marker { display: none; }
+
+    .style-sub > summary::after {
+      content: '▸';
+      float: right;
+      color: #94a3b8;
+    }
+
+    .style-sub[open] > summary::after { content: '▾'; }
+
+    .style-sub .details-body {
+      padding: 0 10px 10px;
+      border-top: 1px solid #eef1f6;
+    }
+
+    .panel-step {
+      display: none;
+    }
+
+    .panel-step.active {
+      display: block;
+    }
+
+    .compose-cta {
+      margin-top: 0;
+      margin-bottom: 10px;
+    }
+
+    .compose-style-fold {
+      margin-bottom: 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      background: #fff;
+      overflow: hidden;
+    }
+
+    .compose-style-fold > summary {
+      padding: 11px 12px;
+      font-weight: 600;
+      font-size: 12px;
+      color: #475569;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    .compose-style-fold > summary::-webkit-details-marker { display: none; }
+
+    .compose-style-fold > summary::after {
+      content: '▸';
+      float: right;
+      color: #94a3b8;
+    }
+
+    .compose-style-fold[open] > summary::after { content: '▾'; }
+
+    .compose-style-fold .details-body {
+      padding: 0 12px 12px;
+      border-top: 1px solid #f0f2f6;
+    }
+
+    .compose-style-fold .style-card {
+      margin-bottom: 0;
+      border: none;
+      padding: 0;
+      background: transparent;
+    }
+
+    .step-next {
+      margin-top: var(--space-3);
     }
 
     .row-inline {
@@ -446,13 +1114,13 @@
 
     details {
 
-      background: #fff;
+      background: var(--surface);
 
-      border: 1px solid #e5e7eb;
+      border: 1px solid var(--border);
 
-      border-radius: 10px;
+      border-radius: var(--radius-md);
 
-      margin-bottom: 10px;
+      margin-bottom: var(--space-3);
 
       overflow: hidden;
 
@@ -460,31 +1128,31 @@
 
     summary {
 
-      padding: 11px 12px;
+      padding: 11px var(--space-3);
 
       font-weight: 600;
 
-      font-size: 12px;
+      font-size: var(--font-body);
 
       cursor: pointer;
 
       list-style: none;
 
-      color: #64748b;
+      color: var(--text-secondary);
 
     }
 
     summary::-webkit-details-marker { display: none; }
 
-    summary::after { content: '▸'; float: right; color: #999; }
+    summary::after { content: '▸'; float: right; color: var(--text-muted); }
 
     details[open] summary::after { content: '▾'; }
 
     .details-body {
 
-      padding: 0 12px 12px;
+      padding: 0 var(--space-3) var(--space-3);
 
-      border-top: 1px solid #f0f0f0;
+      border-top: 1px solid var(--border);
 
     }
 
@@ -542,15 +1210,15 @@
 
     .sample-flow {
 
-      margin-bottom: 10px;
+      margin-bottom: var(--space-3);
 
-      padding: 10px 12px;
+      padding: var(--space-2) var(--space-3);
 
-      background: #f8fafc;
+      background: var(--surface-muted);
 
-      border: 1px solid #e2e8f0;
+      border: 1px solid var(--border);
 
-      border-radius: 10px;
+      border-radius: var(--radius-sm);
 
     }
 
@@ -604,11 +1272,7 @@
 
     .sample-flow-status.loading { color: #1d4ed8; }
 
-    button.fetch-samples.loading,
-
     button.analyze.loading { opacity: .75; cursor: wait; }
-
-    button.analyze.done { background: #059669; }
 
     .file-summary {
 
@@ -646,23 +1310,29 @@
 
     #status, #inquiryStatus {
 
-      margin-top: 10px;
+      margin-top: var(--space-3);
 
-      padding: 10px;
+      padding: var(--space-2) var(--space-3);
 
-      border-radius: 8px;
+      border-radius: var(--radius-sm);
 
-      background: #fff;
+      background: var(--surface);
 
-      border: 1px solid #e5e5e5;
+      border: 1px solid var(--border);
 
       min-height: 40px;
+
+      max-height: 88px;
+
+      overflow-y: auto;
 
       white-space: pre-wrap;
 
       line-height: 1.45;
 
-      font-size: 12px;
+      font-size: var(--font-body);
+
+      color: var(--text-secondary);
 
     }
 
@@ -674,6 +1344,11 @@
 
       border-top: 1px dashed #e5e7eb;
 
+    }
+
+    body.auth-gate {
+      height: auto;
+      max-height: 600px;
     }
 
     body.auth-gate .tabs {
@@ -717,7 +1392,7 @@
 
       <button type="button" class="tab inquiry" data-tab="inquiry">상품문의</button>
 
-      <button type="button" class="tab settings" data-tab="settings">설정</button>
+      <button type="button" class="tab settings" data-tab="settings">계정</button>
 
     </nav>
 
@@ -729,59 +1404,297 @@
 
   <section id="panelWork" class="panel work active">
 
-    <div class="flow-bar">
+    <div class="mode-bar">
 
-      <div class="flow-chip active" id="reviewFlow1">① 가져오기</div>
+      <button type="button" class="mode-btn active" id="reviewModeWork">답변할 댓글 가져오기</button>
 
-      <div class="flow-chip" id="reviewFlow2">② 답글 만들기</div>
-
-    </div>
-
-
-
-    <div id="fileSummary" class="file-summary"></div>
-
-
-
-    <div class="card">
-
-      <div class="card-title">① 판매자센터에서 리뷰 가져오기</div>
-
-      <div class="card-desc">먼저 스마트스토어 <strong>리뷰 관리</strong> 페이지를 연 뒤, 아래 버튼을 누르세요.</div>
-
-      <div class="row-inline">
-
-        <select id="fetchDays"></select>
-
-        <button id="fetchBtn" class="fetch" type="button">가져오기</button>
-
-      </div>
+      <button type="button" class="mode-btn style-tab" id="reviewModeStyle">답변 스타일 설정</button>
 
     </div>
 
 
 
-    <details>
+    <div class="active-style-panel preset" id="reviewActiveStyleBanner">
 
-      <summary>엑셀 파일로 가져오기 (다른 방법)</summary>
+      <div class="active-style-header">
 
-      <div class="details-body">
+        <div class="active-style-header-main">
 
-        <input type="file" id="xlsxFile" accept=".xlsx,.xls" />
+          <span class="active-style-label">적용 중인 AI 지침</span>
 
-        <div class="hint">네이버에서 받은 리뷰 엑셀 파일</div>
+          <span class="active-style-sub">프리셋 · 기본 (친절·감사)</span>
+
+        </div>
+
+        <button type="button" class="active-style-change" id="reviewActiveStyleChangeBtn">변경 →</button>
 
       </div>
 
-    </details>
+      <div class="active-style-prompt-box" id="reviewActiveStylePrompt">당신은 네이버 스마트스토어 판매자입니다…</div>
+
+    </div>
 
 
 
-    <button id="selectBtn" class="select" type="button" disabled>② 답글 만들기 시작 →</button>
+    <div id="reviewWorkPanel" class="mode-panel active">
+
+      <div class="flow-bar">
+
+        <button type="button" class="flow-chip active" id="reviewFlow1">① 가져오기</button>
+
+        <button type="button" class="flow-chip" id="reviewFlow2" disabled>② 답글 만들기</button>
+
+      </div>
 
 
 
-    <div id="status">위에서 리뷰를 가져온 다음, 「답글 만들기 시작」을 누르세요.</div>
+      <div id="fileSummary" class="file-summary"></div>
+
+
+
+      <div id="reviewStepFetch" class="panel-step active">
+
+      <div class="card">
+
+        <div class="card-title">판매자센터에서 리뷰 가져오기</div>
+
+        <div class="card-desc">먼저 스마트스토어 <strong>리뷰 관리</strong> 페이지를 연 뒤, 아래 버튼을 누르세요.</div>
+
+        <div class="row-inline">
+
+          <select id="fetchDays"></select>
+
+          <button id="fetchBtn" class="fetch" type="button">가져오기</button>
+
+        </div>
+
+      </div>
+
+
+
+      <details>
+
+        <summary>엑셀 파일로 가져오기 (다른 방법)</summary>
+
+        <div class="details-body">
+
+          <input type="file" id="xlsxFile" accept=".xlsx,.xls" />
+
+          <div class="hint">네이버에서 받은 리뷰 엑셀 파일</div>
+
+        </div>
+
+      </details>
+
+
+
+      <button id="reviewGoComposeBtn" class="select step-next" type="button" hidden>다음: 답글 만들기 →</button>
+
+    </div>
+
+
+
+    <div id="reviewStepCompose" class="panel-step">
+
+      <button id="selectBtn" class="select compose-cta" type="button" disabled>답글 만들기 시작 →</button>
+
+      <button type="button" class="step-back" id="reviewBackFetchBtn">← 가져오기로 돌아가기</button>
+
+    </div>
+
+
+
+    </div>
+
+
+
+    <div id="reviewStylePanel" class="mode-panel">
+
+      <p class="style-mode-intro">말투 방식을 <strong>하나만</strong> 선택하세요. 선택한 방식의 지침이 답글에 적용됩니다.</p>
+
+      <div class="style-mode-list" id="reviewStyleModeList">
+
+        <div class="style-mode-card" data-mode="pick">
+
+          <button type="button" class="style-mode-head">
+
+            <span class="style-mode-radio" aria-hidden="true"></span>
+
+            <span class="style-mode-head-text">
+
+              <span class="style-mode-title">기존 답글로 만들기</span>
+
+              <span class="style-mode-desc">판매자센터 답글을 골라 AI가 내 말투 분석</span>
+
+            </span>
+
+            <span class="style-mode-badge">미설정</span>
+
+          </button>
+
+          <div class="style-mode-body is-collapsed">
+
+            <span class="style-page-badge">추천</span>
+
+            <button id="openStylePickBtn" class="style-hero-btn" type="button">기존 답글로 내 말투 만들기</button>
+
+            <p class="style-step-hint">새 창에서 답글 2~3개만 고르면 1분 안에 끝납니다.</p>
+
+            <div class="sample-flow" id="sampleFlow">
+
+              <div class="sample-flow-status" id="sampleFlowStatus">버튼을 누르면 새 창에서 답글 선택과 말투 생성이 됩니다.</div>
+
+            </div>
+
+            <div class="learned-prompt-host" id="reviewLearnedPromptHostPick">
+
+              <div class="learned-prompt-editor" id="reviewLearnedPromptEditor" hidden>
+
+                <label for="reviewLearnedSystemPrompt">분석된 AI 지침</label>
+
+                <p class="hint">위에서 만든 말투입니다. 여기서 바로 수정할 수 있어요.</p>
+
+                <textarea id="reviewLearnedSystemPrompt" placeholder="답글 분석으로 만들어진 AI 지침"></textarea>
+
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+
+
+
+        <div class="style-mode-card" data-mode="paste">
+
+          <button type="button" class="style-mode-head">
+
+            <span class="style-mode-radio" aria-hidden="true"></span>
+
+            <span class="style-mode-head-text">
+
+              <span class="style-mode-title">답글 붙여넣기</span>
+
+              <span class="style-mode-desc">예전에 쓴 답글을 붙여넣어 말투 분석</span>
+
+            </span>
+
+            <span class="style-mode-badge">미설정</span>
+
+          </button>
+
+          <div class="style-mode-body is-collapsed">
+
+            <textarea id="sampleReplies" placeholder="예전에 쓴 답글 2개 이상 (빈 줄 또는 --- 로 구분)"></textarea>
+
+            <div class="sample-count" id="sampleCount">예시 0개</div>
+
+            <button id="analyzeBtn" class="analyze" type="button" disabled>붙여넣은 답글로 말투 만들기</button>
+
+            <div class="row-inline">
+
+              <button id="downloadSampleXlsxBtn" class="secondary" type="button">엑셀 양식</button>
+
+              <button id="downloadSampleTxtBtn" class="secondary" type="button">메모 양식</button>
+
+            </div>
+
+            <input type="file" id="sampleFile" accept=".txt,.xlsx,.xls" style="margin-top:8px;" />
+
+            <div class="learned-prompt-host" id="reviewLearnedPromptHostPaste">
+
+              <div class="learned-prompt-editor" id="reviewLearnedPromptEditorPaste" hidden>
+
+                <label for="reviewLearnedSystemPromptPaste">분석된 AI 지침</label>
+
+                <p class="hint">위에서 만든 말투입니다. 여기서 바로 수정할 수 있어요.</p>
+
+                <textarea id="reviewLearnedSystemPromptPaste" placeholder="답글 분석으로 만들어진 AI 지침"></textarea>
+
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+
+
+
+        <div class="style-mode-card preset-mode" data-mode="preset">
+
+          <button type="button" class="style-mode-head">
+
+            <span class="style-mode-radio" aria-hidden="true"></span>
+
+            <span class="style-mode-head-text">
+
+              <span class="style-mode-title">프리셋</span>
+
+              <span class="style-mode-desc">기본 말투 중에서 고르기</span>
+
+            </span>
+
+            <span class="style-mode-badge">미설정</span>
+
+          </button>
+
+          <div class="style-mode-body is-collapsed">
+
+            <label for="tonePreset">프리셋 선택</label>
+
+            <select id="tonePreset"></select>
+
+            <div class="preset-note" id="presetNote"></div>
+
+          </div>
+
+        </div>
+
+
+
+        <div class="style-mode-card custom-mode" data-mode="custom">
+
+          <button type="button" class="style-mode-head">
+
+            <span class="style-mode-radio" aria-hidden="true"></span>
+
+            <span class="style-mode-head-text">
+
+              <span class="style-mode-title">직접 지침</span>
+
+              <span class="style-mode-desc">AI 지침을 직접 작성·수정</span>
+
+            </span>
+
+            <span class="style-mode-badge">미설정</span>
+
+          </button>
+
+          <div class="style-mode-body is-collapsed">
+
+            <label for="systemPrompt">AI 지침</label>
+
+            <textarea id="systemPrompt" placeholder="예: 반말 금지, 감사 인사로 시작…"></textarea>
+
+          </div>
+
+        </div>
+
+      </div>
+
+      <span id="sampleStepLoad" hidden></span>
+
+      <span id="sampleStepAnalyze" hidden></span>
+
+      <span id="sampleStepApply" hidden></span>
+
+    </div>
+
+
+
+    <div id="status">리뷰를 가져온 다음 「다음」으로 이동하세요.</div>
 
   </section>
 
@@ -791,45 +1704,283 @@
 
   <section id="panelInquiry" class="panel inquiry">
 
-    <div class="flow-bar">
+    <div class="mode-bar">
 
-      <div class="flow-chip active" id="inquiryFlow1">① 가져오기</div>
+      <button type="button" class="mode-btn active" id="inquiryModeWork">답변할 문의 가져오기</button>
 
-      <div class="flow-chip" id="inquiryFlow2">② 답글 만들기</div>
+      <button type="button" class="mode-btn style-tab" id="inquiryModeStyle">답변 스타일 설정</button>
 
     </div>
 
 
 
-    <div id="inquirySummary" class="file-summary"></div>
+    <div class="active-style-panel preset" id="inquiryActiveStyleBanner">
 
+      <div class="active-style-header">
 
+        <div class="active-style-header-main">
 
-    <div class="card">
+          <span class="active-style-label">적용 중인 AI 지침</span>
 
-      <div class="card-title">① 판매자센터에서 문의 가져오기</div>
+          <span class="active-style-sub">프리셋 · 기본 (친절·안내)</span>
 
-      <div class="card-desc">먼저 스마트스토어 <strong>상품문의</strong> 페이지를 연 뒤, 아래 버튼을 누르세요.</div>
+        </div>
 
-      <div class="row-inline">
-
-        <select id="inquiryFetchDays"></select>
-
-        <button id="inquiryFetchBtn" class="fetch" type="button">가져오기</button>
+        <button type="button" class="active-style-change" id="inquiryActiveStyleChangeBtn">변경 →</button>
 
       </div>
 
+      <div class="active-style-prompt-box" id="inquiryActiveStylePrompt">당신은 네이버 스마트스토어 판매자입니다…</div>
+
     </div>
 
 
 
-    <button id="inquirySelectBtn" class="select" type="button" disabled>② 답글 만들기 시작 →</button>
+    <div id="inquiryWorkPanel" class="mode-panel active">
 
-    <div class="hint" id="inquiryApplyHint">답글을 만든 뒤, 작업 화면에서 「판매자센터에 넣기 준비」를 누르면 [답글] 클릭 시 자동으로 채워집니다.</div>
+      <div class="flow-bar">
+
+        <button type="button" class="flow-chip active" id="inquiryFlow1">① 가져오기</button>
+
+        <button type="button" class="flow-chip" id="inquiryFlow2" disabled>② 답글 만들기</button>
+
+      </div>
 
 
 
-    <div id="inquiryStatus">위에서 문의를 가져온 다음, 「답글 만들기 시작」을 누르세요.</div>
+      <div id="inquirySummary" class="file-summary"></div>
+
+
+
+      <div id="inquiryStepFetch" class="panel-step active">
+
+      <div class="card">
+
+        <div class="card-title">판매자센터에서 문의 가져오기</div>
+
+        <div class="card-desc">먼저 스마트스토어 <strong>상품문의</strong> 페이지를 연 뒤, 아래 버튼을 누르세요.</div>
+
+        <div class="row-inline">
+
+          <select id="inquiryFetchDays"></select>
+
+          <button id="inquiryFetchBtn" class="fetch" type="button">가져오기</button>
+
+        </div>
+
+      </div>
+
+
+
+      <button id="inquiryGoComposeBtn" class="select step-next" type="button" hidden>다음: 답글 만들기 →</button>
+
+    </div>
+
+
+
+    <div id="inquiryStepCompose" class="panel-step">
+
+      <button id="inquirySelectBtn" class="select compose-cta" type="button" disabled>답글 만들기 시작 →</button>
+
+      <div class="hint" id="inquiryApplyHint">답글을 만든 뒤, 작업 화면에서 「판매자센터에 넣기 준비」를 누르면 [답글] 클릭 시 자동으로 채워집니다.</div>
+
+      <button type="button" class="step-back" id="inquiryBackFetchBtn">← 가져오기로 돌아가기</button>
+
+    </div>
+
+
+
+    </div>
+
+
+
+    <div id="inquiryStylePanel" class="mode-panel">
+
+      <p class="style-mode-intro">말투 방식을 <strong>하나만</strong> 선택하세요. 선택한 방식의 지침이 답글에 적용됩니다.</p>
+
+      <div class="style-mode-list" id="inquiryStyleModeList">
+
+        <div class="style-mode-card" data-mode="pick">
+
+          <button type="button" class="style-mode-head">
+
+            <span class="style-mode-radio" aria-hidden="true"></span>
+
+            <span class="style-mode-head-text">
+
+              <span class="style-mode-title">기존 답글로 만들기</span>
+
+              <span class="style-mode-desc">판매자센터 답글을 골라 AI가 내 말투 분석</span>
+
+            </span>
+
+            <span class="style-mode-badge">미설정</span>
+
+          </button>
+
+          <div class="style-mode-body is-collapsed">
+
+            <span class="style-page-badge">추천</span>
+
+            <button id="openInquiryStylePickBtn" class="style-hero-btn" type="button">기존 답글로 내 말투 만들기</button>
+
+            <p class="style-step-hint">새 창에서 답글 2~3개만 고르면 1분 안에 끝납니다.</p>
+
+            <div class="sample-flow" id="inquirySampleFlow">
+
+              <div class="sample-flow-status" id="inquirySampleFlowStatus">버튼을 누르면 새 창에서 답글 선택과 말투 생성이 됩니다.</div>
+
+            </div>
+
+            <div class="learned-prompt-host" id="inquiryLearnedPromptHostPick">
+
+              <div class="learned-prompt-editor" id="inquiryLearnedPromptEditor" hidden>
+
+                <label for="inquiryLearnedSystemPrompt">분석된 AI 지침</label>
+
+                <p class="hint">위에서 만든 말투입니다. 여기서 바로 수정할 수 있어요.</p>
+
+                <textarea id="inquiryLearnedSystemPrompt" placeholder="답글 분석으로 만들어진 AI 지침"></textarea>
+
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+
+
+
+        <div class="style-mode-card" data-mode="paste">
+
+          <button type="button" class="style-mode-head">
+
+            <span class="style-mode-radio" aria-hidden="true"></span>
+
+            <span class="style-mode-head-text">
+
+              <span class="style-mode-title">답글 붙여넣기</span>
+
+              <span class="style-mode-desc">예전에 쓴 답글을 붙여넣어 말투 분석</span>
+
+            </span>
+
+            <span class="style-mode-badge">미설정</span>
+
+          </button>
+
+          <div class="style-mode-body is-collapsed">
+
+            <textarea id="inquirySampleReplies" placeholder="예전 문의 답글 2개 이상"></textarea>
+
+            <div class="sample-count" id="inquirySampleCount">예시 0개</div>
+
+            <button id="inquiryAnalyzeBtn" class="analyze" type="button" disabled>붙여넣은 답글로 말투 만들기</button>
+
+            <div class="row-inline">
+
+              <button id="inquiryDownloadSampleXlsxBtn" class="secondary" type="button">엑셀 양식</button>
+
+              <button id="inquiryDownloadSampleTxtBtn" class="secondary" type="button">메모 양식</button>
+
+            </div>
+
+            <input type="file" id="inquirySampleFile" accept=".txt,.xlsx,.xls" style="margin-top:8px;" />
+
+            <div class="learned-prompt-host" id="inquiryLearnedPromptHostPaste">
+
+              <div class="learned-prompt-editor" id="inquiryLearnedPromptEditorPaste" hidden>
+
+                <label for="inquiryLearnedSystemPromptPaste">분석된 AI 지침</label>
+
+                <p class="hint">위에서 만든 말투입니다. 여기서 바로 수정할 수 있어요.</p>
+
+                <textarea id="inquiryLearnedSystemPromptPaste" placeholder="답글 분석으로 만들어진 AI 지침"></textarea>
+
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+
+
+
+        <div class="style-mode-card preset-mode" data-mode="preset">
+
+          <button type="button" class="style-mode-head">
+
+            <span class="style-mode-radio" aria-hidden="true"></span>
+
+            <span class="style-mode-head-text">
+
+              <span class="style-mode-title">프리셋</span>
+
+              <span class="style-mode-desc">기본 말투 중에서 고르기</span>
+
+            </span>
+
+            <span class="style-mode-badge">미설정</span>
+
+          </button>
+
+          <div class="style-mode-body is-collapsed">
+
+            <label for="inquiryTonePreset">프리셋 선택</label>
+
+            <select id="inquiryTonePreset"></select>
+
+            <div class="preset-note" id="inquiryPresetNote"></div>
+
+          </div>
+
+        </div>
+
+
+
+        <div class="style-mode-card custom-mode" data-mode="custom">
+
+          <button type="button" class="style-mode-head">
+
+            <span class="style-mode-radio" aria-hidden="true"></span>
+
+            <span class="style-mode-head-text">
+
+              <span class="style-mode-title">직접 지침</span>
+
+              <span class="style-mode-desc">AI 지침을 직접 작성·수정</span>
+
+            </span>
+
+            <span class="style-mode-badge">미설정</span>
+
+          </button>
+
+          <div class="style-mode-body is-collapsed">
+
+            <label for="inquirySystemPrompt">AI 지침</label>
+
+            <textarea id="inquirySystemPrompt" placeholder="예: 정중하게, 배송·교환 안내 위주…"></textarea>
+
+          </div>
+
+        </div>
+
+      </div>
+
+      <span id="inquirySampleStepLoad" hidden></span>
+
+      <span id="inquirySampleStepAnalyze" hidden></span>
+
+      <span id="inquirySampleStepApply" hidden></span>
+
+    </div>
+
+
+
+    <div id="inquiryStatus">문의를 가져온 다음 「다음」으로 이동하세요.</div>
 
   </section>
 
@@ -935,156 +2086,6 @@
 
 
 
-    <details class="settings-section" open>
-
-      <summary>리뷰 답글 말투</summary>
-
-      <div class="details-body">
-
-        <label for="tonePreset">말투 선택</label>
-
-        <select id="tonePreset"></select>
-
-        <div class="preset-note" id="presetNote">원하는 말투를 고르면 AI가 그 스타일로 답글을 씁니다.</div>
-
-        <details style="margin-top:8px;">
-
-          <summary>말투 직접 적기 (고급)</summary>
-
-          <div class="details-body" style="padding-top:8px;">
-
-            <textarea id="systemPrompt" placeholder="예: 반말 금지, 감사 인사로 시작…"></textarea>
-
-          </div>
-
-        </details>
-
-        <details style="margin-top:8px;">
-
-          <summary>내 예전 답글로 말투 배우기</summary>
-
-          <div class="details-body">
-
-            <div class="sample-flow" id="sampleFlow">
-
-              <div class="sample-steps">
-
-                <span class="sample-step" id="sampleStepLoad">① 예시 준비</span>
-
-                <span class="sample-step" id="sampleStepAnalyze">② 분석</span>
-
-                <span class="sample-step" id="sampleStepApply">③ 저장</span>
-
-              </div>
-
-              <div class="sample-flow-status" id="sampleFlowStatus">예전 답글 2개 이상을 넣고 [말투 만들기]를 누르세요.</div>
-
-            </div>
-
-            <textarea id="sampleReplies" placeholder="예전에 쓴 답글 2개 이상 (빈 줄 또는 --- 로 구분)"></textarea>
-
-            <div class="sample-count" id="sampleCount">예시 0개</div>
-
-            <div class="row-inline" style="margin-top:8px;">
-
-              <button id="downloadSampleXlsxBtn" class="secondary" type="button">엑셀 양식</button>
-
-              <button id="downloadSampleTxtBtn" class="secondary" type="button">메모 양식</button>
-
-            </div>
-
-            <input type="file" id="sampleFile" accept=".txt,.xlsx,.xls" style="margin-top:8px;" />
-
-            <button id="openStylePickBtn" class="fetch-samples" type="button">판매자센터에서 내 답글 고르기</button>
-
-            <div class="hint">가장 쉬운 방법: 이미 올린 답글 중에서 골라 말투를 배웁니다.</div>
-
-            <button id="analyzeBtn" class="analyze" type="button">말투 만들기</button>
-
-          </div>
-
-        </details>
-
-      </div>
-
-    </details>
-
-
-
-    <details class="settings-section">
-
-      <summary>상품문의 답글 말투</summary>
-
-      <div class="details-body">
-
-        <label for="inquiryTonePreset">말투 선택</label>
-
-        <select id="inquiryTonePreset"></select>
-
-        <div class="preset-note" id="inquiryPresetNote">리뷰와 따로 저장됩니다. 문의 답글 전용 말투입니다.</div>
-
-        <details style="margin-top:8px;">
-
-          <summary>말투 직접 적기 (고급)</summary>
-
-          <div class="details-body" style="padding-top:8px;">
-
-            <textarea id="inquirySystemPrompt" placeholder="예: 정중하게, 배송·교환 안내 위주…"></textarea>
-
-          </div>
-
-        </details>
-
-        <details style="margin-top:8px;">
-
-          <summary>내 예전 답글로 말투 배우기</summary>
-
-          <div class="details-body">
-
-            <div class="sample-flow" id="inquirySampleFlow">
-
-              <div class="sample-steps">
-
-                <span class="sample-step" id="inquirySampleStepLoad">① 예시 준비</span>
-
-                <span class="sample-step" id="inquirySampleStepAnalyze">② 분석</span>
-
-                <span class="sample-step" id="inquirySampleStepApply">③ 저장</span>
-
-              </div>
-
-              <div class="sample-flow-status" id="inquirySampleFlowStatus">문의 답글 2개 이상을 넣고 [말투 만들기]를 누르세요.</div>
-
-            </div>
-
-            <textarea id="inquirySampleReplies" placeholder="예전 문의 답글 2개 이상"></textarea>
-
-            <div class="sample-count" id="inquirySampleCount">예시 0개</div>
-
-            <div class="row-inline" style="margin-top:8px;">
-
-              <button id="inquiryDownloadSampleXlsxBtn" class="secondary" type="button">엑셀 양식</button>
-
-              <button id="inquiryDownloadSampleTxtBtn" class="secondary" type="button">메모 양식</button>
-
-            </div>
-
-            <input type="file" id="inquirySampleFile" accept=".txt,.xlsx,.xls" style="margin-top:8px;" />
-
-            <button id="openInquiryStylePickBtn" class="fetch-samples" type="button">판매자센터에서 내 답글 고르기</button>
-
-            <button id="inquiryAnalyzeBtn" class="analyze" type="button">말투 만들기</button>
-
-          </div>
-
-        </details>
-
-      </div>
-
-    </details>
-
-
-
     <div class="danger-zone">
 
       <button id="clearBtn" class="secondary" type="button">저장된 작업 모두 지우기</button>
@@ -1096,6 +2097,8 @@
   </section>
 
 
+
+  <script src="lib/open-extension-tab.js"></script>
 
   <script src="lib/console-filter.js"></script>
 

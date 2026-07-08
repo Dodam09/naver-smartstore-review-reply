@@ -217,7 +217,7 @@ async function onAnalyzeSelected() {
   const settings = (await storageGet([CONFIG.SETTINGS_KEY]))[CONFIG.SETTINGS_KEY] || {};
   const apiKey = settings.apiKey || CONFIG.GEMINI_API_KEY || '';
   if (!(await hasAiCredentialsAsync(apiKey))) {
-    setBanner('AI 연결이 필요해요.\n[설정]에서 로그인하거나 API 키를 확인해 주세요.', 'warn');
+    setBanner('AI 연결이 필요해요.\n[계정]에서 로그인하거나 API 키를 확인해 주세요.', 'warn');
     return;
   }
 
@@ -238,6 +238,7 @@ async function onAnalyzeSelected() {
     });
 
     const sampleText = samples.join('\n\n---\n\n');
+    const analyzedFingerprint = samples.map((s) => s.slice(0, 120)).join('\n---\n');
     const existing = (await storageGet([CONFIG.SETTINGS_KEY]))[CONFIG.SETTINGS_KEY] || {};
     const flowPatch = {
       inquirySampleReplies: sampleText,
@@ -249,6 +250,7 @@ async function onAnalyzeSelected() {
         loadedCount: samples.length,
         analyzedAt: Date.now(),
         analyzedCount: response.sampleCount || samples.length,
+        analyzedFingerprint,
         fetching: false,
         analyzing: false,
         lastError: '',

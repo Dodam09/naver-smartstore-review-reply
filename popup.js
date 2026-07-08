@@ -66,8 +66,44 @@ const els = {
   inquirySummary: document.getElementById('inquirySummary'),
   reviewFlow1: document.getElementById('reviewFlow1'),
   reviewFlow2: document.getElementById('reviewFlow2'),
+  reviewModeWork: document.getElementById('reviewModeWork'),
+  reviewModeStyle: document.getElementById('reviewModeStyle'),
+  reviewActiveStyleBanner: document.getElementById('reviewActiveStyleBanner'),
+  reviewActiveStylePrompt: document.getElementById('reviewActiveStylePrompt'),
+  reviewActiveStyleChangeBtn: document.getElementById('reviewActiveStyleChangeBtn'),
+  reviewWorkPanel: document.getElementById('reviewWorkPanel'),
+  reviewStylePanel: document.getElementById('reviewStylePanel'),
+  reviewStyleModeList: document.getElementById('reviewStyleModeList'),
+  reviewLearnedPromptEditor: document.getElementById('reviewLearnedPromptEditor'),
+  reviewLearnedSystemPrompt: document.getElementById('reviewLearnedSystemPrompt'),
+  reviewLearnedSystemPromptPaste: document.getElementById('reviewLearnedSystemPromptPaste'),
+  reviewLearnedPromptEditorPaste: document.getElementById('reviewLearnedPromptEditorPaste'),
+  reviewLearnedPromptHostPick: document.getElementById('reviewLearnedPromptHostPick'),
+  reviewLearnedPromptHostPaste: document.getElementById('reviewLearnedPromptHostPaste'),
+  reviewStepFetch: document.getElementById('reviewStepFetch'),
+  reviewStepCompose: document.getElementById('reviewStepCompose'),
+  reviewGoComposeBtn: document.getElementById('reviewGoComposeBtn'),
+  reviewBackFetchBtn: document.getElementById('reviewBackFetchBtn'),
   inquiryFlow1: document.getElementById('inquiryFlow1'),
   inquiryFlow2: document.getElementById('inquiryFlow2'),
+  inquiryModeWork: document.getElementById('inquiryModeWork'),
+  inquiryModeStyle: document.getElementById('inquiryModeStyle'),
+  inquiryActiveStyleBanner: document.getElementById('inquiryActiveStyleBanner'),
+  inquiryActiveStylePrompt: document.getElementById('inquiryActiveStylePrompt'),
+  inquiryActiveStyleChangeBtn: document.getElementById('inquiryActiveStyleChangeBtn'),
+  inquiryWorkPanel: document.getElementById('inquiryWorkPanel'),
+  inquiryStylePanel: document.getElementById('inquiryStylePanel'),
+  inquiryStyleModeList: document.getElementById('inquiryStyleModeList'),
+  inquiryLearnedPromptEditor: document.getElementById('inquiryLearnedPromptEditor'),
+  inquiryLearnedSystemPrompt: document.getElementById('inquiryLearnedSystemPrompt'),
+  inquiryLearnedSystemPromptPaste: document.getElementById('inquiryLearnedSystemPromptPaste'),
+  inquiryLearnedPromptEditorPaste: document.getElementById('inquiryLearnedPromptEditorPaste'),
+  inquiryLearnedPromptHostPick: document.getElementById('inquiryLearnedPromptHostPick'),
+  inquiryLearnedPromptHostPaste: document.getElementById('inquiryLearnedPromptHostPaste'),
+  inquiryStepFetch: document.getElementById('inquiryStepFetch'),
+  inquiryStepCompose: document.getElementById('inquiryStepCompose'),
+  inquiryGoComposeBtn: document.getElementById('inquiryGoComposeBtn'),
+  inquiryBackFetchBtn: document.getElementById('inquiryBackFetchBtn'),
   accountCard: document.getElementById('accountCard'),
   accountLoggedOut: document.getElementById('accountLoggedOut'),
   accountLoggedIn: document.getElementById('accountLoggedIn'),
@@ -116,11 +152,16 @@ let accountAuthMode = 'login';
 let kakaoLoginEnabled = false;
 let registrationOpen = true;
 let authGateActive = false;
+let reviewPanelStep = 'fetch';
+let inquiryPanelStep = 'fetch';
+let reviewPanelMode = 'work';
+let inquiryPanelMode = 'work';
 
 init();
 
 async function init() {
   initTabs();
+  initWorkPanelSteps();
 
   reviewStyle = createStyleChannel({
     channelId: 'review',
@@ -133,6 +174,9 @@ async function init() {
       customPresets: 'customPresets',
       sampleReplies: 'sampleReplies',
       sampleFlow: 'sampleFlow',
+      activeStyleMode: 'styleActiveMode',
+      savedCustomPrompt: 'savedCustomPrompt',
+      savedPresetId: 'savedPresetId',
     },
     els: {
       tonePreset: els.tonePreset,
@@ -149,6 +193,13 @@ async function init() {
       downloadSampleTxtBtn: els.downloadSampleTxtBtn,
       openStylePickBtn: els.openStylePickBtn,
       analyzeBtn: els.analyzeBtn,
+      activeStyleBanner: els.reviewActiveStyleBanner,
+      activeStylePrompt: els.reviewActiveStylePrompt,
+      learnedPromptEditor: els.reviewLearnedPromptEditor,
+      learnedSystemPrompt: els.reviewLearnedSystemPrompt,
+      learnedSystemPromptPaste: els.reviewLearnedSystemPromptPaste,
+      learnedPromptEditorPaste: els.reviewLearnedPromptEditorPaste,
+      styleModeList: els.reviewStyleModeList,
     },
     getApiKey: () => els.apiKey.value.trim() || CONFIG.GEMINI_API_KEY || '',
     getModel: () => CONFIG.GEMINI_MODEL,
@@ -167,6 +218,9 @@ async function init() {
       customPresets: 'inquiryCustomPresets',
       sampleReplies: 'inquirySampleReplies',
       sampleFlow: 'inquirySampleFlow',
+      activeStyleMode: 'inquiryStyleActiveMode',
+      savedCustomPrompt: 'inquirySavedCustomPrompt',
+      savedPresetId: 'inquirySavedPresetId',
     },
     els: {
       tonePreset: els.inquiryTonePreset,
@@ -183,6 +237,13 @@ async function init() {
       downloadSampleTxtBtn: els.inquiryDownloadSampleTxtBtn,
       openStylePickBtn: els.openInquiryStylePickBtn,
       analyzeBtn: els.inquiryAnalyzeBtn,
+      activeStyleBanner: els.inquiryActiveStyleBanner,
+      activeStylePrompt: els.inquiryActiveStylePrompt,
+      learnedPromptEditor: els.inquiryLearnedPromptEditor,
+      learnedSystemPrompt: els.inquiryLearnedSystemPrompt,
+      learnedSystemPromptPaste: els.inquiryLearnedSystemPromptPaste,
+      learnedPromptEditorPaste: els.inquiryLearnedPromptEditorPaste,
+      styleModeList: els.inquiryStyleModeList,
     },
     getApiKey: () => els.apiKey.value.trim() || CONFIG.GEMINI_API_KEY || '',
     getModel: () => CONFIG.GEMINI_MODEL,
@@ -255,23 +316,138 @@ async function init() {
   refreshInquiryJobStatus();
   updateReviewFlowBar();
   updateInquiryFlowBar();
+  chrome.storage.local.get([CONFIG.DRAFT_KEY, INQUIRY_DRAFT_KEY], (data) => {
+    if (parsedRows.length || (data[CONFIG.DRAFT_KEY]?.items?.length || 0) > 0) {
+      setReviewPanelStep('compose');
+    } else {
+      setReviewPanelStep('fetch');
+    }
+    if (inquiryRows.length || (data[INQUIRY_DRAFT_KEY]?.items?.length || 0) > 0) {
+      setInquiryPanelStep('compose');
+    } else {
+      setInquiryPanelStep('fetch');
+    }
+  });
   await initAccountUi();
+}
+
+function initWorkPanelSteps() {
+  els.reviewModeWork?.addEventListener('click', () => setReviewPanelMode('work'));
+  els.reviewModeStyle?.addEventListener('click', () => setReviewPanelMode('style'));
+  els.reviewActiveStyleChangeBtn?.addEventListener('click', () => setReviewPanelMode('style'));
+  els.inquiryModeWork?.addEventListener('click', () => setInquiryPanelMode('work'));
+  els.inquiryModeStyle?.addEventListener('click', () => setInquiryPanelMode('style'));
+  els.inquiryActiveStyleChangeBtn?.addEventListener('click', () => setInquiryPanelMode('style'));
+
+  els.reviewFlow1?.addEventListener('click', () => setReviewPanelStep('fetch'));
+  els.reviewFlow2?.addEventListener('click', () => {
+    if (!parsedRows.length) return;
+    setReviewPanelStep('compose');
+  });
+  els.reviewGoComposeBtn?.addEventListener('click', () => setReviewPanelStep('compose'));
+  els.reviewBackFetchBtn?.addEventListener('click', () => setReviewPanelStep('fetch'));
+
+  els.inquiryFlow1?.addEventListener('click', () => setInquiryPanelStep('fetch'));
+  els.inquiryFlow2?.addEventListener('click', () => {
+    if (!canEnterInquiryCompose()) return;
+    setInquiryPanelStep('compose');
+  });
+  els.inquiryGoComposeBtn?.addEventListener('click', () => setInquiryPanelStep('compose'));
+  els.inquiryBackFetchBtn?.addEventListener('click', () => setInquiryPanelStep('fetch'));
+}
+
+function canEnterInquiryCompose() {
+  return inquiryRows.length > 0 || !els.inquirySelectBtn?.disabled;
+}
+
+function setReviewPanelMode(mode) {
+  reviewPanelMode = mode;
+  els.reviewModeWork?.classList.toggle('active', mode === 'work');
+  els.reviewModeStyle?.classList.toggle('active', mode === 'style');
+  els.reviewWorkPanel?.classList.toggle('active', mode === 'work');
+  els.reviewStylePanel?.classList.toggle('active', mode === 'style');
+  if (mode === 'style') {
+    reviewStyle?.updateSampleFlowUI();
+    setStatus('판매자센터 답글을 분석해 내 말투로 설정합니다.');
+  } else {
+    refreshReviewWorkStatus();
+  }
+}
+
+function setInquiryPanelMode(mode) {
+  inquiryPanelMode = mode;
+  els.inquiryModeWork?.classList.toggle('active', mode === 'work');
+  els.inquiryModeStyle?.classList.toggle('active', mode === 'style');
+  els.inquiryWorkPanel?.classList.toggle('active', mode === 'work');
+  els.inquiryStylePanel?.classList.toggle('active', mode === 'style');
+  if (mode === 'style') {
+    inquiryStyle?.updateSampleFlowUI();
+    setInquiryStatus('판매자센터 문의 답글을 분석해 내 말투로 설정합니다.');
+  } else {
+    refreshInquiryWorkStatus();
+  }
+}
+
+function refreshReviewWorkStatus() {
+  if (reviewPanelStep === 'compose') {
+    setStatus('답글 만들기를 시작하세요. 말투는 「답변 스타일 설정」에서 바꿀 수 있습니다.');
+    return;
+  }
+  if (parsedRows.length > 0) {
+    setStatus('가져오기 완료. 「다음」으로 답글 만들기로 이동하세요.');
+    return;
+  }
+  setStatus('리뷰를 가져온 다음 「다음」으로 이동하세요.');
+}
+
+function refreshInquiryWorkStatus() {
+  if (inquiryPanelStep === 'compose') {
+    setInquiryStatus('답글 만들기를 시작하세요. 말투는 「답변 스타일 설정」에서 바꿀 수 있습니다.');
+    return;
+  }
+  if (inquiryRows.length > 0) {
+    setInquiryStatus('가져오기 완료. 「다음」으로 답글 만들기로 이동하세요.');
+    return;
+  }
+  setInquiryStatus('문의를 가져온 다음 「다음」으로 이동하세요.');
+}
+
+function setReviewPanelStep(step) {
+  if (step === 'compose' && !parsedRows.length) return;
+  reviewPanelStep = step;
+  els.reviewStepFetch?.classList.toggle('active', step === 'fetch');
+  els.reviewStepCompose?.classList.toggle('active', step === 'compose');
+  updateReviewFlowBar();
+  if (reviewPanelMode === 'work') refreshReviewWorkStatus();
+}
+
+function setInquiryPanelStep(step) {
+  if (step === 'compose' && !canEnterInquiryCompose()) return;
+  inquiryPanelStep = step;
+  els.inquiryStepFetch?.classList.toggle('active', step === 'fetch');
+  els.inquiryStepCompose?.classList.toggle('active', step === 'compose');
+  updateInquiryFlowBar();
+  if (inquiryPanelMode === 'work') refreshInquiryWorkStatus();
 }
 
 function updateReviewFlowBar() {
   const hasData = parsedRows.length > 0;
-  els.reviewFlow1?.classList.toggle('done', hasData);
-  els.reviewFlow1?.classList.toggle('active', !hasData);
-  els.reviewFlow2?.classList.toggle('active', hasData);
-  els.reviewFlow2?.classList.toggle('done', false);
+  els.reviewFlow1?.classList.toggle('active', reviewPanelStep === 'fetch');
+  els.reviewFlow1?.classList.toggle('done', hasData && reviewPanelStep === 'compose');
+  els.reviewFlow2?.classList.toggle('active', reviewPanelStep === 'compose');
+  if (els.reviewFlow2) els.reviewFlow2.disabled = !hasData;
+  if (els.reviewGoComposeBtn) els.reviewGoComposeBtn.hidden = !(hasData && reviewPanelStep === 'fetch');
 }
 
 function updateInquiryFlowBar() {
-  const hasData = inquiryRows.length > 0;
-  els.inquiryFlow1?.classList.toggle('done', hasData);
-  els.inquiryFlow1?.classList.toggle('active', !hasData);
-  els.inquiryFlow2?.classList.toggle('active', hasData);
-  els.inquiryFlow2?.classList.toggle('done', false);
+  const hasData = canEnterInquiryCompose();
+  els.inquiryFlow1?.classList.toggle('active', inquiryPanelStep === 'fetch');
+  els.inquiryFlow1?.classList.toggle('done', hasData && inquiryPanelStep === 'compose');
+  els.inquiryFlow2?.classList.toggle('active', inquiryPanelStep === 'compose');
+  if (els.inquiryFlow2) els.inquiryFlow2.disabled = !canEnterInquiryCompose();
+  if (els.inquiryGoComposeBtn) {
+    els.inquiryGoComposeBtn.hidden = !(inquiryRows.length > 0 && inquiryPanelStep === 'fetch');
+  }
 }
 
 function initTabs() {
@@ -315,7 +491,7 @@ function openInquiryWorkPage() {
   chrome.storage.local.get([INQUIRY_DRAFT_KEY], (result) => {
     const hasDraft = (result[INQUIRY_DRAFT_KEY]?.items?.length || 0) > 0;
     const hash = hasDraft ? '#review' : '';
-    chrome.tabs.create({ url: chrome.runtime.getURL(`inquiry-select.html${hash}`) });
+    openOrFocusExtensionTab('inquiry-select.html', hash);
   });
 }
 
@@ -323,7 +499,7 @@ function openWorkPage() {
   chrome.storage.local.get([CONFIG.DRAFT_KEY], (result) => {
     const hasDraft = (result[CONFIG.DRAFT_KEY]?.items?.length || 0) > 0;
     const hash = hasDraft ? '#review' : '';
-    chrome.tabs.create({ url: chrome.runtime.getURL(`select.html${hash}`) });
+    openOrFocusExtensionTab('select.html', hash);
   });
 }
 
@@ -331,12 +507,12 @@ function updateWorkButton(draft) {
   const count = draft?.items?.length || 0;
   if (parsedRows.length) {
     els.selectBtn.textContent = count
-      ? `② 이어서 답글 만들기 (확인 ${count}건) →`
-      : `② 답글 만들기 시작 (${parsedRows.length}건) →`;
+      ? `이어서 답글 만들기 (확인 ${count}건) →`
+      : `답글 만들기 시작 (${parsedRows.length}건) →`;
   } else {
     els.selectBtn.textContent = count
-      ? `② 이어서 답글 만들기 (확인 ${count}건) →`
-      : '② 답글 만들기 시작 →';
+      ? `이어서 답글 만들기 (확인 ${count}건) →`
+      : '답글 만들기 시작 →';
   }
   updateReviewFlowBar();
 }
@@ -361,13 +537,15 @@ function restoreParseCache(cache) {
   if (cache.statusMessage) {
     setStatus(cache.statusMessage);
   }
+  setReviewPanelStep('compose');
 }
 
 function updateFileSummary() {
   if (!parsedRows.length) {
     els.fileSummary.classList.remove('visible');
     els.selectBtn.disabled = true;
-    els.selectBtn.textContent = '② 답글 만들기 시작 →';
+    els.selectBtn.textContent = '답글 만들기 시작 →';
+    setReviewPanelStep('fetch');
     updateReviewFlowBar();
     return;
   }
@@ -376,7 +554,7 @@ function updateFileSummary() {
   els.fileSummary.innerHTML = `
     <div><strong>${parsedRows.length}</strong>건 준비됨</div>
     <div>${parseMeta?.fileName || '판매자센터'}</div>
-    <div class="next-step">아래 「답글 만들기 시작」을 누르세요</div>
+    <div class="next-step">「다음」으로 답글 만들기 단계로 이동하세요</div>
   `;
   els.selectBtn.disabled = false;
   chrome.storage.local.get([CONFIG.DRAFT_KEY], (r) => updateWorkButton(r[CONFIG.DRAFT_KEY]));
@@ -623,9 +801,10 @@ async function applyImportedRows(result, sourceLabel) {
   const skipMsg = parseMeta.skippedReplied
     ? ` (답글완료 ${parseMeta.skippedReplied}건 제외)`
     : '';
-  const statusMessage = `${parsedRows.length}건 가져왔어요.\n아래 「답글 만들기 시작」을 누르세요.`;
+  const statusMessage = `${parsedRows.length}건 가져왔어요.\n「다음」으로 이동해 답글을 만들어 보세요.`;
   setStatus(statusMessage);
   updateFileSummary();
+  setReviewPanelStep('compose');
   highlightSelectButton();
   await saveParseCache(statusMessage);
   await saveSettings();
@@ -641,13 +820,15 @@ function restoreInquiryCache(cache) {
   if (cache.statusMessage) setInquiryStatus(cache.statusMessage);
   updateInquirySummary(Object.keys(cache.replies || {}).length);
   chrome.storage.local.get([INQUIRY_DRAFT_KEY], (r) => updateInquiryWorkButton(r[INQUIRY_DRAFT_KEY]));
+  if (inquiryRows.length) setInquiryPanelStep('compose');
 }
 
 function updateInquirySummary(replyCount = 0) {
   if (!inquiryRows.length) {
     els.inquirySummary.classList.remove('visible');
     els.inquirySelectBtn.disabled = true;
-    els.inquirySelectBtn.textContent = '② 답글 만들기 시작 →';
+    els.inquirySelectBtn.textContent = '답글 만들기 시작 →';
+    setInquiryPanelStep('fetch');
     updateInquiryFlowBar();
     return;
   }
@@ -657,7 +838,7 @@ function updateInquirySummary(replyCount = 0) {
   els.inquirySummary.innerHTML = `
     <div><strong>${inquiryRows.length}</strong>건 준비됨</div>
     ${replyHint}
-    <div class="next-step">아래 「답글 만들기 시작」을 누르세요</div>
+    <div class="next-step">「다음」으로 답글 만들기 단계로 이동하세요</div>
   `;
   els.inquirySelectBtn.disabled = false;
   chrome.storage.local.get([INQUIRY_DRAFT_KEY], (r) => updateInquiryWorkButton(r[INQUIRY_DRAFT_KEY]));
@@ -692,15 +873,16 @@ function updateInquiryWorkButton(draft) {
   const draftCount = draft?.items?.length || 0;
   if (inquiryRows.length) {
     els.inquirySelectBtn.textContent = draftCount
-      ? `② 이어서 답글 만들기 (확인 ${draftCount}건) →`
-      : `② 답글 만들기 시작 (${inquiryRows.length}건) →`;
+      ? `이어서 답글 만들기 (확인 ${draftCount}건) →`
+      : `답글 만들기 시작 (${inquiryRows.length}건) →`;
   } else {
     els.inquirySelectBtn.textContent = draftCount
-      ? `② 이어서 답글 만들기 (확인 ${draftCount}건) →`
-      : '② 답글 만들기 시작 →';
+      ? `이어서 답글 만들기 (확인 ${draftCount}건) →`
+      : '답글 만들기 시작 →';
   }
   els.inquirySelectBtn.disabled = !inquiryRows.length && !draftCount;
   updateInquiryFlowBar();
+  if (draftCount && !inquiryRows.length) setInquiryPanelStep('compose');
 }
 
 async function saveInquiryCache(statusMessage, replies, sourceLabel) {
@@ -738,9 +920,10 @@ async function onFetchInquiries() {
 
     inquiryRows = response.parsedRows || [];
     const sourceLabel = response.sourceLabel || `판매자센터 (${formatLookupDaysLabel(days)})`;
-    const statusMessage = `${inquiryRows.length}건 미답변 문의를 가져왔습니다.\n[문의 답글 작업 열기]를 눌러주세요.`;
+    const statusMessage = `${inquiryRows.length}건 미답변 문의를 가져왔습니다.\n「다음」으로 이동해 답글을 만들어 보세요.`;
     setInquiryStatus(statusMessage);
     updateInquirySummary();
+    setInquiryPanelStep('compose');
     await saveInquiryCache(statusMessage, {}, sourceLabel);
   } catch (err) {
     const msg = err.message || String(err);
@@ -849,9 +1032,10 @@ async function onFileSelected(event) {
     const skipMsg = result.skippedReplied
       ? ` (답글완료 ${result.skippedReplied}건 제외)`
       : '';
-    const statusMessage = `${parsedRows.length}건 파싱 완료${skipMsg}.\n아래 [리뷰 답글 작업 열기] 버튼을 눌러주세요.`;
+    const statusMessage = `${parsedRows.length}건 파싱 완료${skipMsg}.\n「다음」으로 이동해 답글을 만들어 보세요.`;
     setStatus(statusMessage);
     updateFileSummary();
+    setReviewPanelStep('compose');
     highlightSelectButton();
     await saveParseCache(statusMessage);
     await saveSettings();
@@ -1007,6 +1191,10 @@ async function onClearStorage() {
   refreshInquiryApplyHint();
   updateFileSummary();
   updateInquirySummary();
+  setReviewPanelStep('fetch');
+  setInquiryPanelStep('fetch');
+  setReviewPanelMode('work');
+  setInquiryPanelMode('work');
   setStatus('저장된 내용을 모두 지웠어요.\n다시 가져오기부터 시작하세요.');
   setInquiryStatus('저장된 내용을 모두 지웠어요.\n다시 가져오기부터 시작하세요.');
 }
@@ -1298,7 +1486,7 @@ async function onRegisterAccount() {
 
 async function onKakaoLogin() {
   if (els.kakaoLoginBtn) els.kakaoLoginBtn.disabled = true;
-  if (els.accountStatus) els.accountStatus.textContent = '카카오 로그인 창을 여는 중… (창이 닫히면 [설정]을 다시 확인하세요)';
+  if (els.accountStatus) els.accountStatus.textContent = '카카오 로그인 창을 여는 중… (창이 닫히면 [계정]을 다시 확인하세요)';
 
   try {
     await loginWithKakao();
