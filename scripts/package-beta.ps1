@@ -54,6 +54,8 @@ Copy-Item (Join-Path $root 'beta\INSTALL.txt') (Join-Path $outDir 'INSTALL.txt')
 
 Copy-Item (Join-Path $root 'beta\지인용-설치안내.txt') (Join-Path $outDir '지인용-설치안내.txt') -Force
 
+Copy-Item (Join-Path $root 'beta\사용설명서.txt') (Join-Path $outDir '사용설명서.txt') -Force
+
 
 
 Compress-Archive -Path (Join-Path $outDir '*') -DestinationPath $zipPath -Force

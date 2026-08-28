@@ -1,32 +1,59 @@
-스마트스토어 답글 도우미 — 베타 설치 방법
-========================================
+스마트스토어 답글 도우미 — 베타 설치 (v1.3.20)
+============================================
 
-1) ZIP 받기
-   GitHub → Code → Download ZIP
-   또는 beta/package-beta.ps1 로 만든 zip 사용
+■ 배포 파일 두 가지
 
-2) 압축 풀기
-   폴더 이름 예: naver-smartstore-review-reply-master
+  A) naver-smartstore-reply-beta.zip  (배포자가 만든 베타 ZIP)
+     → 압축만 풀면 됩니다. config.js 가 이미 들어 있습니다.
 
-3) config.js 준비
-   beta/config.js 를 프로젝트 루트( manifest.json 있는 곳 )에
-   config.js 이름으로 복사
+  B) GitHub 소스 ZIP
+     → 압축 풴 뒤 3단계 config.js 복사가 필요합니다.
 
-4) 크롬 확장 설치
-   - 주소창: chrome://extensions
-   - 「개발자 모드」 켜기
-   - 「압축해제된 확장 프로그램을 로드합니다」
-   - 위 폴더 선택
 
-5) 사용 시작
-   - 퍼즐 아이콘 → 「스마트스토어 답글 도우미」 고정
-   - 확장 열기 → **카카오로 로그인** (처음 화면)
-     또는 이메일 로그인
-   - 가입 후 상태: 「구독 전」(베이직 아님)
-   - [구독하기] → 원하는 플랜 → 「테스트 결제」 (베타)
-   - 결제 후에만 답글·말투 분석 이용 가능
-   - [리뷰] / [상품문의] 탭에서 판매자센터 데이터 가져와 답글 만들기
+■ A) 베타 ZIP 설치 (지인 배포용)
 
-※ 「개발자 확장 프로그램」 경고는 베타라서 나옵니다. [확장 프로그램 관리]에서 허용해 주세요.
+  1) naver-smartstore-reply-beta.zip 압축 해제
+  2) chrome://extensions → 개발자 모드 ON
+  3) 「압축해제된 확장 프로그램을 로드합니다」
+  4) 압축 푼 폴더(naver-smartstore-reply-beta) 선택
+  5) beta/지인용-설치안내.txt 또는 beta/사용설명서.txt 참고
 
-문의: GitHub Issues 또는 배포자에게 연락
+
+■ B) GitHub 소스 설치 (개발자용)
+
+  1) GitHub → Code → Download ZIP
+  2) 압축 해제
+  3) beta/config.js 를 프로젝트 루트에 config.js 로 복사
+     (manifest.json 과 같은 폴더)
+  4) chrome://extensions → 개발자 모드 → 폴더 로드
+
+  또는 PowerShell:
+    scripts/package-beta.ps1
+  → beta/dist/naver-smartstore-reply-beta.zip 생성 (A와 동일)
+
+
+■ 베타 ZIP 다시 만들기 (배포자)
+
+  PowerShell에서 프로젝트 루트:
+    .\scripts\package-beta.ps1
+
+  결과:
+    beta/dist/naver-smartstore-reply-beta.zip
+    beta/dist/naver-smartstore-reply-beta/   (폴더)
+
+
+■ 첫 실행
+
+  1) 확장 아이콘 고정
+  2) [계정] 탭 → 카카오 또는 이메일 로그인
+  3) [구독하기] → 테스트 결제 (실제 카드 결제 없음)
+  4) [리뷰] 또는 [상품문의] 탭 사용
+
+  ※ API 키 입력은 베타에서 필요 없습니다 (서버 연동).
+
+
+■ 참고
+
+  · 「개발자 확장 프로그램」 경고 → [확장 프로그램 관리] → [유지]
+  · 상세 사용법: beta/사용설명서.txt
+  · 문의: GitHub Issues 또는 배포자

@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>개인정보 처리방침</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f6f7fb;
+      color: #222;
+      line-height: 1.75;
+      font-size: 14px;
+    }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 32px 16px 48px; }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    .sub { color: #666; margin-bottom: 24px; }
+    .meta { color: #888; font-size: 13px; margin-bottom: 24px; }
+    section {
+      background: #fff;
+      border: 1px solid #e5e7ef;
+      border-radius: 12px;
+      padding: 18px;
+      margin-bottom: 14px;
+    }
+    h2 { margin: 0 0 10px; font-size: 16px; }
+    ul, ol { margin: 0; padding-left: 20px; }
+    a { color: #2563eb; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid #e5e7ef;
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #f8fafc; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>개인정보 처리방침</h1>
+    <p class="sub">스마트스토어 답글 도우미 (Chrome 확장 프로그램 및 연동 서비스)</p>
+    <p class="meta">시행일: 2026년 8월 28일</p>
+
+    <section>
+      <h2>1. 개요</h2>
+      <p>
+        본 방침은 「스마트스토어 답글 도우미」(이하 「서비스」)가 이용자의 개인정보를
+        어떻게 수집·이용·보관·파기하는지 설명합니다. 서비스는 네이버 스마트스토어
+        판매자가 본인 스토어의 리뷰·상품문의 답글 작성을 돕기 위해 제공됩니다.
+      </p>
+    </section>
+
+    <section>
+      <h2>2. 수집하는 정보</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>구분</th>
+            <th>항목</th>
+            <th>수집 경로</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>계정</td>
+            <td>이메일, 비밀번호(해시 저장), 카카오 로그인 식별값</td>
+            <td>회원가입·로그인</td>
+          </tr>
+          <tr>
+            <td>구독·결제</td>
+            <td>플랜, 구독 상태, 결제·환불 내역, 빌링키(토스페이먼츠 보관)</td>
+            <td>구독·결제 과정</td>
+          </tr>
+          <tr>
+            <td>서비스 이용</td>
+            <td>리뷰·상품문의 내용, 상품명, 답글 초안, 말투(프롬프트) 설정, 사용량(답글·말투 분석 횟수)</td>
+            <td>확장 프로그램 사용</td>
+          </tr>
+          <tr>
+            <td>기술 정보</td>
+            <td>접속 IP, 요청 시간, 오류 로그(최소한)</td>
+            <td>서버 접속 시</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="margin: 12px 0 0;">
+        확장 프로그램은 판매자센터(<code>sell.smartstore.naver.com</code>)에서
+        <strong>판매자 본인이 조회·작성하는 데이터</strong>만 처리합니다.
+        구매자의 결제수단·주민등록번호 등은 수집하지 않습니다.
+      </p>
+    </section>
+
+    <section>
+      <h2>3. 이용 목적</h2>
+      <ul>
+        <li>회원 식별, 로그인, 구독·요금제 관리</li>
+        <li>AI 답글·말투 분석 생성 및 사용 한도 관리</li>
+        <li>판매자센터 답글 입력·등록 보조</li>
+        <li>결제·환불·고객 문의 처리</li>
+        <li>서비스 안정성·보안 유지</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>4. AI 처리 및 제3자 제공</h2>
+      <ul>
+        <li>
+          답글 생성·말투 분석을 위해 리뷰·문의·답글 샘플 텍스트가
+          <strong>Google Gemini API</strong>로 전송될 수 있습니다.
+          (모델: gemini-2.5-flash 등, 서버를 통해 호출)
+        </li>
+        <li>
+          로그인: <strong>카카오</strong> OAuth (카카오 로그인 선택 시)
+        </li>
+        <li>
+          결제: <strong>토스페이먼츠</strong> (카드 정보는 당사 서버에 저장하지 않음)
+        </li>
+        <li>
+          호스팅: <strong>Railway</strong> (회원·구독 DB 및 API 서버)
+        </li>
+      </ul>
+      <p style="margin: 12px 0 0;">
+        위 목적 외 제3자에게 개인정보를 판매하거나 제공하지 않습니다.
+        법령에 따른 요청이 있는 경우는 예외입니다.
+      </p>
+    </section>
+
+    <section>
+      <h2>5. Chrome 확장 프로그램 권한</h2>
+      <ul>
+        <li><strong>storage</strong>: 로그인 세션, 작업 중인 답글·설정 저장</li>
+        <li><strong>tabs / scripting</strong>: 답글 작업 탭 열기·포커스, 판매자센터 페이지 연동</li>
+        <li><strong>sell.smartstore.naver.com</strong>: 리뷰·문의 가져오기 및 답글 입력 보조</li>
+        <li><strong>page-hook.js</strong>: 판매자센터에서 본인 스토어 API URL을 찾기 위해 페이지 내 네트워크 요청을 후킹합니다. 타 사이트·타인 데이터는 접근하지 않습니다.</li>
+        <li><strong>API 서버</strong>: 로그인·AI·구독 처리 (Railway)</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>6. 보관 기간</h2>
+      <ul>
+        <li>회원·구독 정보: 회원 탈퇴 또는 구독 종료 후 관리자 정책에 따라 삭제 (지체 없이 처리 원칙)</li>
+        <li>확장 프로그램 로컬 저장: 이용자 기기에서 [저장된 작업 모두 지우기] 또는 확장 삭제 시 삭제</li>
+        <li>결제 기록: 전자상거래·세법 등 관련 법령에 따른 기간</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>7. 이용자 권리</h2>
+      <ul>
+        <li>확장 [계정] 탭에서 로그인·구독 취소·작업 데이터 삭제 가능</li>
+        <li>회원 정보 열람·정정·삭제 요청: 아래 문의처로 연락</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>8. 안전 조치</h2>
+      <ul>
+        <li>비밀번호 해시 저장, HTTPS 통신</li>
+        <li>API 인증 토큰 사용, 관리자 페이지 별도 보호</li>
+        <li>Gemini API 키는 서버에만 보관 (확장에 포함하지 않음)</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>9. 만 14세 미만</h2>
+      <p>서비스는 스마트스토어 판매자(사업자·성인)를 대상으로 하며, 만 14세 미만 아동을 대상으로 하지 않습니다.</p>
+    </section>
+
+    <section>
+      <h2>10. 방침 변경</h2>
+      <p>내용 변경 시 본 페이지에 게시하며, 중요한 변경은 서비스 내 안내할 수 있습니다.</p>
+    </section>
+
+    <section>
+      <h2>11. 문의</h2>
+      <p>
+        개인정보 관련 문의·열람·삭제 요청:<br />
+        확장 프로그램 [계정] → 구독·결제 페이지(<a href="/billing.html">/billing.html</a>)를 통해 문의하거나,
+        서비스 운영자에게 이메일로 연락해 주세요.
+      </p>
+      <p style="margin-top: 8px;">
+        관련 안내: <a href="/billing-terms.html">구독·결제 안내</a>
+      </p>
+    </section>
+  </div>
+</body>
+</html>
