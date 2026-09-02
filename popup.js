@@ -97,6 +97,7 @@ const els = {
   inquiryStylePanel: document.getElementById('inquiryStylePanel'),
   inquiryTestPanel: document.getElementById('inquiryTestPanel'),
   inquiryTestProduct: document.getElementById('inquiryTestProduct'),
+  inquiryTestProductName: document.getElementById('inquiryTestProductName'),
   inquiryTestProductHint: document.getElementById('inquiryTestProductHint'),
   inquiryTestQuestion: document.getElementById('inquiryTestQuestion'),
   inquiryTestResult: document.getElementById('inquiryTestResult'),
@@ -356,7 +357,8 @@ function initWorkPanelSteps() {
   els.inquiryModeStyle?.addEventListener('click', () => setInquiryPanelMode('style'));
   els.inquiryModeTest?.addEventListener('click', () => setInquiryPanelMode('test'));
   els.inquiryTestBtn?.addEventListener('click', onInquiryTestGenerate);
-  els.inquiryTestProduct?.addEventListener('change', scheduleSaveInquiryTestDraft);
+  els.inquiryTestProduct?.addEventListener('change', onInquiryTestProductChange);
+  els.inquiryTestProductName?.addEventListener('input', scheduleSaveInquiryTestDraft);
   els.inquiryTestQuestion?.addEventListener('input', scheduleSaveInquiryTestDraft);
   els.inquiryTestResult?.addEventListener('input', scheduleSaveInquiryTestDraft);
   els.inquiryActiveStyleChangeBtn?.addEventListener('click', () => setInquiryPanelMode('style'));
@@ -437,13 +439,13 @@ function flushInquiryTestDraft() {
 }
 
 async function saveInquiryTestDraft(extra = {}) {
-  if (!els.inquiryTestQuestion && !els.inquiryTestProduct) return;
+  if (!els.inquiryTestQuestion && !els.inquiryTestProduct && !els.inquiryTestProductName) return;
   const selected = getSelectedInquiryTestProduct();
   const existing = (await storageGet([INQUIRY_TEST_DRAFT_KEY]))[INQUIRY_TEST_DRAFT_KEY] || {};
   await storageSet({
     [INQUIRY_TEST_DRAFT_KEY]: {
       ...existing,
-      productName: selected?.name || existing.productName || '',
+      productName: selected?.name || String(els.inquiryTestProductName?.value || '').trim() || existing.productName || '',
       productNo: selected?.productNo || existing.productNo || '',
       question: String(els.inquiryTestQuestion?.value || ''),
       result: String(els.inquiryTestResult?.value || ''),
@@ -489,9 +491,15 @@ async function restoreInquiryTestDraft() {
   }
 
   applyInquiryTestProductSelection(draft.productName, draft.productNo);
+  if (els.inquiryTestProductName && draft.productName) {
+    els.inquiryTestProductName.value = String(draft.productName);
+  }
 }
 
 function applyInquiryTestProductSelection(productName, productNo = '') {
+  if (els.inquiryTestProductName && productName) {
+    els.inquiryTestProductName.value = String(productName).trim();
+  }
   if (!els.inquiryTestProduct || !inquiryTestProducts.length) return;
   const name = String(productName || '').trim().toLowerCase();
   const no = String(productNo || '').replace(/[^\d]/g, '');
@@ -504,6 +512,14 @@ function applyInquiryTestProductSelection(productName, productNo = '') {
     index = inquiryTestProducts.findIndex((item) => item.name.toLowerCase() === name);
   }
   if (index >= 0) els.inquiryTestProduct.value = String(index);
+}
+
+function onInquiryTestProductChange() {
+  const selected = getSelectedInquiryTestProductFromSelect();
+  if (selected?.name && els.inquiryTestProductName) {
+    els.inquiryTestProductName.value = selected.name;
+  }
+  scheduleSaveInquiryTestDraft();
 }
 
 async function refreshInquiryTestProductOptions() {
@@ -526,6 +542,7 @@ async function refreshInquiryTestProductOptions() {
   for (const row of inquiryRows) addProduct(row.product, row.productNo);
   for (const row of parsedRows) addProduct(row.product, row.productNo);
 
+  let savedDraft = null;
   try {
     const data = await storageGet([
       CONFIG.PARSE_CACHE_KEY,
@@ -535,67 +552,38 @@ async function refreshInquiryTestProductOptions() {
       INQUIRY_REFERENCE_CACHE_KEY,
       INQUIRY_TEST_DRAFT_KEY,
     ]);
-    const savedDraft = data[INQUIRY_TEST_DRAFT_KEY] || null;
+    savedDraft = data[INQUIRY_TEST_DRAFT_KEY] || null;
     const reviewCache = data[CONFIG.PARSE_CACHE_KEY];
     const inquiryCache = data[INQUIRY_PARSE_CACHE_KEY];
     const refCache = data[INQUIRY_REFERENCE_CACHE_KEY];
 
-    for (const row of reviewCache?.parsedRows || []) addProduct(row.product, row.productNo);
-    for (const row of inquiryCache?.inquiryRows || []) addProduct(row.product, row.productNo);
-    for (const item of data[INQUIRY_DRAFT_KEY]?.items || []) addProduct(item.product, item.productNo);
-    for (const item of data[CONFIG.DRAFT_KEY]?.items || []) addProduct(item.product, item.productNo);
-    for (const item of refCache?.catalog || []) addProduct(item.product, item.productNo);
-
-    inquiryTestProducts = [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
-
-    if (!inquiryTestProducts.length) {
-      els.inquiryTestProduct.innerHTML =
-        '<option value="">상품 목록이 없습니다</option>';
-      els.inquiryTestProduct.disabled = true;
-      if (els.inquiryTestProductHint) {
-        els.inquiryTestProductHint.textContent =
-          '상품문의 또는 리뷰를 먼저 가져오면 상품을 선택할 수 있습니다.';
-      }
-      return;
-    }
-
-    els.inquiryTestProduct.disabled = false;
-    els.inquiryTestProduct.innerHTML =
-      '<option value="">상품을 선택하세요</option>' +
-      inquiryTestProducts
-        .map(
-          (item, index) =>
-            `<option value="${index}">${escapeHtml(item.name)}${
-              item.productNo ? ` (#${escapeHtml(item.productNo)})` : ''
-            }</option>`
-        )
-        .join('');
-
-    applyInquiryTestProductSelection(savedDraft?.productName, savedDraft?.productNo);
-
-    if (els.inquiryTestProductHint) {
-      els.inquiryTestProductHint.textContent = `등록된 상품 ${inquiryTestProducts.length}개 · 문의/리뷰에서 모은 목록입니다.`;
-    }
-    return;
+    for (const row of reviewCache?.parsedRows || []) addProduct(row.product || row.productName, row.productNo);
+    for (const row of inquiryCache?.inquiryRows || []) addProduct(row.product || row.productName, row.productNo);
+    for (const item of data[INQUIRY_DRAFT_KEY]?.items || []) addProduct(item.product || item.productName, item.productNo);
+    for (const item of data[CONFIG.DRAFT_KEY]?.items || []) addProduct(item.product || item.productName, item.productNo);
+    for (const item of refCache?.catalog || []) addProduct(item.product || item.productName, item.productNo);
   } catch (_) {}
 
+  const typedName = String(els.inquiryTestProductName?.value || '').trim();
+  if (typedName) addProduct(typedName, '');
+  if (savedDraft?.productName) addProduct(savedDraft.productName, savedDraft.productNo);
+
   inquiryTestProducts = [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
-  const prev = els.inquiryTestProduct.value;
 
   if (!inquiryTestProducts.length) {
     els.inquiryTestProduct.innerHTML =
-      '<option value="">상품 목록이 없습니다</option>';
-    els.inquiryTestProduct.disabled = true;
+      '<option value="">직접 입력 또는 아래 목록에서 선택</option>';
+    els.inquiryTestProduct.disabled = false;
     if (els.inquiryTestProductHint) {
       els.inquiryTestProductHint.textContent =
-        '상품문의 또는 리뷰를 먼저 가져오면 상품을 선택할 수 있습니다.';
+        '아직 목록이 비어 있습니다. 상품명을 직접 입력하거나, 문의/리뷰를 먼저 가져오세요.';
     }
     return;
   }
 
   els.inquiryTestProduct.disabled = false;
   els.inquiryTestProduct.innerHTML =
-    '<option value="">상품을 선택하세요</option>' +
+    '<option value="">직접 입력 또는 아래 목록에서 선택</option>' +
     inquiryTestProducts
       .map(
         (item, index) =>
@@ -605,20 +593,34 @@ async function refreshInquiryTestProductOptions() {
       )
       .join('');
 
-  if (prev && Number(prev) < inquiryTestProducts.length) {
-    els.inquiryTestProduct.value = prev;
-  }
+  applyInquiryTestProductSelection(
+    typedName || savedDraft?.productName,
+    savedDraft?.productNo
+  );
+
   if (els.inquiryTestProductHint) {
-    els.inquiryTestProductHint.textContent = `등록된 상품 ${inquiryTestProducts.length}개 · 문의/리뷰에서 모은 목록입니다.`;
+    els.inquiryTestProductHint.textContent = `등록된 상품 ${inquiryTestProducts.length}개 · 문의/리뷰에서 모은 목록입니다. 직접 입력도 가능합니다.`;
   }
 }
 
-function getSelectedInquiryTestProduct() {
+function getSelectedInquiryTestProductFromSelect() {
   const index = Number(els.inquiryTestProduct?.value);
   if (!Number.isInteger(index) || index < 0 || index >= inquiryTestProducts.length) {
     return null;
   }
   return inquiryTestProducts[index];
+}
+
+function getSelectedInquiryTestProduct() {
+  const typed = String(els.inquiryTestProductName?.value || '').trim();
+  if (typed) {
+    const fromList = inquiryTestProducts.find((item) => item.name.toLowerCase() === typed.toLowerCase());
+    return {
+      name: typed,
+      productNo: fromList?.productNo || '',
+    };
+  }
+  return getSelectedInquiryTestProductFromSelect();
 }
 
 async function refreshInquiryTestUsageHint() {
@@ -1536,6 +1538,7 @@ async function onClearStorage() {
     INQUIRY_TEST_DRAFT_KEY,
   ]);
   if (els.inquiryTestQuestion) els.inquiryTestQuestion.value = '';
+  if (els.inquiryTestProductName) els.inquiryTestProductName.value = '';
   if (els.inquiryTestResult) els.inquiryTestResult.value = '';
   if (els.inquiryTestStatus) {
     els.inquiryTestStatus.textContent = '';
@@ -1608,7 +1611,15 @@ async function syncAccountUi(options = {}) {
   }
   try {
     await refreshAccountUsage(options);
-  } catch (_) {
+  } catch (err) {
+    if (err?.code === 'AUTH_EXPIRED' || !(await loadAuthSession())?.token) {
+      await renderAccountUi();
+      if (els.accountStatus) {
+        els.accountStatus.textContent =
+          '서버 세션이 만료되었습니다. 다시 로그인해 주세요. (재배포 후 흔히 발생합니다)';
+      }
+      return;
+    }
     // 네트워크 오류 시 캐시된 세션으로 표시
   }
   await renderAccountUi();
@@ -1650,7 +1661,7 @@ async function initAccountUi() {
     els.accountTabRegister.hidden = !registrationOpen;
   }
   setAccountAuthMode('login');
-  await syncAccountUi();
+  await syncAccountUi({ force: true });
 }
 
 function setAccountAuthMode(mode) {
@@ -1878,7 +1889,12 @@ async function onLoginAccount() {
     await renderAccountUi();
     switchTab('work');
   } catch (err) {
-    if (els.accountStatus) els.accountStatus.textContent = err.message || '로그인에 실패했습니다.';
+    if (els.accountStatus) {
+      const msg = err.message || '로그인에 실패했습니다.';
+      els.accountStatus.textContent = /비밀번호|찾을 수 없|올바르지|존재하지/.test(msg)
+        ? `${msg} (서버 재배포 후에는 [가입하기]로 새 계정을 만들거나 카카오로 다시 로그인해 주세요.)`
+        : msg;
+    }
   } finally {
     if (els.loginBtn) els.loginBtn.disabled = false;
   }
