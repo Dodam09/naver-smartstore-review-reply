@@ -15,10 +15,7 @@
   },
   "host_permissions": [
     "https://sell.smartstore.naver.com/*",
-    "http://127.0.0.1:8787/*",
-    "http://localhost:8787/*",
-    "https://*.up.railway.app/*",
-    "https://generativelanguage.googleapis.com/*"
+    "https://naver-smartstore-review-reply-production.up.railway.app/*"
   ],
   "action": {
     "default_popup": "popup.html",

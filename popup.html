@@ -439,6 +439,10 @@
 
     }
 
+    input[type="email"],
+
+    input[type="text"],
+
     input[type="file"],
 
     input[type="password"],
@@ -448,6 +452,8 @@
     textarea {
 
       width: 100%;
+
+      box-sizing: border-box;
 
       padding: var(--space-2);
 
@@ -515,12 +521,30 @@
 
     .account-auth-tab.active {
 
-      background: #e8f5ee;
+      background: var(--accent-soft);
 
-      border-color: #03c75a;
+      border-color: var(--accent);
 
-      color: #037a3a;
+      color: var(--accent-text);
 
+    }
+
+    #accountLoggedOut label {
+      display: block;
+      margin-top: var(--space-2);
+      margin-bottom: var(--space-1);
+      font-size: var(--font-body);
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    #accountLoggedOut label:first-of-type {
+      margin-top: 0;
+    }
+
+    #accountLoggedOut input[type="email"],
+    #accountLoggedOut input[type="password"] {
+      margin-bottom: var(--space-1);
     }
 
     .account-divider {
@@ -902,6 +926,8 @@
 
     .style-mode-body textarea:focus,
     .style-mode-body select:focus,
+    input[type="email"]:focus,
+    input[type="text"]:focus,
     input[type="file"]:focus,
     input[type="password"]:focus,
     select:focus,
@@ -1710,6 +1736,8 @@
 
       <button type="button" class="mode-btn style-tab" id="inquiryModeStyle">답변 스타일 설정</button>
 
+      <button type="button" class="mode-btn" id="inquiryModeTest">답글 테스트</button>
+
     </div>
 
 
@@ -1980,6 +2008,42 @@
 
 
 
+    <div id="inquiryTestPanel" class="mode-panel">
+
+      <div class="card">
+
+        <div class="card-title">답글 테스트</div>
+
+        <div class="card-desc">샘플 문의로 답글을 미리 확인합니다. <strong>성공 시 답글 1건</strong>이 사용량에서 차감됩니다.</div>
+
+        <label for="inquiryTestProduct">상품 선택</label>
+
+        <select id="inquiryTestProduct">
+          <option value="">먼저 문의/리뷰를 가져와 주세요</option>
+        </select>
+
+        <div class="hint" id="inquiryTestProductHint">상품문의·리뷰 가져오기 후 목록이 채워집니다.</div>
+
+        <label for="inquiryTestQuestion">테스트 문의</label>
+
+        <textarea id="inquiryTestQuestion" rows="4" placeholder="예: 포스트바이오틱스가 어떤 균인지 알려주세요."></textarea>
+
+        <div class="hint" id="inquiryTestUsageHint">사용량: 확인 중…</div>
+
+        <button id="inquiryTestBtn" class="fetch" type="button">테스트 답글 만들기 (1건)</button>
+
+        <label for="inquiryTestResult" style="margin-top:12px;">결과</label>
+
+        <textarea id="inquiryTestResult" rows="6" placeholder="여기에 테스트 답글이 표시됩니다." readonly></textarea>
+
+        <div class="hint" id="inquiryTestStatus"></div>
+
+      </div>
+
+    </div>
+
+
+
     <div id="inquiryStatus">문의를 가져온 다음 「다음」으로 이동하세요.</div>
 
   </section>
@@ -2105,6 +2169,8 @@
   <script src="config.js"></script>
 
   <script src="lib/ai-proxy.js"></script>
+
+  <script src="lib/inquiry-search.js"></script>
 
   <script src="lib/lookup-days.js"></script>
 

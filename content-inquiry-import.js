@@ -2,7 +2,7 @@
  * 판매자센터 상품문의 목록 API (GET /api/v3/contents/comments/pages)
  */
 (function () {
-  const INQUIRY_IMPORT_VERSION = 2;
+  const INQUIRY_IMPORT_VERSION = 3;
   if (globalThis.__ssInquiryImportVersion !== INQUIRY_IMPORT_VERSION) {
     globalThis.__ssInquiryImportVersion = INQUIRY_IMPORT_VERSION;
     globalThis.__ssInquiryImportListener = false;
@@ -129,6 +129,7 @@
           id,
           content,
           product: item.productName || item.contentsName || '',
+          productNo: pickInquiryProductNo(item),
           writer: item.maskedWriterId || item.writerIdNo || '',
           secret: !!item.secret,
           regDate: item.regDate || '',
@@ -207,6 +208,7 @@
           reply: inlineAnswer || '',
           hasAnswer: !!inlineAnswer,
           product: item.productName || item.contentsName || '',
+          productNo: pickInquiryProductNo(item),
           writer: item.maskedWriterId || item.writerIdNo || '',
           regDate: item.regDate || '',
         });
@@ -330,6 +332,18 @@
     if (item.sellerAnswer === false || item.sellerAnswer === 'false') return true;
     if (item.sellerAnswer === true || item.sellerAnswer === 'true') return false;
     return !item.sellerAnswerDate;
+  }
+
+  function pickInquiryProductNo(item) {
+    const raw =
+      item?.productNo ||
+      item?.channelProductNo ||
+      item?.productId ||
+      item?.product?.productNo ||
+      item?.product?.id ||
+      item?.contentsId ||
+      '';
+    return String(raw).replace(/[^\d]/g, '');
   }
 
   function buildListUrl(baseUrl, options) {

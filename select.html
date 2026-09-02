@@ -176,6 +176,35 @@
       opacity: .5;
       cursor: not-allowed;
     }
+    button.primary:disabled {
+      background: #94a3b8;
+      color: #fff;
+      opacity: 1;
+    }
+    .usage-notice {
+      width: 100%;
+      margin-bottom: 10px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .usage-notice.hidden { display: none; }
+    .usage-notice.ok {
+      background: #f0f9ff;
+      border: 1px solid #b3d9f2;
+      color: #0c4a6e;
+    }
+    .usage-notice.warn {
+      background: #fff4e5;
+      border: 1px solid #f0d9a8;
+      color: #9a6700;
+    }
+    .usage-notice.error {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #b91c1c;
+    }
     .banner {
       max-width: 1100px;
       margin: 16px auto 0;
@@ -485,6 +514,7 @@
 
   <footer class="footer-bar">
     <div class="footer-inner">
+      <div class="usage-notice hidden" id="usageNotice"></div>
       <div class="gen-progress hidden" id="genProgress">
         <div class="gen-progress-top">
           <span id="genStatusText">답글 만드는 중</span>

@@ -1,4 +1,4 @@
-importScripts('config.js', 'lib/lookup-days.js', 'lib/tone-presets.js', 'lib/inquiry-reference.js', 'lib/ai-proxy.js');
+importScripts('config.js', 'lib/lookup-days.js', 'lib/tone-presets.js', 'lib/inquiry-reference.js', 'lib/inquiry-search.js', 'lib/ai-proxy.js');
 
 let isRunning = false;
 let isInquiryRunning = false;
@@ -6,6 +6,38 @@ let stopRequested = false;
 let inquiryStopRequested = false;
 let abortController = null;
 let inquiryAbortController = null;
+
+async function notifyUsageLimit(message) {
+  const summary = String(message || '이번 달 답글 생성 한도에 도달했습니다.')
+    .split('\n')[0]
+    .slice(0, 240);
+  try {
+    await chrome.notifications.create(`usage-limit-${Date.now()}`, {
+      type: 'basic',
+      iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
+      title: '답글 생성 한도 도달',
+      message: summary,
+      priority: 2,
+    });
+  } catch (err) {
+    console.warn('한도 알림 표시 실패:', err);
+  }
+}
+
+async function notifyManualInquiryNeeded(count) {
+  if (!count) return;
+  try {
+    await chrome.notifications.create(`manual-inquiry-${Date.now()}`, {
+      type: 'basic',
+      iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
+      title: '직접 작성할 문의가 있어요',
+      message: `배송·재고 등 ${count}건은 비슷한 과거 답변이 없어 검토 탭에서 직접 작성해 주세요.`,
+      priority: 2,
+    });
+  } catch (err) {
+    console.warn('직접 작성 알림 표시 실패:', err);
+  }
+}
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'KAKAO_LOGIN') {
@@ -34,23 +66,31 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return false;
     }
 
-    isRunning = true;
-    stopRequested = false;
-    abortController = new AbortController();
+    (async () => {
+      try {
+        const check = await ensureReplyGenerationAllowed(rows.length);
+        if (!check.ok) {
+          sendResponse({ ok: false, error: check.message });
+          return;
+        }
 
-    patchJobProgress(CONFIG.PROGRESS_KEY, {
-      status: 'running',
-      total: rows.length,
-      current: 0,
-      success: 0,
-      failed: 0,
-      currentId: '',
-      message: '답변 생성 준비 중...',
-      startedAt: Date.now(),
-      finishedAt: null,
-      lastError: '',
-    })
-      .then(() => {
+        isRunning = true;
+        stopRequested = false;
+        abortController = new AbortController();
+
+        await patchJobProgress(CONFIG.PROGRESS_KEY, {
+          status: 'running',
+          total: rows.length,
+          current: 0,
+          success: 0,
+          failed: 0,
+          currentId: '',
+          message: '답변 생성 준비 중...',
+          startedAt: Date.now(),
+          finishedAt: null,
+          lastError: '',
+        });
+
         runGenerate(message.payload)
           .catch(async (err) => {
             if (stopRequested || err?.name === 'AbortError') return;
@@ -68,12 +108,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           });
 
         sendResponse({ ok: true, started: true });
-      })
-      .catch((err) => {
+      } catch (err) {
         isRunning = false;
         abortController = null;
         sendResponse({ ok: false, error: err.message || '시작 실패' });
-      });
+      }
+    })();
 
     return true;
   }
@@ -111,28 +151,39 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
 
     const progressKey = CONFIG.INQUIRY_PROGRESS_KEY || 'smartstoreInquiryJobProgress';
-    isInquiryRunning = true;
-    inquiryStopRequested = false;
-    inquiryAbortController = new AbortController();
 
-    storageSet({
-      [progressKey]: {
-        status: 'running',
-        total: rows.length,
-        current: 0,
-        success: 0,
-        failed: 0,
-        currentId: '',
-        message: '답변 생성 준비 중...',
-        startedAt: Date.now(),
-        finishedAt: null,
-        lastError: '',
-        useReference: message.payload?.useReference === true,
-        referenceCount: 0,
-        updatedAt: Date.now(),
-      },
-    })
-      .then(() => {
+    (async () => {
+      try {
+        const estimatedAiCount = rows.filter((row) => !isLogisticsInquiry(row)).length;
+        const check = await ensureReplyGenerationAllowed(estimatedAiCount);
+        if (!check.ok) {
+          sendResponse({ ok: false, error: check.message });
+          return;
+        }
+
+        isInquiryRunning = true;
+        inquiryStopRequested = false;
+        inquiryAbortController = new AbortController();
+
+        await storageSet({
+          [progressKey]: {
+            status: 'running',
+            total: rows.length,
+            current: 0,
+            success: 0,
+            failed: 0,
+            manual: 0,
+            currentId: '',
+            message: '답변 생성 준비 중...',
+            startedAt: Date.now(),
+            finishedAt: null,
+            lastError: '',
+            useReference: message.payload?.useReference !== false,
+            referenceCount: 0,
+            updatedAt: Date.now(),
+          },
+        });
+
         runGenerateInquiries(message.payload)
           .catch(async (err) => {
             if (inquiryStopRequested || err?.name === 'AbortError') return;
@@ -150,12 +201,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           });
 
         sendResponse({ ok: true, started: true });
-      })
-      .catch((err) => {
+      } catch (err) {
         isInquiryRunning = false;
         inquiryAbortController = null;
         sendResponse({ ok: false, error: err.message || '시작 실패' });
-      });
+      }
+    })();
 
     return true;
   }
@@ -178,6 +229,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       job = await healStaleJob(job, isInquiryRunning, progressKey);
       sendResponse({ ok: true, job, isRunning: isInquiryRunning });
     });
+    return true;
+  }
+
+  if (message.type === 'TEST_GENERATE_INQUIRY') {
+    runTestInquiryReply(message.payload || {})
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((err) => sendResponse({ ok: false, error: err.message || String(err) }));
     return true;
   }
 
@@ -303,6 +361,10 @@ async function runGenerate(payload) {
       if (stopRequested || signal.aborted || err.name === 'AbortError') break;
       failed++;
       lastError = err.message;
+      if (isUsageLimitError(err)) {
+        await notifyUsageLimit(lastError);
+        break;
+      }
       console.error(`글번호 ${row.id} 실패:`, err);
     }
   }
@@ -329,6 +391,25 @@ async function runGenerate(payload) {
     return;
   }
 
+  if (isUsageLimitError({ message: lastError })) {
+    const processed = success + failed;
+    await updateProgress({
+      status: 'limit_reached',
+      total,
+      current: processed,
+      success,
+      failed,
+      currentId: '',
+      lastError,
+      message: formatUsageLimitMessage(lastError, success),
+      finishedAt: Date.now(),
+    });
+    isRunning = false;
+    stopRequested = false;
+    abortController = null;
+    return;
+  }
+
   const errorHint =
     failed > 0 && success === 0 && lastError
       ? `\n\n원인: ${lastError}`
@@ -337,7 +418,7 @@ async function runGenerate(payload) {
         : '';
 
   await updateProgress({
-    status: 'done',
+    status: success > 0 ? 'done' : failed > 0 ? 'error' : 'done',
     total,
     current: total,
     success,
@@ -345,8 +426,10 @@ async function runGenerate(payload) {
     currentId: '',
     lastError,
     message:
-      `완료: 성공 ${success}건, 실패 ${failed}건.${errorHint}\n` +
-      `작업 화면 「2. 답글 검토」 탭에서 확인·수정 후 [일괄 확인]을 눌러주세요.`,
+      success > 0
+        ? `완료: 성공 ${success}건, 실패 ${failed}건.${errorHint}\n` +
+          `작업 화면 「2. 답글 검토」 탭에서 확인·수정 후 [일괄 확인]을 눌러주세요.`
+        : `답글 생성 실패 (${failed}건).${errorHint}`,
     finishedAt: Date.now(),
   });
 
@@ -371,6 +454,8 @@ async function runGenerateInquiries(payload) {
   await ensureAiCredentials(apiKey);
 
   systemPrompt = String(systemPrompt || '').trim() || getDefaultInquirySystemPrompt();
+  // 배송·재고 문의는 과거 답변 참고가 핵심이라 기본으로 켭니다.
+  const shouldUseReference = useReference !== false;
 
   const storageKey = CONFIG.INQUIRY_STORAGE_KEY || 'smartstoreInquiryReplies';
   const applyKey = CONFIG.INQUIRY_APPLY_ENABLED_KEY || 'smartstoreInquiryApplyEnabled';
@@ -385,17 +470,18 @@ async function runGenerateInquiries(payload) {
       current: 0,
       success: 0,
       failed: 0,
+      manual: 0,
       currentId: '',
       message: '답변 생성 준비 중...',
       startedAt: Date.now(),
       finishedAt: null,
       lastError: '',
-      useReference: useReference === true,
+      useReference: shouldUseReference,
       referenceCount: 0,
     });
 
     let referenceCatalog = [];
-    if (useReference === true) {
+    if (shouldUseReference) {
       try {
         await updateInquiryProgress({
           status: 'running',
@@ -403,6 +489,7 @@ async function runGenerateInquiries(payload) {
           current: 0,
           success: 0,
           failed: 0,
+          manual: 0,
           currentId: '',
           message: '참고 답변 불러오는 중...',
           useReference: true,
@@ -420,6 +507,7 @@ async function runGenerateInquiries(payload) {
 
     let success = 0;
     let failed = 0;
+    let manual = 0;
     let lastError = '';
     const existingReplies = (await storageGet([storageKey]))[storageKey] || {};
     const replyMap = { ...existingReplies };
@@ -440,10 +528,11 @@ async function runGenerateInquiries(payload) {
       current: 0,
       success: 0,
       failed: 0,
+      manual: 0,
       currentId: '',
       message: `문의 답변 생성 시작 (0/${total})`,
       lastError: '',
-      useReference: useReference === true,
+      useReference: shouldUseReference,
       referenceCount: referenceCatalog.length,
     });
 
@@ -461,14 +550,39 @@ async function runGenerateInquiries(payload) {
         current: i + 1,
         success,
         failed,
+        manual,
         currentId: row.id,
         message: `문의 답변 생성 중 (${i + 1}/${total}) — 문의번호 ${row.id}`,
         lastError,
-        useReference: useReference === true,
+        useReference: shouldUseReference,
         referenceCount: referenceCatalog.length,
       });
 
       try {
+        if (shouldDeferInquiryToManual(row, references)) {
+          const reason = getManualInquiryReason(row);
+          draftItems.push({
+            id: row.id,
+            inquiryContent: row.content,
+            product: row.product || '',
+            writer: row.writer || '',
+            secret: !!row.secret,
+            reply: '',
+            needsManual: true,
+            manualReason: reason,
+            referenceIds: [],
+          });
+          manual++;
+
+          await storageSet({
+            [draftKey]: {
+              items: [...draftItems],
+              updatedAt: Date.now(),
+            },
+          });
+          continue;
+        }
+
         const reply = await generateInquiryReply(
           apiKey,
           systemPrompt,
@@ -487,6 +601,7 @@ async function runGenerateInquiries(payload) {
           writer: row.writer || '',
           secret: !!row.secret,
           reply,
+          needsManual: false,
           referenceIds: references.map((ref) => ref.id),
         });
         success++;
@@ -505,51 +620,84 @@ async function runGenerateInquiries(payload) {
         if (inquiryStopRequested || signal.aborted || err.name === 'AbortError') break;
         failed++;
         lastError = err.message;
+        if (isUsageLimitError(err)) {
+          await notifyUsageLimit(lastError);
+          break;
+        }
         console.error(`문의번호 ${row.id} 실패:`, err);
       }
     }
 
     if (inquiryStopRequested || signal.aborted) {
-      const processed = success + failed;
+      const processed = success + failed + manual;
       await updateInquiryProgress({
         status: 'stopped',
         total,
         current: processed,
         success,
         failed,
+        manual,
         currentId: '',
         lastError,
         message:
-          `중지됨: 성공 ${success}건 저장됨 (전체 ${total}건 중 ${processed}건 처리).` +
+          `중지됨: AI ${success}건` +
+          (manual > 0 ? `, 직접 작성 ${manual}건` : '') +
+          ` 저장됨 (전체 ${total}건 중 ${processed}건 처리).` +
           (failed > 0 ? ` 실패 ${failed}건.` : '') +
           '\n작업 화면 「2. 답글 검토」 탭에서 확인·수정 후 자동 입력을 활성화하세요.',
         finishedAt: Date.now(),
       });
+      if (manual > 0) await notifyManualInquiryNeeded(manual);
+      return;
+    }
+
+    if (isUsageLimitError({ message: lastError })) {
+      const processed = success + failed + manual;
+      await updateInquiryProgress({
+        status: 'limit_reached',
+        total,
+        current: processed,
+        success,
+        failed,
+        manual,
+        currentId: '',
+        lastError,
+        message: formatUsageLimitMessage(lastError, success),
+        finishedAt: Date.now(),
+      });
+      if (manual > 0) await notifyManualInquiryNeeded(manual);
       return;
     }
 
     const errorHint =
-      failed > 0 && success === 0 && lastError
+      failed > 0 && success === 0 && manual === 0 && lastError
         ? `\n\n원인: ${lastError}`
         : failed > 0 && lastError
           ? `\n\n최근 오류: ${lastError}`
           : '';
 
+    const doneOk = success > 0 || manual > 0;
     await updateInquiryProgress({
-      status: success > 0 ? 'done' : 'error',
+      status: doneOk ? 'done' : 'error',
       total,
       current: total,
       success,
       failed,
+      manual,
       currentId: '',
       lastError,
-      message:
-        success > 0
-          ? `완료: 성공 ${success}건, 실패 ${failed}건.${errorHint}\n` +
-            `작업 화면 「2. 답글 검토」 탭에서 확인·수정 후 [자동 입력 모드]를 눌러주세요.`
-          : `답변 생성 실패 (${failed}건).${errorHint}`,
+      message: doneOk
+        ? `완료: AI ${success}건` +
+          (manual > 0 ? `, 직접 작성 ${manual}건` : '') +
+          (failed > 0 ? `, 실패 ${failed}건` : '') +
+          `.${errorHint}\n` +
+          (manual > 0
+            ? `배송·재고 등 ${manual}건은 「2. 답글 검토」에서 직접 작성해 주세요.`
+            : `작업 화면 「2. 답글 검토」 탭에서 확인·수정 후 [자동 입력 모드]를 눌러주세요.`)
+        : `답변 생성 실패 (${failed}건).${errorHint}`,
       finishedAt: Date.now(),
     });
+    if (manual > 0) await notifyManualInquiryNeeded(manual);
   } catch (err) {
     if (!inquiryStopRequested && err.name !== 'AbortError') {
       await updateInquiryProgress({
@@ -649,6 +797,7 @@ async function analyzeToneSamples(payload) {
 - 출력은 시스템 지시문 본문만 (설명·제목·따옴표·마크다운 없이)
 - 5~12문장 분량
 - "복붙 티 나지 않게", "문의 내용의 질문에 구체적으로 답변"을 반드시 포함
+- 공개된 상품 정보는 문의 질문에 맞게 검색해 확인된 사실을 답하도록 지시. 확인되지 않은 사실은 지어내지 말 것
 - 리뷰 감사 인사 위주가 아닌, 문의 Q&A·안내 톤으로 작성하도록 지시
 - 샘플에 없는 이모지·유행어를 무리하게 추가하지 말 것
 - 스마트스토어 상품문의 판매자 답글임을 명시
@@ -792,6 +941,62 @@ async function generateReply(apiKey, systemPrompt, row, model, signal) {
   return text;
 }
 
+async function runTestInquiryReply(payload = {}) {
+  const content = String(payload.content || '').trim();
+  if (!content) throw new Error('테스트 문의를 입력해 주세요.');
+
+  const apiKey = payload.apiKey;
+  await ensureAiCredentials(apiKey);
+
+  const check = await ensureReplyGenerationAllowed(1);
+  if (!check.ok) throw new Error(check.message);
+
+  const row = {
+    id: 'test',
+    content,
+    product: String(payload.product || '').trim(),
+    productNo: String(payload.productNo || '').replace(/[^\d]/g, ''),
+    secret: false,
+  };
+  const systemPrompt =
+    String(payload.systemPrompt || '').trim() || getDefaultInquirySystemPrompt();
+
+  let references = [];
+  try {
+    const cacheKey = CONFIG.INQUIRY_REFERENCE_CACHE_KEY || 'smartstoreInquiryReferenceCache';
+    const data = await storageGet([cacheKey]);
+    const catalog = data[cacheKey]?.catalog || [];
+    if (catalog.length) {
+      references = pickSimilarInquiryReferences(row, catalog, 2);
+    }
+  } catch (_) {}
+
+  if (shouldDeferInquiryToManual(row, references)) {
+    return {
+      deferred: true,
+      reason: getManualInquiryReason(row),
+      text: '',
+      usage: check.usage || null,
+    };
+  }
+
+  const text = await generateInquiryReply(
+    apiKey,
+    systemPrompt,
+    row,
+    payload.model || CONFIG.GEMINI_MODEL,
+    null,
+    references
+  );
+
+  const session = await loadAuthSession();
+  return {
+    deferred: false,
+    text,
+    usage: session?.usage || check.usage || null,
+  };
+}
+
 async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, references = []) {
   if (useAiProxy()) {
     const data = await postAiApi(
@@ -820,12 +1025,78 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
         ].join('\n')
       : '';
 
+  const webSearch = inquiryNeedsWebSearch(row);
+  let verifiedFacts = null;
+  let missingFacts = [];
+
+  if (webSearch) {
+    try {
+      const factUrl =
+        `https://generativelanguage.googleapis.com/v1beta/models/${
+          model || CONFIG.GEMINI_MODEL
+        }:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const factRes = await fetch(factUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal,
+        body: JSON.stringify({
+          systemInstruction: {
+            parts: [{ text: '당신은 상품 정보 검증기입니다. 지시된 JSON만 출력하세요.' }],
+          },
+          contents: [{ role: 'user', parts: [{ text: buildProductFactLookupPrompt(row) }] }],
+          generationConfig: { temperature: 0.1 },
+          tools: [{ google_search: {} }],
+        }),
+      });
+      if (factRes.ok) {
+        const factData = await factRes.json();
+        const factText = factData.candidates?.[0]?.content?.parts
+          ?.map((p) => p.text)
+          .join('')
+          .trim();
+        const parsed = parseProductFactLookup(factText);
+        verifiedFacts = parsed.facts;
+        missingFacts = parsed.missing;
+      } else {
+        verifiedFacts = [];
+        missingFacts = ['상품 정보 검색 실패'];
+      }
+    } catch (_) {
+      verifiedFacts = [];
+      missingFacts = ['상품 정보 검색 실패'];
+    }
+  }
+
+  const factBlock =
+    verifiedFacts && verifiedFacts.length
+      ? [
+          '[이 상품에서 확인된 사실 — 질문에 해당하면 답글 본문에 고유명으로 반드시 쓰세요]',
+          ...verifiedFacts.map((f, i) => `${i + 1}. ${f}`),
+          '',
+        ].join('\n')
+      : verifiedFacts
+        ? '[확인된 사실 없음 — 구체 성분·균주·수치를 절대 지어내지 마세요]\n'
+        : '';
+  const missingBlock =
+    missingFacts.length > 0
+      ? `[확인되지 않은 항목]\n${missingFacts.map((f) => `- ${f}`).join('\n')}\n`
+      : '';
+
   const userContent = [
     refBlock,
+    factBlock,
+    missingBlock,
     row.product && `상품명: ${row.product}`,
+    row.productNo && `상품번호: ${row.productNo}`,
     row.writer && `문의자: ${row.writer}`,
     row.secret != null && `비밀문의: ${row.secret ? '예' : '아니오'}`,
     `문의 내용:\n${row.content}`,
+    '작성 규칙:',
+    ...buildInquiryAnswerRules({
+      webSearch: false,
+      hasVerifiedFacts: Array.isArray(verifiedFacts),
+      product: row.product || '',
+    }),
     '위 상품문의에 대한 판매자 답글만 출력하세요. 따옴표나 접두어 없이 본문만.',
   ]
     .filter(Boolean)
@@ -835,24 +1106,26 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
   const url =
     `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
+  const body = {
+    systemInstruction: {
+      parts: [{ text: systemPrompt }],
+    },
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: userContent }],
+      },
+    ],
+    generationConfig: {
+      temperature: webSearch ? 0.35 : 0.7,
+    },
+  };
+
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     signal,
-    body: JSON.stringify({
-      systemInstruction: {
-        parts: [{ text: systemPrompt }],
-      },
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: userContent }],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.7,
-      },
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -947,21 +1220,21 @@ function emptySampleFlow() {
   };
 }
 
-const STALE_JOB_MS = 3 * 60 * 1000;
+const STALE_JOB_MS = 5 * 60 * 1000;
 const STALE_SAMPLE_FLOW_MS = 45 * 1000;
 
 async function healStaleJob(job, activelyRunning, storageKey) {
   if (!job || job.status !== 'running') return job;
 
-  const started = job.startedAt || 0;
-  if (activelyRunning && !started) return job;
+  const lastBeat = job.updatedAt || job.startedAt || 0;
+  if (activelyRunning && !lastBeat) return job;
 
-  const ageMs = started ? Date.now() - started : STALE_JOB_MS + 1;
+  const idleMs = lastBeat ? Date.now() - lastBeat : STALE_JOB_MS + 1;
   const isInquiryJob =
     storageKey === (CONFIG.INQUIRY_PROGRESS_KEY || 'smartstoreInquiryJobProgress');
 
   if (activelyRunning) {
-    if (ageMs <= STALE_JOB_MS) return job;
+    if (idleMs <= STALE_JOB_MS) return job;
     if (isInquiryJob) {
       inquiryStopRequested = true;
       inquiryAbortController?.abort();

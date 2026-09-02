@@ -2,7 +2,14 @@
 
 네이버 스마트스토어 **리뷰·상품문의** 답글을 AI로 만들고 판매자센터에 올리는 Chrome 확장 (Manifest V3).
 
-**현재 버전:** 1.3.20 (베타)
+**현재 버전:** 1.3.31 (베타)
+
+## Chrome Web Store (비공개)
+
+1. Railway에 `server/` 재배포 → `privacy.html` 확인  
+   https://naver-smartstore-review-reply-production.up.railway.app/privacy.html
+2. `scripts/package-store.ps1` → `store/dist/naver-smartstore-reply-store.zip`
+3. 등록 절차·심사 문구: `store/WEBSTORE-SUBMIT.txt`
 
 ## 베타 테스트 (지인 배포)
 

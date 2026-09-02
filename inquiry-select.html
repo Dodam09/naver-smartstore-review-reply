@@ -132,6 +132,35 @@
       padding: 12px 20px;
     }
     button:disabled { opacity: .5; cursor: not-allowed; }
+    button.primary:disabled {
+      background: #94a3b8;
+      color: #fff;
+      opacity: 1;
+    }
+    .usage-notice {
+      width: 100%;
+      margin-bottom: 10px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .usage-notice.hidden { display: none; }
+    .usage-notice.ok {
+      background: #f0f9ff;
+      border: 1px solid #b3d9f2;
+      color: #0c4a6e;
+    }
+    .usage-notice.warn {
+      background: #fff4e5;
+      border: 1px solid #f0d9a8;
+      color: #9a6700;
+    }
+    .usage-notice.error {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #b91c1c;
+    }
     .banner {
       max-width: 1100px;
       margin: 16px auto 0;
@@ -226,6 +255,22 @@
       color: #555;
     }
     .badge.secret { background: #fef3c7; color: #92400e; }
+    .badge.manual { background: #fee2e2; color: #b91c1c; }
+    .card.needs-manual {
+      border-color: #fca5a5;
+      background: #fff7f7;
+      box-shadow: 0 4px 16px rgba(185, 28, 28, .08);
+    }
+    .manual-hint {
+      margin: 0 0 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+      font-size: 13px;
+      line-height: 1.5;
+    }
     .card-product { font-size: 13px; color: #666; margin-bottom: 10px; line-height: 1.4; }
     .card-content { font-size: 15px; line-height: 1.6; color: #333; white-space: pre-wrap; word-break: break-word; }
     .inquiry-box {
@@ -338,6 +383,7 @@
 
   <footer class="footer-bar">
     <div class="footer-inner">
+      <div class="usage-notice hidden" id="usageNotice"></div>
       <div class="gen-progress hidden" id="genProgress">
         <div class="gen-progress-top">
           <span id="genStatusText">답글 만드는 중</span>
@@ -365,6 +411,7 @@
 
   <script src="config.js"></script>
   <script src="lib/ai-proxy.js"></script>
+  <script src="lib/inquiry-search.js"></script>
   <script src="lib/tone-presets.js"></script>
   <script src="inquiry-select.js"></script>
 </body>

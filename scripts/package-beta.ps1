@@ -50,11 +50,20 @@ Get-ChildItem -Path $root -Force | ForEach-Object {
 
 Copy-Item (Join-Path $root 'beta\config.js') (Join-Path $outDir 'config.js') -Force
 
-Copy-Item (Join-Path $root 'beta\INSTALL.txt') (Join-Path $outDir 'INSTALL.txt') -Force
+$betaDir = Join-Path $root 'beta'
+Get-ChildItem -Path $betaDir -Filter '*.txt' | ForEach-Object {
+  Copy-Item $_.FullName -Destination (Join-Path $outDir $_.Name) -Force
+}
 
-Copy-Item (Join-Path $root 'beta\지인용-설치안내.txt') (Join-Path $outDir '지인용-설치안내.txt') -Force
-
-Copy-Item (Join-Path $root 'beta\사용설명서.txt') (Join-Path $outDir '사용설명서.txt') -Force
+$guideDocs = Get-ChildItem -Path $betaDir -Filter '*.txt' | Where-Object { $_.Name -ne 'INSTALL.txt' }
+$shortGuide = $guideDocs | Sort-Object Length | Select-Object -First 1
+$fullManual = $guideDocs | Sort-Object Length | Select-Object -Last 1
+if ($shortGuide) {
+  Copy-Item $shortGuide.FullName -Destination (Join-Path $outDir '00-START-HERE.txt') -Force
+}
+if ($fullManual) {
+  Copy-Item $fullManual.FullName -Destination (Join-Path $outDir 'MANUAL.txt') -Force
+}
 
 
 

@@ -16,6 +16,7 @@ const INQUIRY_STORAGE_KEY = CONFIG.INQUIRY_STORAGE_KEY || 'smartstoreInquiryRepl
 const INQUIRY_APPLY_ENABLED_KEY = CONFIG.INQUIRY_APPLY_ENABLED_KEY || 'smartstoreInquiryApplyEnabled';
 const INQUIRY_PROGRESS_KEY = CONFIG.INQUIRY_PROGRESS_KEY || 'smartstoreInquiryJobProgress';
 const INQUIRY_REFERENCE_CACHE_KEY = CONFIG.INQUIRY_REFERENCE_CACHE_KEY || 'smartstoreInquiryReferenceCache';
+const INQUIRY_TEST_DRAFT_KEY = CONFIG.INQUIRY_TEST_DRAFT_KEY || 'smartstoreInquiryTestDraft';
 
 const els = {
   tabs: document.querySelectorAll('.tab'),
@@ -88,11 +89,20 @@ const els = {
   inquiryFlow2: document.getElementById('inquiryFlow2'),
   inquiryModeWork: document.getElementById('inquiryModeWork'),
   inquiryModeStyle: document.getElementById('inquiryModeStyle'),
+  inquiryModeTest: document.getElementById('inquiryModeTest'),
   inquiryActiveStyleBanner: document.getElementById('inquiryActiveStyleBanner'),
   inquiryActiveStylePrompt: document.getElementById('inquiryActiveStylePrompt'),
   inquiryActiveStyleChangeBtn: document.getElementById('inquiryActiveStyleChangeBtn'),
   inquiryWorkPanel: document.getElementById('inquiryWorkPanel'),
   inquiryStylePanel: document.getElementById('inquiryStylePanel'),
+  inquiryTestPanel: document.getElementById('inquiryTestPanel'),
+  inquiryTestProduct: document.getElementById('inquiryTestProduct'),
+  inquiryTestProductHint: document.getElementById('inquiryTestProductHint'),
+  inquiryTestQuestion: document.getElementById('inquiryTestQuestion'),
+  inquiryTestResult: document.getElementById('inquiryTestResult'),
+  inquiryTestBtn: document.getElementById('inquiryTestBtn'),
+  inquiryTestStatus: document.getElementById('inquiryTestStatus'),
+  inquiryTestUsageHint: document.getElementById('inquiryTestUsageHint'),
   inquiryStyleModeList: document.getElementById('inquiryStyleModeList'),
   inquiryLearnedPromptEditor: document.getElementById('inquiryLearnedPromptEditor'),
   inquiryLearnedSystemPrompt: document.getElementById('inquiryLearnedSystemPrompt'),
@@ -156,6 +166,8 @@ let reviewPanelStep = 'fetch';
 let inquiryPanelStep = 'fetch';
 let reviewPanelMode = 'work';
 let inquiryPanelMode = 'work';
+let inquiryTestProducts = [];
+let inquiryTestSaveTimer = null;
 
 init();
 
@@ -329,6 +341,11 @@ async function init() {
     }
   });
   await initAccountUi();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushInquiryTestDraft();
+  });
+  window.addEventListener('pagehide', flushInquiryTestDraft);
+  await restoreInquiryTestSession();
 }
 
 function initWorkPanelSteps() {
@@ -337,6 +354,11 @@ function initWorkPanelSteps() {
   els.reviewActiveStyleChangeBtn?.addEventListener('click', () => setReviewPanelMode('style'));
   els.inquiryModeWork?.addEventListener('click', () => setInquiryPanelMode('work'));
   els.inquiryModeStyle?.addEventListener('click', () => setInquiryPanelMode('style'));
+  els.inquiryModeTest?.addEventListener('click', () => setInquiryPanelMode('test'));
+  els.inquiryTestBtn?.addEventListener('click', onInquiryTestGenerate);
+  els.inquiryTestProduct?.addEventListener('change', scheduleSaveInquiryTestDraft);
+  els.inquiryTestQuestion?.addEventListener('input', scheduleSaveInquiryTestDraft);
+  els.inquiryTestResult?.addEventListener('input', scheduleSaveInquiryTestDraft);
   els.inquiryActiveStyleChangeBtn?.addEventListener('click', () => setInquiryPanelMode('style'));
 
   els.reviewFlow1?.addEventListener('click', () => setReviewPanelStep('fetch'));
@@ -378,14 +400,342 @@ function setInquiryPanelMode(mode) {
   inquiryPanelMode = mode;
   els.inquiryModeWork?.classList.toggle('active', mode === 'work');
   els.inquiryModeStyle?.classList.toggle('active', mode === 'style');
+  els.inquiryModeTest?.classList.toggle('active', mode === 'test');
   els.inquiryWorkPanel?.classList.toggle('active', mode === 'work');
   els.inquiryStylePanel?.classList.toggle('active', mode === 'style');
+  els.inquiryTestPanel?.classList.toggle('active', mode === 'test');
+  if (els.inquiryActiveStyleBanner) {
+    els.inquiryActiveStyleBanner.hidden = mode === 'test';
+  }
   if (mode === 'style') {
     inquiryStyle?.updateSampleFlowUI();
     setInquiryStatus('판매자센터 문의 답글을 분석해 내 말투로 설정합니다.');
+  } else if (mode === 'test') {
+    refreshInquiryTestProductOptions()
+      .then(() => restoreInquiryTestDraft())
+      .then(() => flushInquiryTestDraft())
+      .catch(() => {});
+    refreshInquiryTestUsageHint();
+    setInquiryStatus('샘플 문의로 답글을 미리 확인합니다. 성공 시 1건 차감됩니다.');
   } else {
+    flushInquiryTestDraft();
     refreshInquiryWorkStatus();
   }
+}
+
+function scheduleSaveInquiryTestDraft() {
+  clearTimeout(inquiryTestSaveTimer);
+  inquiryTestSaveTimer = setTimeout(() => {
+    saveInquiryTestDraft().catch(() => {});
+  }, 150);
+}
+
+function flushInquiryTestDraft() {
+  clearTimeout(inquiryTestSaveTimer);
+  inquiryTestSaveTimer = null;
+  void saveInquiryTestDraft();
+}
+
+async function saveInquiryTestDraft(extra = {}) {
+  if (!els.inquiryTestQuestion && !els.inquiryTestProduct) return;
+  const selected = getSelectedInquiryTestProduct();
+  const existing = (await storageGet([INQUIRY_TEST_DRAFT_KEY]))[INQUIRY_TEST_DRAFT_KEY] || {};
+  await storageSet({
+    [INQUIRY_TEST_DRAFT_KEY]: {
+      ...existing,
+      productName: selected?.name || existing.productName || '',
+      productNo: selected?.productNo || existing.productNo || '',
+      question: String(els.inquiryTestQuestion?.value || ''),
+      result: String(els.inquiryTestResult?.value || ''),
+      statusText: String(els.inquiryTestStatus?.textContent || ''),
+      statusColor: els.inquiryTestStatus?.style?.color || '',
+      panelMode: inquiryPanelMode,
+      mainTab: 'inquiry',
+      updatedAt: Date.now(),
+      ...extra,
+    },
+  });
+}
+
+async function restoreInquiryTestSession() {
+  if (authGateActive) return;
+  const draft = (await storageGet([INQUIRY_TEST_DRAFT_KEY]))[INQUIRY_TEST_DRAFT_KEY];
+  if (!draft) return;
+
+  const hasContent =
+    String(draft.question || '').trim() ||
+    String(draft.result || '').trim() ||
+    String(draft.productName || '').trim();
+  if (draft.panelMode !== 'test' && !hasContent) return;
+
+  switchTab('inquiry');
+  setInquiryPanelMode('test');
+}
+
+async function restoreInquiryTestDraft() {
+  const draft = (await storageGet([INQUIRY_TEST_DRAFT_KEY]))[INQUIRY_TEST_DRAFT_KEY];
+  if (!draft) return;
+
+  if (els.inquiryTestQuestion && draft.question != null) {
+    els.inquiryTestQuestion.value = String(draft.question);
+  }
+  if (els.inquiryTestResult && draft.result != null) {
+    els.inquiryTestResult.value = String(draft.result);
+    els.inquiryTestResult.readOnly = !String(draft.result).trim();
+  }
+  if (els.inquiryTestStatus && draft.statusText) {
+    els.inquiryTestStatus.textContent = String(draft.statusText);
+    els.inquiryTestStatus.style.color = draft.statusColor || '#64748b';
+  }
+
+  applyInquiryTestProductSelection(draft.productName, draft.productNo);
+}
+
+function applyInquiryTestProductSelection(productName, productNo = '') {
+  if (!els.inquiryTestProduct || !inquiryTestProducts.length) return;
+  const name = String(productName || '').trim().toLowerCase();
+  const no = String(productNo || '').replace(/[^\d]/g, '');
+  if (!name) return;
+
+  let index = inquiryTestProducts.findIndex(
+    (item) => item.name.toLowerCase() === name && (!no || item.productNo === no)
+  );
+  if (index < 0) {
+    index = inquiryTestProducts.findIndex((item) => item.name.toLowerCase() === name);
+  }
+  if (index >= 0) els.inquiryTestProduct.value = String(index);
+}
+
+async function refreshInquiryTestProductOptions() {
+  if (!els.inquiryTestProduct) return;
+
+  const map = new Map();
+  const addProduct = (name, productNo = '') => {
+    const product = String(name || '').trim();
+    if (!product) return;
+    const key = product.toLowerCase();
+    const no = String(productNo || '').replace(/[^\d]/g, '');
+    const prev = map.get(key);
+    if (!prev) {
+      map.set(key, { name: product, productNo: no });
+      return;
+    }
+    if (no && !prev.productNo) prev.productNo = no;
+  };
+
+  for (const row of inquiryRows) addProduct(row.product, row.productNo);
+  for (const row of parsedRows) addProduct(row.product, row.productNo);
+
+  try {
+    const data = await storageGet([
+      CONFIG.PARSE_CACHE_KEY,
+      INQUIRY_PARSE_CACHE_KEY,
+      INQUIRY_DRAFT_KEY,
+      CONFIG.DRAFT_KEY,
+      INQUIRY_REFERENCE_CACHE_KEY,
+      INQUIRY_TEST_DRAFT_KEY,
+    ]);
+    const savedDraft = data[INQUIRY_TEST_DRAFT_KEY] || null;
+    const reviewCache = data[CONFIG.PARSE_CACHE_KEY];
+    const inquiryCache = data[INQUIRY_PARSE_CACHE_KEY];
+    const refCache = data[INQUIRY_REFERENCE_CACHE_KEY];
+
+    for (const row of reviewCache?.parsedRows || []) addProduct(row.product, row.productNo);
+    for (const row of inquiryCache?.inquiryRows || []) addProduct(row.product, row.productNo);
+    for (const item of data[INQUIRY_DRAFT_KEY]?.items || []) addProduct(item.product, item.productNo);
+    for (const item of data[CONFIG.DRAFT_KEY]?.items || []) addProduct(item.product, item.productNo);
+    for (const item of refCache?.catalog || []) addProduct(item.product, item.productNo);
+
+    inquiryTestProducts = [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+
+    if (!inquiryTestProducts.length) {
+      els.inquiryTestProduct.innerHTML =
+        '<option value="">상품 목록이 없습니다</option>';
+      els.inquiryTestProduct.disabled = true;
+      if (els.inquiryTestProductHint) {
+        els.inquiryTestProductHint.textContent =
+          '상품문의 또는 리뷰를 먼저 가져오면 상품을 선택할 수 있습니다.';
+      }
+      return;
+    }
+
+    els.inquiryTestProduct.disabled = false;
+    els.inquiryTestProduct.innerHTML =
+      '<option value="">상품을 선택하세요</option>' +
+      inquiryTestProducts
+        .map(
+          (item, index) =>
+            `<option value="${index}">${escapeHtml(item.name)}${
+              item.productNo ? ` (#${escapeHtml(item.productNo)})` : ''
+            }</option>`
+        )
+        .join('');
+
+    applyInquiryTestProductSelection(savedDraft?.productName, savedDraft?.productNo);
+
+    if (els.inquiryTestProductHint) {
+      els.inquiryTestProductHint.textContent = `등록된 상품 ${inquiryTestProducts.length}개 · 문의/리뷰에서 모은 목록입니다.`;
+    }
+    return;
+  } catch (_) {}
+
+  inquiryTestProducts = [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+  const prev = els.inquiryTestProduct.value;
+
+  if (!inquiryTestProducts.length) {
+    els.inquiryTestProduct.innerHTML =
+      '<option value="">상품 목록이 없습니다</option>';
+    els.inquiryTestProduct.disabled = true;
+    if (els.inquiryTestProductHint) {
+      els.inquiryTestProductHint.textContent =
+        '상품문의 또는 리뷰를 먼저 가져오면 상품을 선택할 수 있습니다.';
+    }
+    return;
+  }
+
+  els.inquiryTestProduct.disabled = false;
+  els.inquiryTestProduct.innerHTML =
+    '<option value="">상품을 선택하세요</option>' +
+    inquiryTestProducts
+      .map(
+        (item, index) =>
+          `<option value="${index}">${escapeHtml(item.name)}${
+            item.productNo ? ` (#${escapeHtml(item.productNo)})` : ''
+          }</option>`
+      )
+      .join('');
+
+  if (prev && Number(prev) < inquiryTestProducts.length) {
+    els.inquiryTestProduct.value = prev;
+  }
+  if (els.inquiryTestProductHint) {
+    els.inquiryTestProductHint.textContent = `등록된 상품 ${inquiryTestProducts.length}개 · 문의/리뷰에서 모은 목록입니다.`;
+  }
+}
+
+function getSelectedInquiryTestProduct() {
+  const index = Number(els.inquiryTestProduct?.value);
+  if (!Number.isInteger(index) || index < 0 || index >= inquiryTestProducts.length) {
+    return null;
+  }
+  return inquiryTestProducts[index];
+}
+
+async function refreshInquiryTestUsageHint() {
+  if (!els.inquiryTestUsageHint) return;
+  if (!useAiProxy()) {
+    els.inquiryTestUsageHint.textContent = '직접 API 키 모드 · 서버 사용량 차감 없음';
+    return;
+  }
+  try {
+    await refreshAccountUsage();
+    const session = await loadAuthSession();
+    const summary = formatUsageSummary(session?.usage);
+    const remaining = getReplyRemaining(session?.usage);
+    els.inquiryTestUsageHint.textContent = summary
+      ? `${summary}${remaining != null ? ` · 테스트 시 1건 차감` : ''}`
+      : '로그인 후 사용량을 확인할 수 있습니다.';
+  } catch (_) {
+    els.inquiryTestUsageHint.textContent = '사용량을 불러오지 못했습니다.';
+  }
+}
+
+async function onInquiryTestGenerate() {
+  const question = String(els.inquiryTestQuestion?.value || '').trim();
+  const selected = getSelectedInquiryTestProduct();
+  if (!selected?.name) {
+    if (els.inquiryTestStatus) {
+      els.inquiryTestStatus.textContent = '테스트할 상품을 선택해 주세요.';
+      els.inquiryTestStatus.style.color = '#b91c1c';
+    }
+    return;
+  }
+  if (!question) {
+    if (els.inquiryTestStatus) {
+      els.inquiryTestStatus.textContent = '테스트 문의를 입력해 주세요.';
+      els.inquiryTestStatus.style.color = '#b91c1c';
+    }
+    return;
+  }
+
+  const settingsData = await storageGet(CONFIG.SETTINGS_KEY);
+  const settings = settingsData[CONFIG.SETTINGS_KEY] || {};
+  const apiKey = settings.apiKey || CONFIG.GEMINI_API_KEY;
+  if (!(await hasAiCredentialsAsync(apiKey))) {
+    if (els.inquiryTestStatus) {
+      els.inquiryTestStatus.textContent = 'AI 연결이 필요해요. [계정]에서 로그인하거나 API 키를 넣어 주세요.';
+      els.inquiryTestStatus.style.color = '#b91c1c';
+    }
+    return;
+  }
+
+  const systemPrompt =
+    String(settings.inquirySystemPrompt || '').trim() ||
+    BUILTIN_INQUIRY_TONE_PRESETS?.[0]?.prompt ||
+    '';
+
+  if (els.inquiryTestBtn) els.inquiryTestBtn.disabled = true;
+  if (els.inquiryTestResult) els.inquiryTestResult.value = '';
+  if (els.inquiryTestStatus) {
+    els.inquiryTestStatus.textContent = '답글 만드는 중… (성공 시 1건 차감)';
+    els.inquiryTestStatus.style.color = '#64748b';
+  }
+
+  chrome.runtime.sendMessage(
+    {
+      type: 'TEST_GENERATE_INQUIRY',
+      payload: {
+        apiKey,
+        systemPrompt,
+        model: CONFIG.GEMINI_MODEL,
+        product: selected.name,
+        productNo: selected.productNo || '',
+        content: question,
+      },
+    },
+    async (response) => {
+      if (els.inquiryTestBtn) els.inquiryTestBtn.disabled = false;
+      if (chrome.runtime.lastError || !response?.ok) {
+        if (els.inquiryTestStatus) {
+          els.inquiryTestStatus.textContent =
+            response?.error || chrome.runtime.lastError?.message || '테스트 실패';
+          els.inquiryTestStatus.style.color = '#b91c1c';
+        }
+        await refreshInquiryTestUsageHint();
+        await saveInquiryTestDraft();
+        return;
+      }
+
+      if (response.deferred) {
+        if (els.inquiryTestResult) {
+          els.inquiryTestResult.value = '';
+          els.inquiryTestResult.readOnly = true;
+        }
+        if (els.inquiryTestStatus) {
+          els.inquiryTestStatus.textContent =
+            `${response.reason || '직접 작성이 필요한 문의 유형입니다.'} (사용량 차감 없음)`;
+          els.inquiryTestStatus.style.color = '#9a6700';
+        }
+        await refreshInquiryTestUsageHint();
+        await saveInquiryTestDraft();
+        return;
+      }
+
+      if (els.inquiryTestResult) {
+        els.inquiryTestResult.value = response.text || '';
+        els.inquiryTestResult.readOnly = false;
+      }
+      if (els.inquiryTestStatus) {
+        const usageText = formatUsageSummary(response.usage);
+        els.inquiryTestStatus.textContent = usageText
+          ? `테스트 완료 · 1건 차감됨 · ${usageText}`
+          : '테스트 완료 · 1건 차감됨';
+        els.inquiryTestStatus.style.color = '#0a7a3f';
+      }
+      await refreshInquiryTestUsageHint();
+      await saveInquiryTestDraft();
+    }
+  );
 }
 
 function refreshReviewWorkStatus() {
@@ -477,6 +827,7 @@ function switchTab(name) {
   if (name === 'settings') {
     void syncAccountUi();
   }
+  if (inquiryPanelMode === 'test') flushInquiryTestDraft();
 }
 
 function openStylePickPage() {
@@ -538,6 +889,7 @@ function restoreParseCache(cache) {
     setStatus(cache.statusMessage);
   }
   setReviewPanelStep('compose');
+  if (inquiryPanelMode === 'test') refreshInquiryTestProductOptions();
 }
 
 function updateFileSummary() {
@@ -821,6 +1173,7 @@ function restoreInquiryCache(cache) {
   updateInquirySummary(Object.keys(cache.replies || {}).length);
   chrome.storage.local.get([INQUIRY_DRAFT_KEY], (r) => updateInquiryWorkButton(r[INQUIRY_DRAFT_KEY]));
   if (inquiryRows.length) setInquiryPanelStep('compose');
+  if (inquiryPanelMode === 'test') refreshInquiryTestProductOptions();
 }
 
 function updateInquirySummary(replyCount = 0) {
@@ -1180,7 +1533,14 @@ async function onClearStorage() {
     INQUIRY_PARSE_CACHE_KEY,
     INQUIRY_DRAFT_KEY,
     INQUIRY_REFERENCE_CACHE_KEY,
+    INQUIRY_TEST_DRAFT_KEY,
   ]);
+  if (els.inquiryTestQuestion) els.inquiryTestQuestion.value = '';
+  if (els.inquiryTestResult) els.inquiryTestResult.value = '';
+  if (els.inquiryTestStatus) {
+    els.inquiryTestStatus.textContent = '';
+    els.inquiryTestStatus.style.color = '';
+  }
 
   parsedRows = [];
   columnMap = {};
@@ -1578,6 +1938,14 @@ async function onUndoCancelSubscription() {
 function storageGet(keys) {
   const keyList = Array.isArray(keys) ? keys : [keys];
   return new Promise((resolve) => chrome.storage.local.get(keyList, resolve));
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function storageSet(data) {

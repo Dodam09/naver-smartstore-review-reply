@@ -30,6 +30,7 @@ const els = {
   genCountText: document.getElementById('genCountText'),
   genProgressFill: document.getElementById('genProgressFill'),
   genSubText: document.getElementById('genSubText'),
+  usageNotice: document.getElementById('usageNotice'),
   searchInput: document.getElementById('searchInput'),
   selectAllBtn: document.getElementById('selectAllBtn'),
   selectNoneBtn: document.getElementById('selectNoneBtn'),
@@ -49,6 +50,9 @@ let saveTimer = null;
 let activeTab = 'select';
 let isBulkSubmitting = false;
 let submittedIds = new Set();
+let replyUsageCache = null;
+let replyUsageLoading = false;
+let replyUsageNoLogin = false;
 
 init();
 
@@ -82,6 +86,7 @@ async function init() {
 
   chrome.storage.onChanged.addListener(onStorageChanged);
   await loadData();
+  await loadReplyUsageCache();
   refreshJobStatus();
   setInterval(refreshJobStatus, 2000);
 
@@ -300,10 +305,105 @@ function updateSelectCounts() {
       ? parseMeta.fileName.slice(0, 16) + '…'
       : parseMeta.fileName
     : '-';
+
+  let overLimit = false;
+  let limitHint = '';
+  if (useAiProxy() && replyUsageCache && selected > 0 && !isGenerating) {
+    const remaining = getReplyRemaining(replyUsageCache);
+    if (remaining != null) {
+      if (remaining <= 0) {
+        overLimit = true;
+        limitHint = '이번 달 한도를 모두 사용했습니다';
+      } else if (selected > remaining) {
+        overLimit = true;
+        limitHint = `남은 ${remaining}건 · 선택 ${selected}건`;
+      }
+    }
+  }
+
   els.generateBtn.textContent = selected > 0 ? `AI로 답글 만들기 (${selected}건)` : 'AI로 답글 만들기';
-  els.generateBtn.disabled = isGenerating || selected === 0;
+  els.generateBtn.disabled = isGenerating || selected === 0 || overLimit;
+  els.generateBtn.title = overLimit ? limitHint : '';
   els.stopBtn.hidden = !isGenerating;
   els.stopBtn.disabled = !isGenerating;
+  updateUsageNotice(selected);
+}
+
+function updateUsageNotice(selected = selectedIds.size) {
+  const el = els.usageNotice;
+  if (!el) return;
+
+  if (!useAiProxy() || isGenerating) {
+    el.hidden = true;
+    el.textContent = '';
+    return;
+  }
+
+  const notice = buildReplyUsageNotice(replyUsageCache, selected, {
+    loading: replyUsageLoading,
+    noLogin: replyUsageNoLogin,
+  });
+  el.hidden = false;
+  el.className = `usage-notice ${notice.level}`;
+  el.textContent = notice.text;
+}
+
+async function syncReplyUsageFromStorage() {
+  if (!useAiProxy()) return;
+  const session = await loadAuthSession();
+  if (!session?.token) {
+    replyUsageCache = null;
+    replyUsageNoLogin = true;
+  } else {
+    replyUsageNoLogin = false;
+    if (session.usage) replyUsageCache = session.usage;
+  }
+  if (!isGenerating) updateSelectCounts();
+}
+
+async function loadReplyUsageCache(options = {}) {
+  const showLoading = options.showLoading !== false;
+  if (!useAiProxy()) {
+    replyUsageCache = null;
+    replyUsageLoading = false;
+    replyUsageNoLogin = false;
+    updateSelectCounts();
+    return;
+  }
+
+  const session = await loadAuthSession();
+  if (!session?.token) {
+    replyUsageCache = null;
+    replyUsageLoading = false;
+    replyUsageNoLogin = true;
+    updateSelectCounts();
+    return;
+  }
+
+  replyUsageNoLogin = false;
+  if (showLoading) {
+    replyUsageLoading = true;
+    updateSelectCounts();
+  }
+
+  try {
+    await refreshAccountUsage({ force: true });
+    const latest = await loadAuthSession();
+    replyUsageCache = latest?.usage || null;
+  } catch (_) {
+    replyUsageCache = session?.usage || null;
+  } finally {
+    replyUsageLoading = false;
+    if (!isGenerating) updateSelectCounts();
+  }
+}
+
+function showGenerationBlocked(message, total = selectedIds.size) {
+  if (isReplyGenerationBlockedMessage(message)) {
+    showLimitProgress({ success: 0, total, message });
+  } else {
+    showProgress(message, true);
+  }
 }
 
 function updateReviewBadge() {
@@ -601,6 +701,21 @@ async function onGenerate() {
     return;
   }
 
+  if (useAiProxy()) {
+    try {
+      const check = await ensureReplyGenerationAllowed(selectedRows.length);
+      replyUsageCache = check.usage || (await loadAuthSession())?.usage || replyUsageCache;
+      updateSelectCounts();
+      if (!check.ok) {
+        showGenerationBlocked(check.message, selectedRows.length);
+        return;
+      }
+    } catch (err) {
+      showProgress(err.message || '사용량 확인에 실패했습니다.', true);
+      return;
+    }
+  }
+
   const job = await getJobStatus();
   if (job?.status === 'running') {
     showRunningProgress(
@@ -630,7 +745,10 @@ async function onGenerate() {
       if (chrome.runtime.lastError || !response?.ok) {
         isGenerating = false;
         updateSelectCounts();
-        showProgress(response?.error || chrome.runtime.lastError?.message || '시작 실패', true);
+        showGenerationBlocked(
+          response?.error || chrome.runtime.lastError?.message || '시작 실패',
+          selectedRows.length
+        );
         return;
       }
       refreshJobStatus();
@@ -691,18 +809,41 @@ function refreshJobStatus() {
     els.stopBtn.textContent = '멈추기';
     updateSelectCounts();
 
+    if (job.status === 'limit_reached') {
+      if (job.finishedAt !== lastHandledFinishedAt) {
+        lastHandledFinishedAt = job.finishedAt;
+        showLimitProgress(job);
+        await loadReplyUsageCache({ showLoading: false });
+        if ((job.success ?? 0) > 0) {
+          await loadDraftAndRender();
+          switchTab('review');
+        }
+      }
+      return;
+    }
+
     if (job.status === 'done' || job.status === 'stopped') {
       if (job.finishedAt !== lastHandledFinishedAt) {
         lastHandledFinishedAt = job.finishedAt;
-        if (job.status === 'stopped') showStoppedProgress(job);
-        else showDoneProgress(job);
+        await loadReplyUsageCache({ showLoading: false });
+        const success = job.success ?? 0;
+        const failed = job.failed ?? 0;
+
+        if (job.status === 'stopped') {
+          showStoppedProgress(job);
+        } else if (success === 0 && failed > 0) {
+          showProgress(job.message || job.lastError || '답글 만들기에 실패했어요.', true);
+          return;
+        } else {
+          showDoneProgress(job);
+        }
         await loadDraftAndRender();
         switchTab('review');
       }
     } else if (job.status === 'error') {
       if (job.finishedAt !== lastHandledFinishedAt) {
         lastHandledFinishedAt = job.finishedAt;
-        showProgress(job.message || '오류가 발생했습니다.', true);
+        showProgress(job.message || job.lastError || '오류가 발생했습니다.', true);
       }
     }
   });
@@ -722,6 +863,9 @@ function onStorageChanged(changes, area) {
   if (changes[CONFIG.PROGRESS_KEY]) {
     refreshJobStatus();
   }
+  if (changes[AUTH_STORAGE_KEY]) {
+    syncReplyUsageFromStorage();
+  }
 }
 
 function showRunningProgress(current, total, currentId, message) {
@@ -735,6 +879,21 @@ function showRunningProgress(current, total, currentId, message) {
   els.genSubText.textContent = currentId
     ? `글번호 ${currentId} 처리 중...`
     : message;
+  updateUsageNotice();
+}
+
+function showLimitProgress(job) {
+  const success = job.success ?? 0;
+  const total = job.total ?? 0;
+
+  els.genProgress.classList.remove('hidden', 'success', 'stopped');
+  els.genProgress.classList.add('error');
+  els.genStatusText.textContent = '사용 한도 도달';
+  els.genCountText.textContent = success > 0 && total > 0 ? `${success} / ${total}` : '';
+  const pct = success > 0 && total > 0 ? Math.round((success / total) * 100) : 0;
+  els.genProgressFill.style.width = `${pct}%`;
+  els.genSubText.textContent =
+    job.message || job.lastError || '이번 달 답글 생성 한도에 도달했습니다.';
 }
 
 function showDoneProgress(job) {
