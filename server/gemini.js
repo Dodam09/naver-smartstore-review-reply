@@ -44,21 +44,29 @@ export async function generateText(userText, { model, temperature = 0.7 } = {}) 
   return extractText(await response.json());
 }
 
-export async function generateWithSystem(systemPrompt, userContent, { model, temperature = 0.7 } = {}) {
+export async function generateWithSystem(systemPrompt, userContent, { model, temperature = 0.7, googleSearch = false } = {}) {
   const geminiModel = model || DEFAULT_MODEL;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${encodeURIComponent(getApiKey())}`;
+
+  const body = {
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    contents: [{ role: 'user', parts: [{ text: userContent }] }],
+    generationConfig: { temperature },
+  };
+  if (googleSearch) {
+    body.tools = [{ google_search: {} }];
+  }
 
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ role: 'user', parts: [{ text: userContent }] }],
-      generationConfig: { temperature },
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
+    if (googleSearch) {
+      return generateWithSystem(systemPrompt, userContent, { model, temperature, googleSearch: false });
+    }
     throw new Error(parseGeminiError(response.status, await response.text()));
   }
 

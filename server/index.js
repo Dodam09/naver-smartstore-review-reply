@@ -41,8 +41,11 @@ import { getPlan, normalizePlanId } from './plans.js';
 import {
   buildAnalyzeMetaPrompt,
   buildInquiryUserContent,
+  buildProductFactLookupPrompt,
   buildReviewUserContent,
+  inquiryNeedsWebSearch,
   normalizeSamples,
+  parseProductFactLookup,
 } from './prompts.js';
 import { assertSubscriptionActive, SubscriptionError, cancelUserSubscriptionAtPeriodEnd, undoCancelSubscription } from './subscription.js';
 import { startRenewalScheduler } from './renewal.js';
@@ -153,7 +156,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'naver-smartstore-reply-api',
-    version: '1.3.20',
+    version: '1.3.31',
     geminiConfigured: !!String(process.env.GEMINI_API_KEY || '').trim(),
     authEnabled: true,
     registrationOpen: ALLOW_REGISTRATION,
@@ -738,12 +741,41 @@ app.post('/api/generate-reply', authenticate, async (req, res) => {
       return;
     }
 
+    const webSearch = channel === 'inquiry' && inquiryNeedsWebSearch(row);
+    let verifiedFacts = null;
+    let missingFacts = [];
+
+    if (webSearch) {
+      try {
+        const factRaw = await generateWithSystem(
+          '당신은 상품 정보 검증기입니다. 지시된 JSON만 출력하세요.',
+          buildProductFactLookupPrompt(row),
+          { model, temperature: 0.1, googleSearch: true }
+        );
+        const parsed = parseProductFactLookup(factRaw);
+        verifiedFacts = parsed.facts;
+        missingFacts = parsed.missing;
+      } catch (err) {
+        console.warn('상품 사실 검색 실패:', err.message || err);
+        verifiedFacts = [];
+        missingFacts = ['상품 정보 검색 실패'];
+      }
+    }
+
     const userContent =
       channel === 'inquiry'
-        ? buildInquiryUserContent(row, req.body?.references || [])
+        ? buildInquiryUserContent(row, req.body?.references || [], {
+            webSearch: false,
+            verifiedFacts: webSearch ? verifiedFacts : null,
+            missingFacts: webSearch ? missingFacts : [],
+          })
         : buildReviewUserContent(row);
 
-    const text = await generateWithSystem(systemPrompt, userContent, { model, temperature: 0.7 });
+    const text = await generateWithSystem(systemPrompt, userContent, {
+      model,
+      temperature: webSearch ? 0.35 : 0.7,
+      googleSearch: false,
+    });
 
     let usage;
     if (req.auth.mode === 'user') {
