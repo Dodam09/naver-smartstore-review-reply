@@ -1075,7 +1075,7 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
           '',
         ].join('\n')
       : verifiedFacts
-        ? '[확인된 사실 없음 — 구체 성분·균주·수치를 절대 지어내지 마세요]\n'
+        ? '[확인된 사실 없음 — 구체 성분·균주·수치를 절대 지어내지 마세요. 다만 "담당 부서 확인"으로 답 전체를 대체하지 마세요.]\n'
         : '';
   const missingBlock =
     missingFacts.length > 0
@@ -1094,7 +1094,7 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
     '작성 규칙:',
     ...buildInquiryAnswerRules({
       webSearch: false,
-      hasVerifiedFacts: Array.isArray(verifiedFacts),
+      hasVerifiedFacts: Array.isArray(verifiedFacts) && verifiedFacts.length > 0,
       product: row.product || '',
     }),
     '위 상품문의에 대한 판매자 답글만 출력하세요. 따옴표나 접두어 없이 본문만.',
