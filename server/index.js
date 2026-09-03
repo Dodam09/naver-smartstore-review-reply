@@ -42,6 +42,7 @@ import {
   buildAnalyzeMetaPrompt,
   buildInquiryUserContent,
   buildProductFactLookupPrompt,
+  buildProductSearchKeywords,
   buildReviewUserContent,
   inquiryNeedsWebSearch,
   normalizeSamples,
@@ -156,7 +157,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'naver-smartstore-reply-api',
-    version: '1.3.34',
+    version: '1.3.35',
     geminiConfigured: !!String(process.env.GEMINI_API_KEY || '').trim(),
     authEnabled: true,
     registrationOpen: ALLOW_REGISTRATION,
@@ -746,13 +747,25 @@ app.post('/api/generate-reply', authenticate, async (req, res) => {
     let missingFacts = [];
 
     if (webSearch) {
-      try {
+      const lookupFacts = async (targetRow) => {
         const factRaw = await generateWithSystem(
           '당신은 상품 정보 검증기입니다. 지시된 JSON만 출력하세요.',
-          buildProductFactLookupPrompt(row),
+          buildProductFactLookupPrompt(targetRow),
           { model, temperature: 0.1, googleSearch: true }
         );
-        const parsed = parseProductFactLookup(factRaw);
+        return parseProductFactLookup(factRaw);
+      };
+
+      try {
+        let parsed = await lookupFacts(row);
+
+        if (!parsed.facts.length) {
+          const { core } = buildProductSearchKeywords(row.product);
+          if (core && core !== String(row.product || '').trim()) {
+            parsed = await lookupFacts({ ...row, product: core });
+          }
+        }
+
         verifiedFacts = parsed.facts;
         missingFacts = parsed.missing;
       } catch (err) {

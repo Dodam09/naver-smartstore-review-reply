@@ -75,14 +75,43 @@ export function inquiryNeedsWebSearch(row) {
   return false;
 }
 
+const PRODUCT_TITLE_NOISE =
+  /^(강아지|고양이|반려견|반려묘|반려동물|애견|애묘|펫|무료배송|당일발송|정품|본품|사은품|증정|세트|기획|할인|특가|대용량|국내산|수제|프리미엄|피부|설사|변비|눈물자국|발사탕|기호성|장건강|영양제|추천|선물|\d+[가-힣a-z%]*|[0-9]+)$/i;
+
+export function buildProductSearchKeywords(product) {
+  const raw = String(product || '')
+    .replace(/[\[\](){}<>]/g, ' ')
+    .replace(/[+/·,]/g, ' ')
+    .trim();
+  if (!raw) return { brand: '', core: '', queries: [] };
+
+  const tokens = raw.split(/\s+/).filter(Boolean);
+  const kept = tokens.filter((t) => !PRODUCT_TITLE_NOISE.test(t));
+  const brand = kept[0] || tokens[0] || '';
+  const core = kept.slice(0, 3).join(' ') || brand;
+
+  const queries = [
+    core,
+    `${core} 성분`,
+    `${brand} 유산균 균주`,
+    `${brand} 프로바이오틱스 원재료`,
+  ].filter((q, i, arr) => q && arr.indexOf(q) === i);
+
+  return { brand, core, queries };
+}
+
 export function buildProductFactLookupPrompt(row) {
   const product = String(row?.product || '').trim();
   const productNo = String(row?.productNo || '').trim();
+  const { brand, core, queries } = buildProductSearchKeywords(product);
+
   return [
     '당신은 스마트스토어 상품 정보 검증기입니다.',
     '아래 상품에 대해서만 웹에서 공개된 사실을 찾고, JSON만 출력하세요.',
     '',
-    `상품명: ${product || '(없음)'}`,
+    `상품명(원문): ${product || '(없음)'}`,
+    brand ? `브랜드: ${brand}` : '',
+    core ? `핵심 상품명: ${core}` : '',
     productNo ? `상품번호: ${productNo}` : '',
     `고객 질문:\n${row?.content || ''}`,
     '',
@@ -91,9 +120,14 @@ export function buildProductFactLookupPrompt(row) {
     '- 프리바이오틱스·소화효소 등 함께 배합된 성분',
     '- 포스트바이오틱스(사균체·대사산물)를 별도 원료로 넣는지 여부',
     '',
-    '검색·검증 규칙:',
-    `- 검색어에 상품명 "${product || ''}"을 반드시 포함하세요. 필요하면 "균주", "KT-11", "프로바이오틱스", "보도"도 같이 검색하세요.`,
-    '- 이 상품명·브랜드와 일치하는 공식몰/상세/보도자료만 사용하세요.',
+    '검색 방법:',
+    '- 스마트스토어 제목 전체를 그대로 검색하지 마세요. 옵션·수량·증상 키워드가 섞여 있어 결과가 나오지 않습니다.',
+    '- 아래 검색어를 순서대로 여러 번 시도하세요.',
+    ...queries.map((q) => `  · ${q}`),
+    '- 공식몰·브랜드 사이트·보도자료·기사에서 균주명과 원재료를 찾으세요.',
+    '',
+    '검증 규칙:',
+    `- 브랜드 "${brand || ''}"의 같은 제품 정보만 사용하세요.`,
     '- 다른 브랜드·다른 제품·사람용 유산균·유사 이름의 타 제품 정보는 전부 버리세요.',
     '- 고객이 포스트바이오틱스를 물어도, 이 제품의 프로바이오틱스 균주·프리바이오틱스·효소 정보는 facts에 넣으세요.',
     '- "상세/보도에 포스트바이오틱스 원료 배합이 명시되지 않음"처럼 확인된 부정 사실도 facts에 넣으세요.',
