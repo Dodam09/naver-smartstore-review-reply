@@ -157,7 +157,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'naver-smartstore-reply-api',
-    version: '1.3.36',
+    version: '1.3.37',
     geminiConfigured: !!String(process.env.GEMINI_API_KEY || '').trim(),
     authEnabled: true,
     registrationOpen: ALLOW_REGISTRATION,
@@ -760,7 +760,7 @@ app.post('/api/generate-reply', authenticate, async (req, res) => {
         let parsed = await lookupFacts(row);
 
         if (!parsed.facts.length) {
-          const { core } = buildProductSearchKeywords(row.product);
+          const { core } = buildProductSearchKeywords(row.product, row.content);
           if (core && core !== String(row.product || '').trim()) {
             parsed = await lookupFacts({ ...row, product: core });
           }

@@ -1017,8 +1017,8 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
     references.length > 0
       ? [
           '아래는 이 상품(또는 비슷한 문의)에 대한 실제 판매자 답변입니다.',
-          '말투뿐 아니라 상품 정보·특징으로 사용하세요. 웹에 없는 판매자만 아는 안내(배합 의도, 급여 팁, 후기에서 확인한 특징 등)가 있으면 새 문의에 맞게 활용하세요.',
-          '다른 상품 답변의 스펙은 가져오지 마세요. 과거 답에 없는 균주·수치는 지어내지 마세요.',
+          '말투뿐 아니라 상품 정보·특징으로 사용하세요. 웹에 없는 판매자만 아는 안내(사용법, 구성 차이, 후기에서 확인한 특징 등)가 있으면 새 문의에 맞게 활용하세요.',
+          '다른 상품 답변의 스펙은 가져오지 마세요. 과거 답에 없는 고유명·수치는 지어내지 마세요.',
           ...references.map(
             (ref, index) =>
               `[참고 ${index + 1}${ref.product ? ` · ${ref.product}` : ''}]\n문의: ${ref.question}\n답변: ${ref.answer}`
