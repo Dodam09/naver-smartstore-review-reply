@@ -541,7 +541,7 @@ async function runGenerateInquiries(payload) {
 
       const row = rows[i];
       const references = referenceCatalog.length
-        ? pickSimilarInquiryReferences(row, referenceCatalog, 2)
+        ? pickInquiryKnowledgeReferences(row, referenceCatalog)
         : [];
 
       await updateInquiryProgress({
@@ -967,7 +967,7 @@ async function runTestInquiryReply(payload = {}) {
     const data = await storageGet([cacheKey]);
     const catalog = data[cacheKey]?.catalog || [];
     if (catalog.length) {
-      references = pickSimilarInquiryReferences(row, catalog, 2);
+      references = pickInquiryKnowledgeReferences(row, catalog);
     }
   } catch (_) {}
 
@@ -1016,10 +1016,12 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
   const refBlock =
     references.length > 0
       ? [
-          '아래는 비슷한 과거 상품문의와 실제 판매자 답변입니다. 말투·안내 방식을 참고하되, 새 문의에 맞게 작성하세요.',
+          '아래는 이 상품(또는 비슷한 문의)에 대한 실제 판매자 답변입니다.',
+          '말투뿐 아니라 상품 정보·특징으로 사용하세요. 웹에 없는 판매자만 아는 안내(배합 의도, 급여 팁, 후기에서 확인한 특징 등)가 있으면 새 문의에 맞게 활용하세요.',
+          '다른 상품 답변의 스펙은 가져오지 마세요. 과거 답에 없는 균주·수치는 지어내지 마세요.',
           ...references.map(
             (ref, index) =>
-              `[참고 ${index + 1}]\n문의: ${ref.question}\n답변: ${ref.answer}`
+              `[참고 ${index + 1}${ref.product ? ` · ${ref.product}` : ''}]\n문의: ${ref.question}\n답변: ${ref.answer}`
           ),
           '',
         ].join('\n')
@@ -1043,7 +1045,7 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
           systemInstruction: {
             parts: [{ text: '당신은 상품 정보 검증기입니다. 지시된 JSON만 출력하세요.' }],
           },
-          contents: [{ role: 'user', parts: [{ text: buildProductFactLookupPrompt(row) }] }],
+          contents: [{ role: 'user', parts: [{ text: buildProductFactLookupPrompt(row, references) }] }],
           generationConfig: { temperature: 0.1 },
           tools: [{ google_search: {} }],
         }),
@@ -1095,6 +1097,7 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
     ...buildInquiryAnswerRules({
       webSearch: false,
       hasVerifiedFacts: Array.isArray(verifiedFacts) && verifiedFacts.length > 0,
+      hasSellerRefs: references.length > 0,
       product: row.product || '',
     }),
     '위 상품문의에 대한 판매자 답글만 출력하세요. 따옴표나 접두어 없이 본문만.',

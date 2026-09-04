@@ -157,7 +157,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'naver-smartstore-reply-api',
-    version: '1.3.35',
+    version: '1.3.36',
     geminiConfigured: !!String(process.env.GEMINI_API_KEY || '').trim(),
     authEnabled: true,
     registrationOpen: ALLOW_REGISTRATION,
@@ -750,7 +750,7 @@ app.post('/api/generate-reply', authenticate, async (req, res) => {
       const lookupFacts = async (targetRow) => {
         const factRaw = await generateWithSystem(
           '당신은 상품 정보 검증기입니다. 지시된 JSON만 출력하세요.',
-          buildProductFactLookupPrompt(targetRow),
+          buildProductFactLookupPrompt(targetRow, req.body?.references || []),
           { model, temperature: 0.1, googleSearch: true }
         );
         return parseProductFactLookup(factRaw);

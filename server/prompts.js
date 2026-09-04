@@ -100,20 +100,35 @@ export function buildProductSearchKeywords(product) {
   return { brand, core, queries };
 }
 
-export function buildProductFactLookupPrompt(row) {
+function formatSellerReferenceBlock(references = []) {
+  const list = Array.isArray(references) ? references.filter((ref) => ref?.answer) : [];
+  if (!list.length) return '';
+  return [
+    '[이 상품에 대한 판매자 과거 답변 — 공개 웹에 없어도 이 상품의 사실·특징으로 사용]',
+    ...list.slice(0, 8).map(
+      (ref, index) =>
+        `[판매자 안내 ${index + 1}]\n문의: ${ref.question || ''}\n답변: ${ref.answer}`
+    ),
+    '',
+  ].join('\n');
+}
+
+export function buildProductFactLookupPrompt(row, references = []) {
   const product = String(row?.product || '').trim();
   const productNo = String(row?.productNo || '').trim();
   const { brand, core, queries } = buildProductSearchKeywords(product);
+  const sellerBlock = formatSellerReferenceBlock(references);
 
   return [
     '당신은 스마트스토어 상품 정보 검증기입니다.',
-    '아래 상품에 대해서만 웹에서 공개된 사실을 찾고, JSON만 출력하세요.',
+    '아래 상품에 대해 판매자 과거 답변과 웹에서 공개된 사실을 모아 JSON만 출력하세요.',
     '',
     `상품명(원문): ${product || '(없음)'}`,
     brand ? `브랜드: ${brand}` : '',
     core ? `핵심 상품명: ${core}` : '',
     productNo ? `상품번호: ${productNo}` : '',
     `고객 질문:\n${row?.content || ''}`,
+    sellerBlock,
     '',
     '반드시 검색할 항목:',
     '- 프로바이오틱스/유산균 균주명(예: KT-11, Lactobacillus crispatus)',
@@ -128,6 +143,9 @@ export function buildProductFactLookupPrompt(row) {
     '',
     '검증 규칙:',
     `- 브랜드 "${brand || ''}"의 같은 제품 정보만 사용하세요.`,
+    '- 위에 판매자 과거 답변이 있으면 그것을 1차 자료로 쓰세요. 웹에 없어도 그 상품의 사실입니다.',
+    '- 판매자 과거 답변에 있는 균주·성분·특징·급여법·배합 의도를 facts에 넣으세요.',
+    '- 웹 검색과 판매자 안내가 다르면, 이 상품의 판매자 과거 답변을 우선하세요.',
     '- 다른 브랜드·다른 제품·사람용 유산균·유사 이름의 타 제품 정보는 전부 버리세요.',
     '- 고객이 포스트바이오틱스를 물어도, 이 제품의 프로바이오틱스 균주·프리바이오틱스·효소 정보는 facts에 넣으세요.',
     '- "상세/보도에 포스트바이오틱스 원료 배합이 명시되지 않음"처럼 확인된 부정 사실도 facts에 넣으세요.',
@@ -183,10 +201,12 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
   const refBlock =
     references.length > 0
       ? [
-          '아래는 비슷한 과거 상품문의와 실제 판매자 답변입니다. 말투·안내 방식을 참고하되, 새 문의에 맞게 작성하세요.',
+          '아래는 이 상품(또는 비슷한 문의)에 대한 실제 판매자 답변입니다.',
+          '말투뿐 아니라 상품 정보·특징으로 사용하세요. 웹에 없는 판매자만 아는 안내(배합 의도, 급여 팁, 후기에서 확인한 특징 등)가 있으면 새 문의에 맞게 활용하세요.',
+          '다른 상품 답변의 스펙은 가져오지 마세요. 과거 답에 없는 균주·수치는 지어내지 마세요.',
           ...references.map(
             (ref, index) =>
-              `[참고 ${index + 1}]\n문의: ${ref.question}\n답변: ${ref.answer}`
+              `[참고 ${index + 1}${ref.product ? ` · ${ref.product}` : ''}]\n문의: ${ref.question}\n답변: ${ref.answer}`
           ),
           '',
         ].join('\n')
@@ -209,9 +229,13 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
       : '';
 
   const hasFacts = Array.isArray(verifiedFacts) && verifiedFacts.length > 0;
+  const hasSellerRefs = references.length > 0;
   const rules = verifiedFacts
     ? [
         '- 문의의 핵심 질문에 첫 1~2문장에서 바로 답하세요. 돌려 말하지 마세요.',
+        hasSellerRefs
+          ? '- 같은 상품의 과거 판매자 답변은 1차 자료입니다. 웹 검색보다 우선하고, 거기에 있는 특징·성분은 본문에 쓰세요.'
+          : '',
         '- 위 "확인된 사실"이 하나라도 있으면 그걸로 먼저 답하세요. 답글 전체를 "확인 불가/담당 부서 확인"으로 대체하지 마세요.',
         '- 금지 문구: "확인된 정보가 없어", "정확한 안내가 어렵습니다", "담당 부서에 확인 후", "잠시만 기다려 주세요"(사실 문의 회피용).',
         '- 고객이 포스트바이오틱스를 물었고 확인된 사실에 프로바이오틱스 균주가 있으면: 이 제품은 프로바이오틱스(및 관련 성분) 제품이며 해당 균주명을 말하고, 포스트바이오틱스 별도 원료 여부는 확인된 범위만 말하세요.',
@@ -222,13 +246,17 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
         '- 다른 제품·일반 상식으로 빈칸을 채우지 마세요.',
         hasFacts
           ? '- 확인되지 않은 항목이 있으면, 확인된 내용을 말한 뒤에만 그 항목을 짧게 보완 안내하세요.'
-          : '- 확인된 사실이 없을 때만, 공개 정보에서 확인하지 못했다고 짧게 말하고 지어내지 마세요. 담당 부서 확인으로 미루지 마세요.',
+          : hasSellerRefs
+            ? '- 웹에서 확인된 사실이 없어도, 같은 상품의 과거 판매자 답변에 있는 정보로 답하세요. 담당 부서 확인으로 미루지 마세요.'
+            : '- 확인된 사실이 없을 때만, 공개 정보에서 확인하지 못했다고 짧게 말하고 지어내지 마세요. 담당 부서 확인으로 미루지 마세요.',
       ]
     : webSearch
       ? [
           '- 문의의 핵심 질문에 바로 답하세요. 돌려 말하지 마세요.',
-          `- 검색할 때 반드시 상품명 "${String(row?.product || '').trim()}"을 포함하세요.`,
-          '- 이 상품(동일 브랜드·제품명)의 공식/상세 정보만 사용하세요. 다른 제품 정보는 버리세요.',
+          hasSellerRefs
+            ? '- 같은 상품의 과거 판매자 답변을 1차 자료로 쓰고, 웹 검색은 부족한 부분만 보완하세요.'
+            : `- 검색할 때 반드시 상품명 "${String(row?.product || '').trim()}"을 포함하세요.`,
+          '- 이 상품(동일 브랜드·제품명)의 공식/상세 정보와 판매자 과거 답변만 사용하세요. 다른 제품 정보는 버리세요.',
           '- 확인된 균주·성분·수치는 고유명으로 바로 말하고, 상세페이지 확인을 떠넘기지 마세요.',
           '- 없는 균주·성분·수치는 지어내지 마세요.',
           '- "담당 부서에 확인 후", "확인된 정보가 없어 안내가 어렵습니다"로 답 전체를 대체하지 마세요.',
@@ -236,7 +264,9 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
       : [
           '- 문의의 핵심 질문에 바로 답하세요.',
           '- 문의·상품명·참고 답변에 있는 정보로만 답하세요. 없는 수치·스펙은 지어내지 마세요.',
-          '- 확인이 더 필요하면 그 부분만 확인 후 안내하겠다고 하세요.',
+          hasSellerRefs
+            ? '- 같은 상품의 과거 판매자 답변에 있는 특징·성분·급여 안내는 웹에 없어도 사용하세요.'
+            : '- 확인이 더 필요하면 그 부분만 확인 후 안내하겠다고 하세요.',
           '- 질문과 무관한 광고 문구로 둘러대지 마세요.',
         ];
 
