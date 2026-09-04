@@ -542,7 +542,7 @@ async function runGenerateInquiries(payload) {
       const row = rows[i];
       const references = referenceCatalog.length
         ? pickInquiryReferencesForRow(row, referenceCatalog)
-        : [];
+        : await loadInquiryReferencesForRow(row);
 
       await updateInquiryProgress({
         status: 'running',
@@ -700,6 +700,29 @@ function getDefaultInquirySystemPrompt() {
     BUILTIN_INQUIRY_TONE_PRESETS?.[0]?.prompt ||
     '당신은 네이버 스마트스토어 판매자입니다. 고객 상품문의에 정확하고 친절한 답글을 한국어로 작성하세요.'
   );
+}
+
+function splitInquirySampleAnswers(text) {
+  return String(text || '')
+    .split(/\n\s*---\s*\n/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 8)
+    .slice(0, 20);
+}
+
+async function loadInquiryReferencesForRow(row) {
+  const cacheKey = CONFIG.INQUIRY_REFERENCE_CACHE_KEY || 'smartstoreInquiryReferenceCache';
+  const data = await storageGet([cacheKey, CONFIG.SETTINGS_KEY]);
+  const catalog = data[cacheKey]?.catalog || [];
+  if (catalog.length) {
+    const fromCatalog = pickInquiryReferencesForRow(row, catalog);
+    if (fromCatalog.length) return fromCatalog;
+  }
+
+  const sampleText = data[CONFIG.SETTINGS_KEY]?.inquirySampleReplies || '';
+  const answers = splitInquirySampleAnswers(sampleText);
+  if (!answers.length) return [];
+  return pickInquiryReferencesFromAnswers(row, answers, 4);
 }
 
 async function loadInquiryReferenceCatalog(days) {
@@ -947,12 +970,7 @@ async function runTestInquiryReply(payload = {}) {
 
   let references = [];
   try {
-    const cacheKey = CONFIG.INQUIRY_REFERENCE_CACHE_KEY || 'smartstoreInquiryReferenceCache';
-    const data = await storageGet([cacheKey]);
-    const catalog = data[cacheKey]?.catalog || [];
-    if (catalog.length) {
-      references = pickInquiryReferencesForRow(row, catalog);
-    }
+    references = await loadInquiryReferencesForRow(row);
   } catch (_) {}
 
   const text = await generateInquiryReply(
@@ -972,6 +990,7 @@ async function runTestInquiryReply(payload = {}) {
     reason: needsConfirm ? getConfirmInquiryReason(row) : '',
     text,
     usage: session?.usage || check.usage || null,
+    referenceCount: references.length,
   };
 }
 

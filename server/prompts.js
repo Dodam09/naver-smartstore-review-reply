@@ -280,7 +280,8 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
   const sellerRules = [
     '- 이 문의는 스펙 조사가 아닙니다. 아래 과거 판매자 답변을 분석해 이번 문의에 맞게 새로 쓰세요.',
     '- 비슷한 문의의 결론(가능/주의/방법)과 설명 방식을 따르세요. 일반 상식이나 상품 소개로 새로 만들지 마세요.',
-    '- 문의에 적힌 조건에 바로 답하세요.',
+    '- 첫 문장에서 상품이 무엇인지 소개하지 마세요. 물은 조건부터 답하세요.',
+    '- "상세페이지를 참고하세요"로 사용법·가능 여부를 떠넘기지 마세요.',
     '- 과거 답변에 없는 상담 권고("전문가/병원에 문의하세요")는 넣지 마세요.',
     hasSellerRefs
       ? '- 과거 답변에 없는 고유명·수치는 추가하지 마세요.'
@@ -300,6 +301,7 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
     row.writer && `문의자: ${row.writer}`,
     row.secret != null && `비밀문의: ${row.secret ? '예' : '아니오'}`,
     `문의 내용:\n${row.content}`,
+    '작성 규칙이 시스템 말투보다 우선합니다. 말투만 맞추고, 내용은 과거 판매자 답변을 따르세요.',
     '작성 규칙:',
     ...rules,
     '위 상품문의에 대한 판매자 답글만 출력하세요. 따옴표나 접두어 없이 본문만.',

@@ -714,16 +714,20 @@ async function onInquiryTestGenerate() {
       }
       if (els.inquiryTestStatus) {
         const usageText = formatUsageSummary(response.usage);
+        const refCount = Number(response.referenceCount) || 0;
+        const refText = refCount
+          ? `참고 답변 ${refCount}건`
+          : '참고 답변 없음 · 상품문의 답변 목록을 먼저 불러오세요';
         if (response.needsConfirm) {
           els.inquiryTestStatus.textContent = response.reason
-            ? `초안 작성됨 · 확인 필요 · ${response.reason}${usageText ? ` · ${usageText}` : ''}`
-            : `초안 작성됨 · 확인 필요${usageText ? ` · ${usageText}` : ''}`;
+            ? `초안 작성됨 · 확인 필요 · ${response.reason} · ${refText}${usageText ? ` · ${usageText}` : ''}`
+            : `초안 작성됨 · 확인 필요 · ${refText}${usageText ? ` · ${usageText}` : ''}`;
           els.inquiryTestStatus.style.color = '#9a6700';
         } else {
           els.inquiryTestStatus.textContent = usageText
-            ? `테스트 완료 · 1건 차감됨 · ${usageText}`
-            : '테스트 완료 · 1건 차감됨';
-          els.inquiryTestStatus.style.color = '#0a7a3f';
+            ? `테스트 완료 · 1건 차감됨 · ${refText} · ${usageText}`
+            : `테스트 완료 · 1건 차감됨 · ${refText}`;
+          els.inquiryTestStatus.style.color = refCount ? '#0a7a3f' : '#9a6700';
         }
       }
       await refreshInquiryTestUsageHint();
