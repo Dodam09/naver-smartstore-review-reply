@@ -1055,7 +1055,7 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
           '',
         ].join('\n')
       : verifiedFacts
-        ? '[확인된 사실 없음 — 구체 성분·균주·수치를 절대 지어내지 마세요. 다만 "담당 부서 확인"으로 답 전체를 대체하지 마세요.]\n'
+        ? '[확인된 사실 없음 — 구체 스펙·고유명·수치를 절대 지어내지 마세요. 다만 "담당 부서 확인"으로 답 전체를 대체하지 마세요.]\n'
         : '';
   const missingBlock =
     missingFacts.length > 0
@@ -1077,10 +1077,7 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
       hasVerifiedFacts: Array.isArray(verifiedFacts) && verifiedFacts.length > 0,
       hasSellerRefs: references.length > 0,
       isReturn: isReturnInquiry(row),
-      isSuitability:
-        /먹어도|먹여도|섭취|급여|사용해도|써도\s*(돼|되)|가능한가|괜찮을까|해도\s*될|해도\s*되|개월|몇\s*살|\d+\s*살|연령|나이|노견|노령|지간염|피부염|아토피|알러지|알레르기|설사|변비|질환/.test(
-          String(row?.content || '')
-        ),
+      isEligibility: isEligibilityInquiry(row),
       product: row.product || '',
     }),
     '위 상품문의에 대한 판매자 답글만 출력하세요. 따옴표나 접두어 없이 본문만.',

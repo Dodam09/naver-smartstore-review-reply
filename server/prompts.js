@@ -60,6 +60,20 @@ export function buildReviewUserContent(row) {
     .join('\n');
 }
 
+export function isEligibilityInquiry(row) {
+  const text = String(row?.content || '').trim();
+  if (!text) return false;
+  const canUse =
+    /먹어도|먹여도|먹일\s*수|섭취해도|급여해도|사용해도|사용\s*가능|써도\s*(돼|되)|발라도|입어도|껴도|해도\s*(될|되)|괜찮을까|괜찮나요|문제\s*없/.test(
+      text
+    );
+  const whoOrAge =
+    /몇\s*살|\d+\s*살|\d+\s*개월|개월령|연령|나이|유아|어린이|임산부|수유|시니어|노령|노견|아기/.test(
+      text
+    );
+  return canUse || whoOrAge;
+}
+
 export function inquiryNeedsWebSearch(row) {
   const question = String(row?.content || '').trim();
   if (!question) return false;
@@ -160,7 +174,8 @@ export function buildProductFactLookupPrompt(row, references = []) {
     '- 웹 검색과 판매자 안내가 다르면, 이 상품의 판매자 과거 답변을 우선하세요.',
     '- 다른 브랜드·다른 제품·유사 이름의 타 제품 정보는 전부 버리세요.',
     '- 고객이 A를 물었고 확인된 사실에 관련 구성이 있으면, 그 고유명을 facts에 넣으세요. 질문에 없는 카테고리 지식으로 채우지 마세요.',
-    '- 확인된 부정 사실(이 제품에 해당 원료/기능이 명시되지 않음)도 facts에 넣으세요.',
+    '- 고객이 포함·해당 여부를 물었고, 이 제품에 없거나 해당하지 않음이 확인되면 그 부정 사실을 facts에 넣으세요.',
+    '- 상세페이지에 대상·연령·용법이 안 적혀 있다는 이유만으로 "명시되어 있지 않음"을 facts나 missing에 넣지 마세요. 판매자 과거 답변이 있으면 그 안내를 facts에 넣으세요.',
     '- 스펙은 모호한 표현 말고 고유명·수치로 적으세요.',
     '- "프리미엄", "엄선된"처럼 이름 없는 표현은 facts에 넣지 마세요.',
     '- 정말 못 찾은 항목만 missing에 적으세요. 관련 사실을 찾았으면 facts를 비우지 마세요.',
@@ -243,10 +258,7 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
   const hasFacts = Array.isArray(verifiedFacts) && verifiedFacts.length > 0;
   const hasSellerRefs = references.length > 0;
   const isReturn = /교환|반품|환불|취소/.test(String(row?.content || ''));
-  const isSuitability =
-    /먹어도|먹여도|섭취|급여|사용해도|써도\s*(돼|되)|가능한가|괜찮을까|해도\s*될|해도\s*되|개월|몇\s*살|\d+\s*살|연령|나이|노견|노령|지간염|피부염|아토피|알러지|알레르기|설사|변비|질환/.test(
-      String(row?.content || '')
-    );
+  const isEligibility = isEligibilityInquiry(row);
   const returnRules = isReturn
     ? [
         '- 불편·증상에는 먼저 공감하세요.',
@@ -255,15 +267,17 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
         '- 없는 반품 주소·기한·수거 일정·환불 금액은 지어내지 마세요.',
       ]
     : [];
-  const suitabilityRules = isSuitability
+  const eligibilityRules = isEligibility
     ? [
-        '- 가능 여부·주의사항을 첫 문장에서 답하세요. 성분·스펙 나열로 시작하지 마세요.',
-        '- 같은 상품의 과거 판매자 답변에 연령·급여·증상 안내가 있으면 그 안내를 따르세요.',
-        '- 과거 답변으로 가능하다고 안내된 내용을, 웹 상세에 없다고 뒤집어 "명시되어 있지 않습니다"라고 하지 마세요.',
-        '- 질문하지 않은 전 성분·균주·배제 원료 목록을 나열하지 마세요. 질문에 도움이 되는 특징만 짧게 덧붙이세요.',
-        '- 의학적 진단·완치 단정은 하지 마세요. 과거 판매자가 안내한 범위에서만 말하세요.',
+        '- 사용·섭취·착용 가능 여부를 물으면 첫 문장에서 가능 여부·주의사항을 답하세요. 스펙 나열로 시작하지 마세요.',
+        '- 같은 상품의 과거 판매자 답변에 대상·사용 조건 안내가 있으면 그 안내를 따르세요.',
+        '- 치료·완치를 단정하지 마세요. 과거 판매자가 안내한 범위에서만 말하세요.',
       ]
     : [];
+  const commonPriorityRules = [
+    '- 과거 판매자 답변에 있는 안내를, 웹 상세에 없다고 해서 "명시되어 있지 않습니다"로 뒤집지 마세요.',
+    '- 질문하지 않은 스펙·구성 목록을 나열하지 마세요. 질문에 필요한 내용만 쓰세요.',
+  ];
   const rules = verifiedFacts
     ? [
         '- 문의의 핵심 질문에 첫 1~2문장에서 바로 답하세요. 돌려 말하지 마세요.',
@@ -282,8 +296,9 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
           : hasSellerRefs
             ? '- 웹에서 확인된 사실이 없어도, 같은 상품의 과거 판매자 답변에 있는 정보로 답하세요. 담당 부서 확인으로 미루지 마세요.'
             : '- 확인된 사실이 없을 때만, 공개 정보에서 확인하지 못했다고 짧게 말하고 지어내지 마세요. 담당 부서 확인으로 미루지 마세요.',
+        ...commonPriorityRules,
         ...returnRules,
-        ...suitabilityRules,
+        ...eligibilityRules,
       ]
     : webSearch
       ? [
@@ -295,8 +310,9 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
           '- 확인된 고유명·수치·스펙은 바로 말하고, 상세페이지 확인을 떠넘기지 마세요.',
           '- 없는 스펙·수치는 지어내지 마세요.',
           '- "담당 부서에 확인 후", "확인된 정보가 없어 안내가 어렵습니다"로 답 전체를 대체하지 마세요.',
+          ...commonPriorityRules,
           ...returnRules,
-          ...suitabilityRules,
+          ...eligibilityRules,
         ]
       : [
           '- 문의의 핵심 질문에 바로 답하세요.',
@@ -305,8 +321,9 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
             ? '- 같은 상품의 과거 판매자 답변에 있는 특징·스펙·사용 안내는 웹에 없어도 사용하세요.'
             : '- 확인이 더 필요하면 그 부분만 확인 후 안내하겠다고 하세요.',
           '- 질문과 무관한 광고 문구로 둘러대지 마세요.',
+          ...commonPriorityRules,
           ...returnRules,
-          ...suitabilityRules,
+          ...eligibilityRules,
         ];
 
   return [
