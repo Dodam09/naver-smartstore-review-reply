@@ -708,31 +708,23 @@ async function onInquiryTestGenerate() {
         return;
       }
 
-      if (response.deferred) {
-        if (els.inquiryTestResult) {
-          els.inquiryTestResult.value = '';
-          els.inquiryTestResult.readOnly = true;
-        }
-        if (els.inquiryTestStatus) {
-          els.inquiryTestStatus.textContent =
-            `${response.reason || '직접 작성이 필요한 문의 유형입니다.'} (사용량 차감 없음)`;
-          els.inquiryTestStatus.style.color = '#9a6700';
-        }
-        await refreshInquiryTestUsageHint();
-        await saveInquiryTestDraft();
-        return;
-      }
-
       if (els.inquiryTestResult) {
         els.inquiryTestResult.value = response.text || '';
         els.inquiryTestResult.readOnly = false;
       }
       if (els.inquiryTestStatus) {
         const usageText = formatUsageSummary(response.usage);
-        els.inquiryTestStatus.textContent = usageText
-          ? `테스트 완료 · 1건 차감됨 · ${usageText}`
-          : '테스트 완료 · 1건 차감됨';
-        els.inquiryTestStatus.style.color = '#0a7a3f';
+        if (response.needsConfirm) {
+          els.inquiryTestStatus.textContent = response.reason
+            ? `초안 작성됨 · 확인 필요 · ${response.reason}${usageText ? ` · ${usageText}` : ''}`
+            : `초안 작성됨 · 확인 필요${usageText ? ` · ${usageText}` : ''}`;
+          els.inquiryTestStatus.style.color = '#9a6700';
+        } else {
+          els.inquiryTestStatus.textContent = usageText
+            ? `테스트 완료 · 1건 차감됨 · ${usageText}`
+            : '테스트 완료 · 1건 차감됨';
+          els.inquiryTestStatus.style.color = '#0a7a3f';
+        }
       }
       await refreshInquiryTestUsageHint();
       await saveInquiryTestDraft();

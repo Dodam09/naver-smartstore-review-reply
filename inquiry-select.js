@@ -234,18 +234,24 @@ function renderReview() {
   const sorted = [...draftItems].sort((a, b) => {
     const aManual = a.needsManual && !String(a.reply || '').trim() ? 0 : 1;
     const bManual = b.needsManual && !String(b.reply || '').trim() ? 0 : 1;
-    return aManual - bManual;
+    if (aManual !== bManual) return aManual - bManual;
+    const aConfirm = a.needsConfirm ? 0 : 1;
+    const bConfirm = b.needsConfirm ? 0 : 1;
+    return aConfirm - bConfirm;
   });
 
   els.reviewList.innerHTML = sorted
     .map((item) => {
       const needsManual = !!item.needsManual && !String(item.reply || '').trim();
+      const needsConfirm = !!item.needsConfirm && !needsManual;
+      const cardClass = needsManual ? ' needs-manual' : needsConfirm ? ' needs-confirm' : '';
       return `
-    <article class="card review-card${needsManual ? ' needs-manual' : ''}" data-id="${escapeHtml(item.id)}">
+    <article class="card review-card${cardClass}" data-id="${escapeHtml(item.id)}">
       <div class="card-top">
         <div class="card-id">#${escapeHtml(item.id)}</div>
         <div class="card-badges">
           ${needsManual ? '<span class="badge manual">직접 작성</span>' : ''}
+          ${needsConfirm ? '<span class="badge confirm">확인 필요</span>' : ''}
           ${item.secret ? '<span class="badge secret">비밀</span>' : ''}
         </div>
       </div>
@@ -256,7 +262,11 @@ function renderReview() {
           ? `<div class="manual-hint">${escapeHtml(
               item.manualReason || '비슷한 과거 답변이 없어 직접 작성해 주세요.'
             )}</div>`
-          : ''
+          : needsConfirm
+            ? `<div class="confirm-hint">${escapeHtml(
+                item.confirmReason || '반품·배송 안내는 검토한 뒤 올려 주세요.'
+              )}</div>`
+            : ''
       }
       <div class="reply-label">${needsManual ? '직접 답글 작성' : '판매자 답글'}</div>
       <textarea class="reply-input" data-id="${escapeHtml(item.id)}" maxlength="2000" placeholder="${
@@ -414,10 +424,14 @@ function updateReviewStats() {
   els.applyStatus.textContent = applyEnabled ? '준비됨' : '아직';
   els.applyStatus.style.color = applyEnabled ? '#0a7a3f' : '#333';
 
+  const confirmPending = draftItems.filter((i) => i.needsConfirm && String(i.reply || '').trim()).length;
+
   if (applyEnabled) {
     els.reviewSummary.textContent = '준비됐어요. 판매자센터 상품문의에서 [답글]만 누르면 자동으로 채워집니다.';
   } else if (manualPending > 0) {
     els.reviewSummary.textContent = `직접 작성 ${manualPending}건이 남았어요. 빨간 카드를 먼저 채워 주세요.`;
+  } else if (confirmPending > 0) {
+    els.reviewSummary.textContent = `확인 필요 ${confirmPending}건이 있어요. 노란 카드의 반품·배송 초안을 검토해 주세요.`;
   } else if (filled === total && total > 0) {
     els.reviewSummary.textContent = '답글 확인이 끝났어요. 아래 「판매자센터에 넣기 준비」를 누르세요.';
   } else {
@@ -540,11 +554,17 @@ function updateReviewBanner() {
   const manualPending = draftItems.filter(
     (i) => i.needsManual && !String(i.reply || '').trim()
   ).length;
+  const confirmPending = draftItems.filter((i) => i.needsConfirm && String(i.reply || '').trim()).length;
   if (applyEnabled) {
     showBanner('준비됐어요. 판매자센터에서 [답글]만 누르면 자동으로 채워집니다.', 'info');
   } else if (manualPending > 0) {
     showBanner(
       `직접 작성 ${manualPending}건이 있어요. 빨간 「직접 작성」 카드에 답글을 적어 주세요.`,
+      'warn'
+    );
+  } else if (confirmPending > 0) {
+    showBanner(
+      `확인 필요 ${confirmPending}건이 있어요. 노란 「확인 필요」 초안을 검토한 뒤 올려 주세요.`,
       'warn'
     );
   } else if (draftItems.length) {
@@ -796,16 +816,16 @@ function showLimitProgress(job) {
 function showDoneProgress(job) {
   const success = job.success ?? 0;
   const failed = job.failed ?? 0;
-  const manual = job.manual ?? 0;
+  const confirm = job.confirm ?? job.manual ?? 0;
   const total = job.total ?? 0;
 
   els.genProgress.classList.remove('hidden', 'error', 'stopped');
-  els.genProgress.classList.add(manual > 0 ? 'error' : 'success');
-  els.genStatusText.textContent = manual > 0 ? '일부 직접 작성 필요' : '생성 완료';
-  els.genCountText.textContent = `${success + manual} / ${total}`;
+  els.genProgress.classList.add(confirm > 0 ? 'error' : 'success');
+  els.genStatusText.textContent = confirm > 0 ? '일부 확인 필요' : '생성 완료';
+  els.genCountText.textContent = `${success} / ${total}`;
   els.genProgressFill.style.width = '100%';
   const parts = [`AI ${success}건`];
-  if (manual > 0) parts.push(`직접 작성 ${manual}건`);
+  if (confirm > 0) parts.push(`확인 필요 ${confirm}건`);
   if (failed > 0) parts.push(`실패 ${failed}건`);
   els.genSubText.textContent = `${parts.join(' · ')} · 검토 탭에서 확인하세요`;
 }
@@ -814,11 +834,11 @@ function showStoppedProgress(job) {
   els.genProgress.classList.remove('hidden', 'error', 'success');
   els.genProgress.classList.add('stopped');
   els.genStatusText.textContent = '멈추기됨';
-  els.genCountText.textContent = `${(job.success ?? 0) + (job.manual ?? 0)} / ${job.total ?? 0}`;
-  const manual = job.manual ?? 0;
+  els.genCountText.textContent = `${job.success ?? 0} / ${job.total ?? 0}`;
+  const confirm = job.confirm ?? job.manual ?? 0;
   els.genSubText.textContent =
-    manual > 0
-      ? `AI ${job.success ?? 0}건 · 직접 작성 ${manual}건 — 검토 탭에서 확인하세요`
+    confirm > 0
+      ? `AI ${job.success ?? 0}건 · 확인 필요 ${confirm}건 — 검토 탭에서 확인하세요`
       : `저장 ${job.success ?? 0}건 — 검토 탭에서 확인하세요`;
 }
 

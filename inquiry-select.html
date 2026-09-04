@@ -256,10 +256,16 @@
     }
     .badge.secret { background: #fef3c7; color: #92400e; }
     .badge.manual { background: #fee2e2; color: #b91c1c; }
+    .badge.confirm { background: #fef3c7; color: #92400e; }
     .card.needs-manual {
       border-color: #fca5a5;
       background: #fff7f7;
       box-shadow: 0 4px 16px rgba(185, 28, 28, .08);
+    }
+    .card.needs-confirm {
+      border-color: #fcd34d;
+      background: #fffbeb;
+      box-shadow: 0 4px 16px rgba(180, 83, 9, .08);
     }
     .manual-hint {
       margin: 0 0 10px;
@@ -268,6 +274,16 @@
       background: #fef2f2;
       border: 1px solid #fecaca;
       color: #991b1b;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .confirm-hint {
+      margin: 0 0 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      color: #92400e;
       font-size: 13px;
       line-height: 1.5;
     }

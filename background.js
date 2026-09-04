@@ -24,18 +24,18 @@ async function notifyUsageLimit(message) {
   }
 }
 
-async function notifyManualInquiryNeeded(count) {
+async function notifyConfirmInquiryNeeded(count) {
   if (!count) return;
   try {
-    await chrome.notifications.create(`manual-inquiry-${Date.now()}`, {
+    await chrome.notifications.create(`confirm-inquiry-${Date.now()}`, {
       type: 'basic',
       iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
-      title: '직접 작성할 문의가 있어요',
-      message: `배송·재고 등 ${count}건은 비슷한 과거 답변이 없어 검토 탭에서 직접 작성해 주세요.`,
+      title: '확인이 필요한 답글이 있어요',
+      message: `반품·배송 등 ${count}건은 초안이 있으니 검토 탭에서 확인한 뒤 올려 주세요.`,
       priority: 2,
     });
   } catch (err) {
-    console.warn('직접 작성 알림 표시 실패:', err);
+    console.warn('확인 필요 알림 표시 실패:', err);
   }
 }
 
@@ -507,7 +507,7 @@ async function runGenerateInquiries(payload) {
 
     let success = 0;
     let failed = 0;
-    let manual = 0;
+    let confirmCount = 0;
     let lastError = '';
     const existingReplies = (await storageGet([storageKey]))[storageKey] || {};
     const replyMap = { ...existingReplies };
@@ -550,7 +550,8 @@ async function runGenerateInquiries(payload) {
         current: i + 1,
         success,
         failed,
-        manual,
+        manual: confirmCount,
+        confirm: confirmCount,
         currentId: row.id,
         message: `문의 답변 생성 중 (${i + 1}/${total}) — 문의번호 ${row.id}`,
         lastError,
@@ -559,30 +560,6 @@ async function runGenerateInquiries(payload) {
       });
 
       try {
-        if (shouldDeferInquiryToManual(row, references)) {
-          const reason = getManualInquiryReason(row);
-          draftItems.push({
-            id: row.id,
-            inquiryContent: row.content,
-            product: row.product || '',
-            writer: row.writer || '',
-            secret: !!row.secret,
-            reply: '',
-            needsManual: true,
-            manualReason: reason,
-            referenceIds: [],
-          });
-          manual++;
-
-          await storageSet({
-            [draftKey]: {
-              items: [...draftItems],
-              updatedAt: Date.now(),
-            },
-          });
-          continue;
-        }
-
         const reply = await generateInquiryReply(
           apiKey,
           systemPrompt,
@@ -593,6 +570,7 @@ async function runGenerateInquiries(payload) {
         );
         if (inquiryStopRequested || signal.aborted) break;
 
+        const needsConfirm = inquiryNeedsConfirm(row);
         storeInquiryReplyKeys(replyMap, row.id, reply);
         draftItems.push({
           id: row.id,
@@ -602,9 +580,12 @@ async function runGenerateInquiries(payload) {
           secret: !!row.secret,
           reply,
           needsManual: false,
+          needsConfirm,
+          confirmReason: needsConfirm ? getConfirmInquiryReason(row) : '',
           referenceIds: references.map((ref) => ref.id),
         });
         success++;
+        if (needsConfirm) confirmCount++;
 
         await storageSet({
           [storageKey]: { ...replyMap },
@@ -629,75 +610,78 @@ async function runGenerateInquiries(payload) {
     }
 
     if (inquiryStopRequested || signal.aborted) {
-      const processed = success + failed + manual;
+      const processed = success + failed;
       await updateInquiryProgress({
         status: 'stopped',
         total,
         current: processed,
         success,
         failed,
-        manual,
+        manual: confirmCount,
+        confirm: confirmCount,
         currentId: '',
         lastError,
         message:
           `중지됨: AI ${success}건` +
-          (manual > 0 ? `, 직접 작성 ${manual}건` : '') +
+          (confirmCount > 0 ? `, 확인 필요 ${confirmCount}건` : '') +
           ` 저장됨 (전체 ${total}건 중 ${processed}건 처리).` +
           (failed > 0 ? ` 실패 ${failed}건.` : '') +
           '\n작업 화면 「2. 답글 검토」 탭에서 확인·수정 후 자동 입력을 활성화하세요.',
         finishedAt: Date.now(),
       });
-      if (manual > 0) await notifyManualInquiryNeeded(manual);
+      if (confirmCount > 0) await notifyConfirmInquiryNeeded(confirmCount);
       return;
     }
 
     if (isUsageLimitError({ message: lastError })) {
-      const processed = success + failed + manual;
+      const processed = success + failed;
       await updateInquiryProgress({
         status: 'limit_reached',
         total,
         current: processed,
         success,
         failed,
-        manual,
+        manual: confirmCount,
+        confirm: confirmCount,
         currentId: '',
         lastError,
         message: formatUsageLimitMessage(lastError, success),
         finishedAt: Date.now(),
       });
-      if (manual > 0) await notifyManualInquiryNeeded(manual);
+      if (confirmCount > 0) await notifyConfirmInquiryNeeded(confirmCount);
       return;
     }
 
     const errorHint =
-      failed > 0 && success === 0 && manual === 0 && lastError
+      failed > 0 && success === 0 && lastError
         ? `\n\n원인: ${lastError}`
         : failed > 0 && lastError
           ? `\n\n최근 오류: ${lastError}`
           : '';
 
-    const doneOk = success > 0 || manual > 0;
+    const doneOk = success > 0;
     await updateInquiryProgress({
       status: doneOk ? 'done' : 'error',
       total,
       current: total,
       success,
       failed,
-      manual,
+      manual: confirmCount,
+      confirm: confirmCount,
       currentId: '',
       lastError,
       message: doneOk
         ? `완료: AI ${success}건` +
-          (manual > 0 ? `, 직접 작성 ${manual}건` : '') +
+          (confirmCount > 0 ? `, 확인 필요 ${confirmCount}건` : '') +
           (failed > 0 ? `, 실패 ${failed}건` : '') +
           `.${errorHint}\n` +
-          (manual > 0
-            ? `배송·재고 등 ${manual}건은 「2. 답글 검토」에서 직접 작성해 주세요.`
+          (confirmCount > 0
+            ? `반품·배송 등 ${confirmCount}건은 「2. 답글 검토」에서 확인한 뒤 올려 주세요.`
             : `작업 화면 「2. 답글 검토」 탭에서 확인·수정 후 [자동 입력 모드]를 눌러주세요.`)
         : `답변 생성 실패 (${failed}건).${errorHint}`,
       finishedAt: Date.now(),
     });
-    if (manual > 0) await notifyManualInquiryNeeded(manual);
+    if (confirmCount > 0) await notifyConfirmInquiryNeeded(confirmCount);
   } catch (err) {
     if (!inquiryStopRequested && err.name !== 'AbortError') {
       await updateInquiryProgress({
@@ -971,15 +955,6 @@ async function runTestInquiryReply(payload = {}) {
     }
   } catch (_) {}
 
-  if (shouldDeferInquiryToManual(row, references)) {
-    return {
-      deferred: true,
-      reason: getManualInquiryReason(row),
-      text: '',
-      usage: check.usage || null,
-    };
-  }
-
   const text = await generateInquiryReply(
     apiKey,
     systemPrompt,
@@ -990,8 +965,11 @@ async function runTestInquiryReply(payload = {}) {
   );
 
   const session = await loadAuthSession();
+  const needsConfirm = inquiryNeedsConfirm(row);
   return {
     deferred: false,
+    needsConfirm,
+    reason: needsConfirm ? getConfirmInquiryReason(row) : '',
     text,
     usage: session?.usage || check.usage || null,
   };
@@ -1098,6 +1076,7 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
       webSearch: false,
       hasVerifiedFacts: Array.isArray(verifiedFacts) && verifiedFacts.length > 0,
       hasSellerRefs: references.length > 0,
+      isReturn: isReturnInquiry(row),
       product: row.product || '',
     }),
     '위 상품문의에 대한 판매자 답글만 출력하세요. 따옴표나 접두어 없이 본문만.',

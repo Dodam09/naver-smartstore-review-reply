@@ -242,6 +242,15 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
 
   const hasFacts = Array.isArray(verifiedFacts) && verifiedFacts.length > 0;
   const hasSellerRefs = references.length > 0;
+  const isReturn = /교환|반품|환불|취소/.test(String(row?.content || ''));
+  const returnRules = isReturn
+    ? [
+        '- 불편·증상에는 먼저 공감하세요.',
+        '- 반품·교환 가능 여부는 단정하지 마세요. 확인 후 진행하겠다고 안내하세요.',
+        '- 반품 신청 방법(이 문의 회신, 주문내역, 고객센터 등)은 과거 판매자 답변이 있으면 그대로 따르고, 없으면 이 문의로 남겨주시면 확인 후 안내하겠다고 하세요.',
+        '- 없는 반품 주소·기한·수거 일정·환불 금액은 지어내지 마세요.',
+      ]
+    : [];
   const rules = verifiedFacts
     ? [
         '- 문의의 핵심 질문에 첫 1~2문장에서 바로 답하세요. 돌려 말하지 마세요.',
@@ -261,6 +270,7 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
           : hasSellerRefs
             ? '- 웹에서 확인된 사실이 없어도, 같은 상품의 과거 판매자 답변에 있는 정보로 답하세요. 담당 부서 확인으로 미루지 마세요.'
             : '- 확인된 사실이 없을 때만, 공개 정보에서 확인하지 못했다고 짧게 말하고 지어내지 마세요. 담당 부서 확인으로 미루지 마세요.',
+        ...returnRules,
       ]
     : webSearch
       ? [
@@ -272,6 +282,7 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
           '- 확인된 고유명·수치·스펙은 바로 말하고, 상세페이지 확인을 떠넘기지 마세요.',
           '- 없는 스펙·수치는 지어내지 마세요.',
           '- "담당 부서에 확인 후", "확인된 정보가 없어 안내가 어렵습니다"로 답 전체를 대체하지 마세요.',
+          ...returnRules,
         ]
       : [
           '- 문의의 핵심 질문에 바로 답하세요.',
@@ -280,6 +291,7 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
             ? '- 같은 상품의 과거 판매자 답변에 있는 특징·스펙·사용 안내는 웹에 없어도 사용하세요.'
             : '- 확인이 더 필요하면 그 부분만 확인 후 안내하겠다고 하세요.',
           '- 질문과 무관한 광고 문구로 둘러대지 마세요.',
+          ...returnRules,
         ];
 
   return [
