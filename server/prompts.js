@@ -60,20 +60,6 @@ export function buildReviewUserContent(row) {
     .join('\n');
 }
 
-export function isEligibilityInquiry(row) {
-  const text = String(row?.content || '').trim();
-  if (!text) return false;
-  const canUse =
-    /먹어도|먹여도|먹일\s*수|섭취해도|급여해도|사용해도|사용\s*가능|써도\s*(돼|되)|발라도|입어도|껴도|해도\s*(될|되)|괜찮을까|괜찮나요|문제\s*없/.test(
-      text
-    );
-  const whoOrAge =
-    /몇\s*살|\d+\s*살|\d+\s*개월|개월령|연령|나이|유아|어린이|임산부|수유|시니어|노령|노견|아기/.test(
-      text
-    );
-  return canUse || whoOrAge;
-}
-
 export function inquiryNeedsWebSearch(row) {
   const question = String(row?.content || '').trim();
   if (!question) return false;
@@ -225,11 +211,13 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
   const webSearch = options.webSearch === true;
   const verifiedFacts = Array.isArray(options.verifiedFacts) ? options.verifiedFacts : null;
   const missingFacts = Array.isArray(options.missingFacts) ? options.missingFacts : [];
+  const factMode = verifiedFacts != null || webSearch;
   const refBlock =
     references.length > 0
       ? [
-          '아래는 이 상품(또는 비슷한 문의)에 대한 실제 판매자 답변입니다.',
-          '말투뿐 아니라 상품 정보·특징으로 사용하세요. 웹에 없는 판매자만 아는 안내(사용법, 구성 차이, 후기에서 확인한 특징 등)가 있으면 새 문의에 맞게 활용하세요.',
+          factMode
+            ? '아래는 이 상품(또는 비슷한 문의)에 대한 실제 판매자 답변입니다. 확인된 사실로 쓰세요.'
+            : '아래는 이 스토어의 실제 판매자 답변입니다. 비슷한 문의의 결론·안내 방식을 분석해 이번 문의에 맞게 새로 쓰세요. 그대로 복붙하지 마세요.',
           '다른 상품 답변의 스펙은 가져오지 마세요. 과거 답에 없는 고유명·수치는 지어내지 마세요.',
           ...references.map(
             (ref, index) =>
@@ -258,73 +246,50 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
   const hasFacts = Array.isArray(verifiedFacts) && verifiedFacts.length > 0;
   const hasSellerRefs = references.length > 0;
   const isReturn = /교환|반품|환불|취소/.test(String(row?.content || ''));
-  const isEligibility = isEligibilityInquiry(row);
   const returnRules = isReturn
     ? [
-        '- 불편·증상에는 먼저 공감하세요.',
+        '- 불편에는 먼저 공감하세요.',
         '- 반품·교환 가능 여부는 단정하지 마세요. 확인 후 진행하겠다고 안내하세요.',
         '- 반품 신청 방법(이 문의 회신, 주문내역, 고객센터 등)은 과거 판매자 답변이 있으면 그대로 따르고, 없으면 이 문의로 남겨주시면 확인 후 안내하겠다고 하세요.',
         '- 없는 반품 주소·기한·수거 일정·환불 금액은 지어내지 마세요.',
       ]
     : [];
-  const eligibilityRules = isEligibility
-    ? [
-        '- 사용·섭취·착용 가능 여부를 물으면 첫 문장에서 가능 여부·주의사항을 답하세요. 스펙 나열로 시작하지 마세요.',
-        '- 같은 상품의 과거 판매자 답변에 대상·사용 조건 안내가 있으면 그 안내를 따르세요.',
-        '- 치료·완치를 단정하지 마세요. 과거 판매자가 안내한 범위에서만 말하세요.',
-      ]
-    : [];
   const commonPriorityRules = [
-    '- 과거 판매자 답변에 있는 안내를, 웹 상세에 없다고 해서 "명시되어 있지 않습니다"로 뒤집지 마세요.',
+    '- 문의에 적힌 조건 그대로 답하세요. 더 넓은 질문으로 바꿔 답하지 마세요.',
+    '- 상품 소개나 종류 설명으로 질문을 대체하지 마세요.',
     '- 질문하지 않은 스펙·구성 목록을 나열하지 마세요. 질문에 필요한 내용만 쓰세요.',
   ];
-  const rules = verifiedFacts
-    ? [
-        '- 문의의 핵심 질문에 첫 1~2문장에서 바로 답하세요. 돌려 말하지 마세요.',
-        hasSellerRefs
-          ? '- 같은 상품의 과거 판매자 답변은 1차 자료입니다. 웹 검색보다 우선하고, 질문에 필요한 내용만 쓰세요.'
-          : '',
-        '- 위 "확인된 사실" 중 질문에 필요한 것만 쓰세요. 질문과 무관한 스펙은 나열하지 마세요.',
-        '- 금지 문구: "확인된 정보가 없어", "정확한 안내가 어렵습니다", "담당 부서에 확인 후", "잠시만 기다려 주세요"(사실 문의 회피용).',
-        '- 고객이 A 포함 여부를 물었고 확인된 사실에 관련 구성이 있으면: 그 고유명을 말하고, A 자체 포함 여부는 확인된 범위만 말하세요. 카테고리 일반론으로 빈칸을 채우지 마세요.',
-        '- "상세페이지를 확인해 주세요"처럼 확인된 사실을 고객에게 떠넘기지 마세요.',
-        '- "프리미엄", "엄선된"처럼 이름 없이 애둘러 쓰지 마세요. 확인된 이름이 있으면 그 이름을 쓰세요.',
-        '- 확인된 사실에 없는 고유명·함량·개수는 절대 추가하지 마세요.',
-        '- 다른 제품·일반 상식으로 빈칸을 채우지 마세요.',
-        hasFacts
-          ? '- 확인되지 않은 항목이 있으면, 확인된 내용을 말한 뒤에만 그 항목을 짧게 보완 안내하세요.'
-          : hasSellerRefs
-            ? '- 웹에서 확인된 사실이 없어도, 같은 상품의 과거 판매자 답변에 있는 정보로 답하세요. 담당 부서 확인으로 미루지 마세요.'
-            : '- 확인된 사실이 없을 때만, 공개 정보에서 확인하지 못했다고 짧게 말하고 지어내지 마세요. 담당 부서 확인으로 미루지 마세요.',
-        ...commonPriorityRules,
-        ...returnRules,
-        ...eligibilityRules,
-      ]
-    : webSearch
-      ? [
-          '- 문의의 핵심 질문에 바로 답하세요. 돌려 말하지 마세요.',
-          hasSellerRefs
-            ? '- 같은 상품의 과거 판매자 답변을 1차 자료로 쓰고, 웹 검색은 부족한 부분만 보완하세요.'
-            : `- 검색할 때 반드시 상품명 "${String(row?.product || '').trim()}"을 포함하세요.`,
-          '- 이 상품(동일 브랜드·제품명)의 공식/상세 정보와 판매자 과거 답변만 사용하세요. 다른 제품 정보는 버리세요.',
-          '- 확인된 고유명·수치·스펙은 바로 말하고, 상세페이지 확인을 떠넘기지 마세요.',
-          '- 없는 스펙·수치는 지어내지 마세요.',
-          '- "담당 부서에 확인 후", "확인된 정보가 없어 안내가 어렵습니다"로 답 전체를 대체하지 마세요.',
-          ...commonPriorityRules,
-          ...returnRules,
-          ...eligibilityRules,
-        ]
-      : [
-          '- 문의의 핵심 질문에 바로 답하세요.',
-          '- 문의·상품명·참고 답변에 있는 정보로만 답하세요. 없는 수치·스펙은 지어내지 마세요.',
-          hasSellerRefs
-            ? '- 같은 상품의 과거 판매자 답변에 있는 특징·스펙·사용 안내는 웹에 없어도 사용하세요.'
-            : '- 확인이 더 필요하면 그 부분만 확인 후 안내하겠다고 하세요.',
-          '- 질문과 무관한 광고 문구로 둘러대지 마세요.',
-          ...commonPriorityRules,
-          ...returnRules,
-          ...eligibilityRules,
-        ];
+  const factRules = [
+    '- 이 문의는 상품 사실(스펙·구성·호환·용량 등)이 필요합니다. 확인된 사실만 쓰세요.',
+    '- 문의의 핵심 질문에 첫 1~2문장에서 바로 답하세요. 돌려 말하지 마세요.',
+    hasSellerRefs
+      ? '- 같은 상품의 과거 판매자 답변에 있는 사실도 확인된 사실로 쓰세요. 웹보다 우선합니다.'
+      : '',
+    '- 위 "확인된 사실" 중 질문에 필요한 것만 쓰세요.',
+    '- 금지 문구: "확인된 정보가 없어", "정확한 안내가 어렵습니다", "담당 부서에 확인 후", "잠시만 기다려 주세요"(사실 문의 회피용).',
+    '- 고객이 A 포함 여부를 물었고 확인된 사실에 관련 구성이 있으면: 그 고유명을 말하고, A 자체 포함 여부는 확인된 범위만 말하세요.',
+    '- "상세페이지를 확인해 주세요"처럼 확인된 사실을 고객에게 떠넘기지 마세요.',
+    '- 확인된 사실에 없는 고유명·함량·개수는 절대 추가하지 마세요.',
+    '- 다른 제품·일반 상식으로 빈칸을 채우지 마세요.',
+    hasFacts
+      ? '- 확인되지 않은 항목이 있으면, 확인된 내용을 말한 뒤에만 그 항목을 짧게 보완 안내하세요.'
+      : hasSellerRefs
+        ? '- 웹에서 확인된 사실이 없어도, 같은 상품의 과거 판매자 답변에 있는 정보로 답하세요.'
+        : '- 확인된 사실이 없을 때만, 공개 정보에서 확인하지 못했다고 짧게 말하고 지어내지 마세요.',
+  ];
+  const sellerRules = [
+    '- 이 문의는 스펙 조사가 아닙니다. 아래 과거 판매자 답변을 분석해 이번 문의에 맞게 새로 쓰세요.',
+    '- 비슷한 문의의 결론(가능/주의/방법)과 설명 방식을 따르세요. 일반 상식이나 상품 소개로 새로 만들지 마세요.',
+    '- 문의에 적힌 조건에 바로 답하세요.',
+    '- 과거 답변에 없는 상담 권고("전문가/병원에 문의하세요")는 넣지 마세요.',
+    hasSellerRefs
+      ? '- 과거 답변에 없는 고유명·수치는 추가하지 마세요.'
+      : '- 참고 답변이 없으면 문의·상품명에 있는 범위만 짧게 답하세요. 없는 사실은 지어내지 마세요.',
+    '- 과거 판매자 답변에 있는 안내를, 웹 상세에 없다고 해서 뒤집지 마세요.',
+  ];
+  const rules = factMode
+    ? [...factRules, ...commonPriorityRules, ...returnRules]
+    : [...sellerRules, ...commonPriorityRules, ...returnRules];
 
   return [
     refBlock,

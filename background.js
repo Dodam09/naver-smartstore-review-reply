@@ -541,7 +541,7 @@ async function runGenerateInquiries(payload) {
 
       const row = rows[i];
       const references = referenceCatalog.length
-        ? pickInquiryKnowledgeReferences(row, referenceCatalog)
+        ? pickInquiryReferencesForRow(row, referenceCatalog)
         : [];
 
       await updateInquiryProgress({
@@ -951,7 +951,7 @@ async function runTestInquiryReply(payload = {}) {
     const data = await storageGet([cacheKey]);
     const catalog = data[cacheKey]?.catalog || [];
     if (catalog.length) {
-      references = pickInquiryKnowledgeReferences(row, catalog);
+      references = pickInquiryReferencesForRow(row, catalog);
     }
   } catch (_) {}
 
@@ -994,8 +994,9 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
   const refBlock =
     references.length > 0
       ? [
-          '아래는 이 상품(또는 비슷한 문의)에 대한 실제 판매자 답변입니다.',
-          '말투뿐 아니라 상품 정보·특징으로 사용하세요. 웹에 없는 판매자만 아는 안내(사용법, 구성 차이, 후기에서 확인한 특징 등)가 있으면 새 문의에 맞게 활용하세요.',
+          inquiryNeedsWebSearch(row)
+            ? '아래는 이 상품(또는 비슷한 문의)에 대한 실제 판매자 답변입니다. 확인된 사실로 쓰세요.'
+            : '아래는 이 스토어의 실제 판매자 답변입니다. 비슷한 문의의 결론·안내 방식을 분석해 이번 문의에 맞게 새로 쓰세요. 그대로 복붙하지 마세요.',
           '다른 상품 답변의 스펙은 가져오지 마세요. 과거 답에 없는 고유명·수치는 지어내지 마세요.',
           ...references.map(
             (ref, index) =>
@@ -1077,7 +1078,6 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
       hasVerifiedFacts: Array.isArray(verifiedFacts) && verifiedFacts.length > 0,
       hasSellerRefs: references.length > 0,
       isReturn: isReturnInquiry(row),
-      isEligibility: isEligibilityInquiry(row),
       product: row.product || '',
     }),
     '위 상품문의에 대한 판매자 답글만 출력하세요. 따옴표나 접두어 없이 본문만.',
