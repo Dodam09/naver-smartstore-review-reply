@@ -2,7 +2,7 @@
  * 판매자센터 상품문의 목록 API (GET /api/v3/contents/comments/pages)
  */
 (function () {
-  const INQUIRY_IMPORT_VERSION = 3;
+  const INQUIRY_IMPORT_VERSION = 4;
   if (globalThis.__ssInquiryImportVersion !== INQUIRY_IMPORT_VERSION) {
     globalThis.__ssInquiryImportVersion = INQUIRY_IMPORT_VERSION;
     globalThis.__ssInquiryImportListener = false;
@@ -170,6 +170,17 @@
     let page = 0;
     let hasMore = true;
 
+    const reportProgress = (stage, current, total, label) => {
+      try {
+        chrome.runtime.sendMessage({
+          type: 'INQUIRY_CATALOG_PROGRESS',
+          payload: { stage, current, total, label },
+        });
+      } catch (_) {}
+    };
+
+    reportProgress('list', 0, 20, '문의 목록 검색 중...');
+
     while (hasMore && catalog.length < maxItems && page < 20) {
       const { startDate, endDate } = buildDateRange(maxDays);
       const url = buildListUrl(listBaseUrl, {
@@ -218,10 +229,16 @@
 
       hasMore = contents.length >= getPageSize(url) && catalog.length < maxItems;
       page += 1;
+      reportProgress(
+        'list',
+        page,
+        20,
+        `문의 목록 검색 중 · ${catalog.length}건 찾음`
+      );
       if (page === 1 && !contents.length) break;
     }
 
-    await enrichCatalogAnswers(catalog, listBaseUrl);
+    await enrichCatalogAnswers(catalog, listBaseUrl, reportProgress);
 
     const withAnswer = catalog.filter((item) => item.hasAnswer);
     if (!withAnswer.length) {
@@ -262,19 +279,27 @@
     return '';
   }
 
-  async function enrichCatalogAnswers(catalog, listBaseUrl) {
+  async function enrichCatalogAnswers(catalog, listBaseUrl, reportProgress) {
     const pending = catalog.filter((entry) => !entry.hasAnswer);
     if (!pending.length) return;
 
     const origin = getOriginFromListUrl(listBaseUrl);
     let cursor = 0;
     const concurrency = 6;
+    const total = pending.length;
+    if (typeof reportProgress === 'function') {
+      reportProgress('enrich', 0, total, `답변 본문 읽는 중 0/${total}`);
+    }
 
     async function worker() {
       while (cursor < pending.length) {
         const entry = pending[cursor];
         cursor += 1;
+        const done = cursor;
         const answer = await fetchSellerReplyForComment(origin, entry.id);
+        if (typeof reportProgress === 'function') {
+          reportProgress('enrich', done, total, `답변 본문 읽는 중 ${done}/${total}`);
+        }
         if (!answer) continue;
         entry.answer = answer;
         entry.reply = answer;

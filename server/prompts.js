@@ -1,3 +1,43 @@
+export function normalizeInquiryPairs(pairs, limit = 40) {
+  const unique = [];
+  const seen = new Set();
+  for (const raw of pairs || []) {
+    const question = String(raw?.question || raw?.content || '').replace(/\r\n/g, '\n').trim();
+    const answer = String(raw?.answer || raw?.reply || '').replace(/\r\n/g, '\n').trim();
+    if (answer.length < 8) continue;
+    const key = `${question.slice(0, 80)}\n${answer.slice(0, 80)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push({ question, answer });
+    if (unique.length >= limit) break;
+  }
+  return unique;
+}
+
+export function buildInquiryPlaybookPrompt(pairs) {
+  const list = normalizeInquiryPairs(pairs);
+  const block = list
+    .map((item, i) => `[${i + 1}]\n문의: ${item.question || '(문의 없음)'}\n답변: ${item.answer}`)
+    .join('\n\n');
+
+  return `당신은 이 스마트스토어의 상품문의 응대 지침서를 만듭니다.
+아래는 사장님이 실제로 주고받은 문의와 답변입니다. 말투만이 아니라, 이 스토어가 어떻게 안내하는지를 추출하세요.
+
+출력은 이후 새 문의 답글을 작성할 **시스템 지시문** 본문만 (설명·제목·따옴표·마크다운 없이).
+8~16문장.
+
+반드시 포함할 것:
+- 말투, 문장 길이, 이모지, 자주 쓰는 표현
+- 샘플에서 반복되는 안내(대상, 사용법, 배송, 품질 우려, 일정 등) — 샘플에 있는 내용만
+- 샘플에서 사장님이 하지 않는 행동(없으면 하지 말 것). 예: 사과를 안 하면 사과하지 말 것, 취소를 먼저 안 꺼내면 제안하지 말 것, 고객센터·병원으로 안 넘기면 넘기지 말 것
+- 새 문의에는 고객이 물은 조건에 바로 답하고, 이 스토어의 과거 결론을 따를 것
+- 샘플에 없는 사실·수치·절차는 지어내지 말 것
+- 복붙 티 나지 않게, 스마트스토어 상품문의 판매자 답글임을 명시
+
+실제 문의/답변:
+${block}`;
+}
+
 export function normalizeSamples(samples) {
   const unique = [];
   const seen = new Set();
@@ -245,23 +285,19 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
 
   const hasFacts = Array.isArray(verifiedFacts) && verifiedFacts.length > 0;
   const hasSellerRefs = references.length > 0;
-  const isReturn = /교환|반품|환불|취소|변질|상했|파손|불량|지연/.test(String(row?.content || ''));
+  const isReturn = /교환|반품|환불|취소/.test(String(row?.content || ''));
   const returnRules = isReturn
     ? [
-        '- 불편에는 짧게 공감하되, 죄송·사과 문구는 넣지 마세요.',
-        '- 반품·환불·취소를 제안하거나 진행하지 마세요. 대체 방안만 안내하세요.',
-        '- 대체 방안은 같은 상품의 과거 판매자 답변을 따르세요. (일정 안내, 보관·사용 방법, 기다려 달라는 안내 등)',
-        '- 고객이 "해 주세요"처럼 처리 요청을 명확히 하지 않았다면 취소·반품·환불 단어를 쓰지 마세요. "혹시 원하시면"도 금지입니다.',
-        '- 명확한 처리 요청이 있을 때만, 가능 여부를 단정하지 말고 확인 후 안내하겠다고 하세요.',
-        '- "다시 남겨 주세요", "고객센터로 연락 주세요"로 답을 넘기지 마세요.',
         '- 없는 반품 주소·기한·수거 일정·환불 금액은 지어내지 마세요.',
+        '- 고객이 "해 주세요"로 처리를 요청한 경우에만 확인 후 안내하겠다고 하세요. 그 전에는 대체 방안만 말하세요.',
       ]
     : [];
   const commonPriorityRules = [
-    '- 죄송·사과 문구는 넣지 마세요. 공감은 짧게 하고 안내로 이어가세요.',
-    '- 문의에 적힌 조건 그대로 답하세요. 더 넓은 질문으로 바꿔 답하지 마세요.',
-    '- 상품 소개나 종류 설명으로 질문을 대체하지 마세요.',
-    '- 질문하지 않은 스펙·구성 목록을 나열하지 마세요. 질문에 필요한 내용만 쓰세요.',
+    '- 문의에 적힌 질문 그대로 답하세요. 더 넓은 질문으로 바꾸거나 상품 소개로 시작하지 마세요.',
+    '- 고객이 처리해 달라고 명확히 요청하지 않은 조치(취소·반품·환불·고객센터·병원 상담)는 제안하지 마세요.',
+    '- 죄송·사과 문구는 넣지 마세요. 공감은 짧게 하고 바로 안내하세요.',
+    '- "상세페이지를 확인하세요", "다시 남겨 주세요"로 답을 넘기지 마세요.',
+    '- 질문하지 않은 스펙 목록은 나열하지 마세요.',
   ];
   const factRules = [
     '- 이 문의는 상품 사실(스펙·구성·호환·용량 등)이 필요합니다. 확인된 사실만 쓰세요.',

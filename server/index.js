@@ -40,6 +40,8 @@ import { generateText, generateWithSystem } from './gemini.js';
 import { getPlan, normalizePlanId } from './plans.js';
 import {
   buildAnalyzeMetaPrompt,
+  buildInquiryPlaybookPrompt,
+  normalizeInquiryPairs,
   buildInquiryUserContent,
   buildProductFactLookupPrompt,
   buildProductSearchKeywords,
@@ -157,7 +159,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'naver-smartstore-reply-api',
-    version: '1.3.44',
+    version: '1.3.45',
     geminiConfigured: !!String(process.env.GEMINI_API_KEY || '').trim(),
     authEnabled: true,
     registrationOpen: ALLOW_REGISTRATION,
@@ -676,7 +678,11 @@ app.post('/api/analyze-tone', authenticate, async (req, res) => {
 
     const context = req.body?.context === 'inquiry' ? 'inquiry' : 'review';
     const model = req.body?.model;
-    const normalized = normalizeSamples(req.body?.samples);
+    const inquiryPairs = context === 'inquiry' ? normalizeInquiryPairs(req.body?.pairs) : [];
+    const normalized =
+      inquiryPairs.length >= 2
+        ? inquiryPairs.map((item) => item.answer)
+        : normalizeSamples(req.body?.samples);
 
     if (normalized.length < 2) {
       const rawCount = (req.body?.samples || []).filter((s) => String(s).trim().length >= 8).length;
@@ -693,7 +699,10 @@ app.post('/api/analyze-tone', authenticate, async (req, res) => {
       return;
     }
 
-    const metaPrompt = buildAnalyzeMetaPrompt(context, normalized);
+    const metaPrompt =
+      inquiryPairs.length >= 2
+        ? buildInquiryPlaybookPrompt(inquiryPairs)
+        : buildAnalyzeMetaPrompt(context, normalized);
     const prompt = await generateText(metaPrompt, { model, temperature: 0.35 });
 
     if (!prompt || prompt.length < 30) {
@@ -707,7 +716,12 @@ app.post('/api/analyze-tone', authenticate, async (req, res) => {
       usage = getUsageSummary(req.auth.user.id, req.auth.user.planId, undefined, !!req.auth.user.subscription?.active);
     }
 
-    res.json({ ok: true, prompt: prompt.trim(), sampleCount: normalized.length, usage: usage || null });
+    res.json({
+      ok: true,
+      prompt: prompt.trim(),
+      sampleCount: inquiryPairs.length >= 2 ? inquiryPairs.length : normalized.length,
+      usage: usage || null,
+    });
   } catch (err) {
     if (err instanceof UsageLimitError) {
       sendUsageLimit(res, err);

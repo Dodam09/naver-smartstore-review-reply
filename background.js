@@ -265,6 +265,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'INQUIRY_CATALOG_PROGRESS') {
+    chrome.runtime
+      .sendMessage({ type: 'INQUIRY_CATALOG_PROGRESS_UI', payload: message.payload || {} })
+      .catch(() => {});
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (message.type === 'FETCH_INQUIRY_REPLY_CATALOG_JOB') {
     runFetchInquiryReplyCatalogJob(message.payload || {}, sendResponse);
     return true;
@@ -773,6 +781,7 @@ async function analyzeToneSamples(payload) {
   if (useAiProxy()) {
     const data = await postAiApi('/api/analyze-tone', {
       samples,
+      pairs: payload.pairs || [],
       context,
       model: model || CONFIG.GEMINI_MODEL,
     });
@@ -1096,7 +1105,7 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
       webSearch: false,
       hasVerifiedFacts: Array.isArray(verifiedFacts) && verifiedFacts.length > 0,
       hasSellerRefs: references.length > 0,
-      isReturn: isResolutionInquiry(row),
+      isReturn: isReturnInquiry(row),
       product: row.product || '',
     }),
     '위 상품문의에 대한 판매자 답글만 출력하세요. 따옴표나 접두어 없이 본문만.',

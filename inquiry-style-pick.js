@@ -11,6 +11,13 @@ const els = {
   selectedCount: document.getElementById('selectedCount'),
   footerCount: document.getElementById('footerCount'),
   analyzeBtn: document.getElementById('analyzeBtn'),
+  progressPanel: document.getElementById('progressPanel'),
+  progressFill: document.getElementById('progressFill'),
+  progressLabel: document.getElementById('progressLabel'),
+  progressPct: document.getElementById('progressPct'),
+  stepList: document.getElementById('stepList'),
+  stepAnalyze: document.getElementById('stepAnalyze'),
+  stepDone: document.getElementById('stepDone'),
 };
 
 let catalog = [];
@@ -18,6 +25,8 @@ let selectedIds = new Set();
 let filterText = '';
 let isLoading = false;
 let isAnalyzing = false;
+let analyzeTick = null;
+let analyzePct = 70;
 
 init();
 
@@ -43,6 +52,68 @@ async function init() {
   els.selectAllBtn.addEventListener('click', selectAllReadable);
   els.clearBtn.addEventListener('click', clearSelection);
   els.analyzeBtn.addEventListener('click', onAnalyzeSelected);
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message?.type === 'INQUIRY_CATALOG_PROGRESS_UI') {
+      applyCatalogProgress(message.payload || {});
+    }
+  });
+}
+
+function setProgress(percent, label, stage) {
+  const pct = Math.max(0, Math.min(100, Math.round(percent)));
+  if (els.progressPanel) els.progressPanel.classList.add('visible');
+  if (els.progressFill) els.progressFill.style.width = `${pct}%`;
+  if (els.progressPct) els.progressPct.textContent = `${pct}%`;
+  if (els.progressLabel && label) els.progressLabel.textContent = label;
+  const mark = (el, name) => {
+    if (!el) return;
+    el.classList.toggle('active', stage === name);
+    el.classList.toggle(
+      'done',
+      (name === 'list' && (stage === 'analyze' || stage === 'done')) ||
+        (name === 'analyze' && stage === 'done') ||
+        (name === 'done' && stage === 'done')
+    );
+  };
+  mark(els.stepList, 'list');
+  mark(els.stepAnalyze, 'analyze');
+  mark(els.stepDone, 'done');
+}
+
+function hideProgress() {
+  if (els.progressPanel) els.progressPanel.classList.remove('visible');
+}
+
+function applyCatalogProgress(payload) {
+  const stage = payload.stage || 'list';
+  const current = Number(payload.current) || 0;
+  const total = Math.max(1, Number(payload.total) || 1);
+  if (stage === 'list') {
+    const pct = 5 + (current / total) * 35;
+    setProgress(pct, payload.label || `문의 목록 검색 중 ${current}/${total}`, 'list');
+    return;
+  }
+  if (stage === 'enrich') {
+    const pct = 40 + (current / total) * 30;
+    setProgress(pct, payload.label || `답변 본문 읽는 중 ${current}/${total}`, 'list');
+  }
+}
+
+function startAnalyzeProgress(count) {
+  stopAnalyzeProgress();
+  analyzePct = 70;
+  setProgress(analyzePct, `${count}건 답변으로 지침서 작성 중...`, 'analyze');
+  analyzeTick = setInterval(() => {
+    if (analyzePct < 94) analyzePct += 1;
+    setProgress(analyzePct, `${count}건 답변으로 지침서 작성 중...`, 'analyze');
+  }, 800);
+}
+
+function stopAnalyzeProgress() {
+  if (analyzeTick) {
+    clearInterval(analyzeTick);
+    analyzeTick = null;
+  }
 }
 
 function getAnswerText(item) {
@@ -59,6 +130,7 @@ async function loadCatalog() {
   els.reloadBtn.disabled = true;
   els.reloadBtn.textContent = '불러오는 중...';
   setBanner('판매자센터에서 답변 완료 상품문의를 불러오는 중...', 'info');
+  setProgress(4, '판매자센터 연결 중...', 'list');
 
   const days = clampLookupDays(els.daysSelect.value, { min: 0, max: 365, fallback: 7 });
 
@@ -77,22 +149,28 @@ async function loadCatalog() {
 
     const readable = catalog.filter((item) => hasReadableAnswer(item));
     if (readable.length >= 2) {
-      readable.slice(0, Math.min(5, readable.length)).forEach((item) => selectedIds.add(item.id));
+      readable.forEach((item) => selectedIds.add(item.id));
     }
 
     setBanner(
       `답변 완료 ${catalog.length}건 · 분석 가능 ${readable.length}건 (${formatLookupDaysLabel(days)})\n` +
         (readable.length
-          ? '원하는 판매자 답글 2개 이상을 선택한 뒤 [선택한 답글로 스타일 분석]을 누르세요.'
+          ? '불러온 문의/답변으로 응대 지침서를 만듭니다.'
           : `${formatLookupDaysLabel(days)} 내 답변 완료 문의가 없습니다.\n상품문의 페이지에서 답변 완료 목록을 연 뒤 다시 시도하세요.`),
       readable.length ? 'success' : 'warn'
     );
     renderList();
+    if (readable.length >= 2) {
+      onAnalyzeSelected();
+    } else {
+      hideProgress();
+    }
   } catch (err) {
     catalog = [];
     selectedIds.clear();
     renderList();
     setBanner(formatFetchError(err.message), 'error');
+    hideProgress();
   } finally {
     isLoading = false;
     els.reloadBtn.disabled = false;
@@ -191,20 +269,24 @@ function updateCounts() {
   els.selectedCount.textContent = String(selectedReadable.length);
   els.footerCount.textContent =
     uniqueCount < selectedReadable.length
-      ? `${selectedReadable.length}개 선택 · 고유 ${uniqueCount}개 (2개 이상 필요)`
-      : `${selectedReadable.length}개 선택 · 2개 이상 필요`;
+      ? `${selectedReadable.length}개 선택 · 고유 ${uniqueCount}개`
+      : `${selectedReadable.length}개 선택`;
   els.analyzeBtn.disabled = isAnalyzing || uniqueCount < 2;
   els.analyzeBtn.textContent = isAnalyzing
-    ? '분석 중...'
-    : `선택한 ${uniqueCount}개로 스타일 분석`;
+    ? '지침서 만드는 중...'
+    : `선택한 ${selectedReadable.length}개로 지침서 만들기`;
 }
 
 async function onAnalyzeSelected() {
   if (isAnalyzing) return;
 
   const selected = catalog.filter((item) => selectedIds.has(item.id) && hasReadableAnswer(item));
-  const samples = normalizeSamples(selected.map((item) => getAnswerText(item)));
-  if (samples.length < 2) {
+  const pairs = selected.map((item) => ({
+    question: item.question || item.content || '',
+    answer: getAnswerText(item),
+  }));
+  const samples = normalizeSamples(pairs.map((item) => item.answer));
+  if (samples.length < 2 && pairs.length < 2) {
     setBanner(
       selected.length >= 2
         ? '선택한 답글 내용이 너무 비슷합니다. 표현이 다른 답글을 2개 이상 골라 주세요.'
@@ -223,7 +305,8 @@ async function onAnalyzeSelected() {
 
   isAnalyzing = true;
   updateCounts();
-  setBanner(`선택한 ${samples.length}개 문의 답글 스타일을 분석하는 중...`, 'info');
+  setBanner(`불러온 ${pairs.length}건 문의/답변으로 응대 지침서를 만드는 중...`, 'info');
+  startAnalyzeProgress(pairs.length);
 
   try {
     const response = await sendRuntimeMessage({
@@ -231,6 +314,7 @@ async function onAnalyzeSelected() {
       payload: {
         apiKey,
         samples,
+        pairs,
         model: CONFIG.GEMINI_MODEL,
         context: 'inquiry',
         skipPersist: true,
@@ -245,7 +329,7 @@ async function onAnalyzeSelected() {
       inquirySampleFlow: {
         ...(existing.inquirySampleFlow || {}),
         source: 'seller-pick',
-        sourceLabel: `판매자센터 문의 선택 (${samples.length}개)`,
+        sourceLabel: `판매자센터 문의 지침서 (${pairs.length}건)`,
         loadedAt: Date.now(),
         loadedCount: samples.length,
         analyzedAt: Date.now(),
@@ -259,6 +343,8 @@ async function onAnalyzeSelected() {
 
     const confirm = await confirmAndApplyLearnedStyle(existing, 'inquiry', response, flowPatch);
     if (!confirm.applied) {
+      stopAnalyzeProgress();
+      setProgress(100, '지침서는 만들었지만 적용하지 않았습니다.', 'done');
       setBanner(
         confirm.choice === 'keep'
           ? '분석은 완료했지만 기존 스타일을 유지했습니다.'
@@ -270,13 +356,17 @@ async function onAnalyzeSelected() {
 
     await storageSet({ [CONFIG.SETTINGS_KEY]: confirm.patch });
 
+    stopAnalyzeProgress();
+    setProgress(100, `지침서 저장 완료 · ${response.sampleCount || pairs.length}건 반영`, 'done');
     setBanner(
-      `✓ 새 스타일 적용 · 선택 ${response.sampleCount || samples.length}개로 「내 스타일」이 저장되었습니다.\n` +
-        '[문의 답글 작업]에서 바로 답변 생성하면 자동 적용됩니다.',
+      `✓ 응대 지침서 저장 · ${response.sampleCount || pairs.length}건 실제 답변을 반영했습니다.\n` +
+        '[문의 답글 작업]에서 바로 답변 생성하면 이 지침이 적용됩니다.',
       'success'
     );
   } catch (err) {
     setBanner(`분석 오류: ${err.message}`, 'error');
+    stopAnalyzeProgress();
+    hideProgress();
   } finally {
     isAnalyzing = false;
     updateCounts();
