@@ -61,17 +61,17 @@ export function buildReviewUserContent(row) {
 }
 
 export function inquiryNeedsWebSearch(row) {
-  const text = `${row?.content || ''} ${row?.product || ''}`;
-  if (!String(row?.content || '').trim()) return false;
+  const question = String(row?.content || '').trim();
+  if (!question) return false;
 
   const fact =
-    /성분|균주|함량|원료|원산지|제조국|제조사|원단|재질|소재|사이즈|치수|실측|호환|스펙|사양|전압|와트|용량|구성품|세트\s*구성|인증|kc|식약처|사용법|용법|급여량|알레르기|알러지|칼로리|단백질|카페인|도수|중량|무게|크기|가로|세로|높이|몇\s*(ml|g|kg|cm|mm|w|mah)|들어있|포함되|무슨\s*(균|성분|원단|재질|소재|용량)|어떤\s*(균|성분|원단|재질)|차이점|비교|효능|효과|방수|충전|배터리|호환되|포스트바이오틱|프로바이오틱|프리바이오틱/i;
+    /성분|균주|함량|원료|원산지|제조국|제조사|원단|재질|소재|사이즈|치수|실측|호환|스펙|사양|전압|와트|용량|구성품|세트\s*구성|인증|kc|식약처|사용법|용법|급여량|칼로리|단백질|카페인|도수|중량|무게|크기|가로|세로|높이|몇\s*(ml|g|kg|cm|mm|w|mah)|들어있|포함되|무슨\s*(균|성분|원단|재질|소재|용량)|어떤\s*(균|성분|원단|재질)|차이점|비교|방수|충전|배터리|호환되|포스트바이오틱|프로바이오틱|프리바이오틱/i;
 
   const logistics =
     /배송|출고|도착|택배|송장|재고|품절|발송|입고|교환|반품|환불|취소|결제|입금|언제\s*(와|오|출발|발송|도착|나와)/;
 
-  if (fact.test(text)) return true;
-  if (logistics.test(text)) return false;
+  if (fact.test(question)) return true;
+  if (logistics.test(question)) return false;
   return false;
 }
 
@@ -227,7 +227,7 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
   const factBlock =
     verifiedFacts && verifiedFacts.length
       ? [
-          '[이 상품에서 확인된 사실 — 질문에 해당하면 답글 본문에 고유명으로 반드시 쓰세요]',
+          '[이 상품에서 확인된 사실 — 질문에 답할 때만 쓰세요. 질문과 무관한 스펙은 나열하지 마세요]',
           ...verifiedFacts.map((f, i) => `${i + 1}. ${f}`),
           '',
         ].join('\n')
@@ -243,6 +243,10 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
   const hasFacts = Array.isArray(verifiedFacts) && verifiedFacts.length > 0;
   const hasSellerRefs = references.length > 0;
   const isReturn = /교환|반품|환불|취소/.test(String(row?.content || ''));
+  const isSuitability =
+    /먹어도|먹여도|섭취|급여|사용해도|써도\s*(돼|되)|가능한가|괜찮을까|해도\s*될|해도\s*되|개월|몇\s*살|\d+\s*살|연령|나이|노견|노령|지간염|피부염|아토피|알러지|알레르기|설사|변비|질환/.test(
+      String(row?.content || '')
+    );
   const returnRules = isReturn
     ? [
         '- 불편·증상에는 먼저 공감하세요.',
@@ -251,16 +255,24 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
         '- 없는 반품 주소·기한·수거 일정·환불 금액은 지어내지 마세요.',
       ]
     : [];
+  const suitabilityRules = isSuitability
+    ? [
+        '- 가능 여부·주의사항을 첫 문장에서 답하세요. 성분·스펙 나열로 시작하지 마세요.',
+        '- 같은 상품의 과거 판매자 답변에 연령·급여·증상 안내가 있으면 그 안내를 따르세요.',
+        '- 과거 답변으로 가능하다고 안내된 내용을, 웹 상세에 없다고 뒤집어 "명시되어 있지 않습니다"라고 하지 마세요.',
+        '- 질문하지 않은 전 성분·균주·배제 원료 목록을 나열하지 마세요. 질문에 도움이 되는 특징만 짧게 덧붙이세요.',
+        '- 의학적 진단·완치 단정은 하지 마세요. 과거 판매자가 안내한 범위에서만 말하세요.',
+      ]
+    : [];
   const rules = verifiedFacts
     ? [
         '- 문의의 핵심 질문에 첫 1~2문장에서 바로 답하세요. 돌려 말하지 마세요.',
         hasSellerRefs
-          ? '- 같은 상품의 과거 판매자 답변은 1차 자료입니다. 웹 검색보다 우선하고, 거기에 있는 특징·성분은 본문에 쓰세요.'
+          ? '- 같은 상품의 과거 판매자 답변은 1차 자료입니다. 웹 검색보다 우선하고, 질문에 필요한 내용만 쓰세요.'
           : '',
-        '- 위 "확인된 사실"이 하나라도 있으면 그걸로 먼저 답하세요. 답글 전체를 "확인 불가/담당 부서 확인"으로 대체하지 마세요.',
+        '- 위 "확인된 사실" 중 질문에 필요한 것만 쓰세요. 질문과 무관한 스펙은 나열하지 마세요.',
         '- 금지 문구: "확인된 정보가 없어", "정확한 안내가 어렵습니다", "담당 부서에 확인 후", "잠시만 기다려 주세요"(사실 문의 회피용).',
         '- 고객이 A 포함 여부를 물었고 확인된 사실에 관련 구성이 있으면: 그 고유명을 말하고, A 자체 포함 여부는 확인된 범위만 말하세요. 카테고리 일반론으로 빈칸을 채우지 마세요.',
-        '- 위 "확인된 사실"에 있는 고유명·수치·스펙은 답글에 반드시 포함하세요.',
         '- "상세페이지를 확인해 주세요"처럼 확인된 사실을 고객에게 떠넘기지 마세요.',
         '- "프리미엄", "엄선된"처럼 이름 없이 애둘러 쓰지 마세요. 확인된 이름이 있으면 그 이름을 쓰세요.',
         '- 확인된 사실에 없는 고유명·함량·개수는 절대 추가하지 마세요.',
@@ -271,6 +283,7 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
             ? '- 웹에서 확인된 사실이 없어도, 같은 상품의 과거 판매자 답변에 있는 정보로 답하세요. 담당 부서 확인으로 미루지 마세요.'
             : '- 확인된 사실이 없을 때만, 공개 정보에서 확인하지 못했다고 짧게 말하고 지어내지 마세요. 담당 부서 확인으로 미루지 마세요.',
         ...returnRules,
+        ...suitabilityRules,
       ]
     : webSearch
       ? [
@@ -283,6 +296,7 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
           '- 없는 스펙·수치는 지어내지 마세요.',
           '- "담당 부서에 확인 후", "확인된 정보가 없어 안내가 어렵습니다"로 답 전체를 대체하지 마세요.',
           ...returnRules,
+          ...suitabilityRules,
         ]
       : [
           '- 문의의 핵심 질문에 바로 답하세요.',
@@ -292,6 +306,7 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
             : '- 확인이 더 필요하면 그 부분만 확인 후 안내하겠다고 하세요.',
           '- 질문과 무관한 광고 문구로 둘러대지 마세요.',
           ...returnRules,
+          ...suitabilityRules,
         ];
 
   return [

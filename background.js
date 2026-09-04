@@ -1050,7 +1050,7 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
   const factBlock =
     verifiedFacts && verifiedFacts.length
       ? [
-          '[이 상품에서 확인된 사실 — 질문에 해당하면 답글 본문에 고유명으로 반드시 쓰세요]',
+          '[이 상품에서 확인된 사실 — 질문에 답할 때만 쓰세요. 질문과 무관한 스펙은 나열하지 마세요]',
           ...verifiedFacts.map((f, i) => `${i + 1}. ${f}`),
           '',
         ].join('\n')
@@ -1077,6 +1077,10 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
       hasVerifiedFacts: Array.isArray(verifiedFacts) && verifiedFacts.length > 0,
       hasSellerRefs: references.length > 0,
       isReturn: isReturnInquiry(row),
+      isSuitability:
+        /먹어도|먹여도|섭취|급여|사용해도|써도\s*(돼|되)|가능한가|괜찮을까|해도\s*될|해도\s*되|개월|몇\s*살|\d+\s*살|연령|나이|노견|노령|지간염|피부염|아토피|알러지|알레르기|설사|변비|질환/.test(
+          String(row?.content || '')
+        ),
       product: row.product || '',
     }),
     '위 상품문의에 대한 판매자 답글만 출력하세요. 따옴표나 접두어 없이 본문만.',
