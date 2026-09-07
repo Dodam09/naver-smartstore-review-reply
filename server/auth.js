@@ -50,9 +50,7 @@ function sanitizeUser(user) {
     displayName: user.display_name || null,
     authProvider: user.auth_provider || 'email',
     planId: subscription.active ? user.plan_id : 'none',
-    plan: subscription.active
-      ? plan
-      : { id: 'none', name: '구독 전', price: 0, replyLimit: 0, toneLimit: 0 },
+    plan: subscription.active ? plan : getPlan('none'),
     subscription,
   };
 }

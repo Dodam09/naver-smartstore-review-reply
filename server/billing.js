@@ -12,7 +12,7 @@ import {
   setUserBillingKey,
   upgradeUserSubscription,
 } from './db.js';
-import { getPlan, getPlanRank, listPaidPlans, normalizePaidPlanId } from './plans.js';
+import { FREE_TRIAL, getPlan, getPlanRank, listPaidPlans, normalizePaidPlanId } from './plans.js';
 import { getSubscriptionSummary, isSubscriptionActive, resolveCheckoutAction } from './subscription.js';
 
 const TOSS_SECRET_KEY = String(process.env.TOSS_SECRET_KEY || '').trim();
@@ -60,6 +60,7 @@ export function getBillingConfig() {
     renewalGraceDays: RENEWAL_GRACE_DAYS,
     renewalMaxAttempts: RENEWAL_MAX_ATTEMPTS,
     autoRenewEnabled: String(process.env.RENEWAL_ENABLED || 'true').toLowerCase() !== 'false',
+    freeTrial: FREE_TRIAL,
     legalNotice: {
       billingCycle: `${SUBSCRIPTION_DAYS}일`,
       cancelMethod: '확장 프로그램 [설정] → [구독 취소]',

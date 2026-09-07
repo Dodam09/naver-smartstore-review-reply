@@ -1,10 +1,16 @@
+export const FREE_TRIAL = {
+  replyLimit: 20,
+  toneLimit: 1,
+  lifetime: true,
+};
+
 export const PLANS = {
   none: {
     id: 'none',
-    name: '구독 전',
+    name: '무료 체험',
     price: 0,
-    replyLimit: 0,
-    toneLimit: 0,
+    replyLimit: FREE_TRIAL.replyLimit,
+    toneLimit: FREE_TRIAL.toneLimit,
   },
   basic: {
     id: 'basic',

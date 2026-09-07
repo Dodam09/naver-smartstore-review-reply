@@ -145,7 +145,7 @@ async function loadData() {
 
   if (!cache?.parsedRows?.length) {
     els.selectList.innerHTML =
-      '<div class="empty">아직 리뷰가 없어요.<br>확장 아이콘 → <strong>리뷰</strong> 탭에서 「가져오기」를 먼저 하세요.</div>';
+      '<div class="empty">아직 리뷰가 없어요.<br>확장 아이콘(사이드 패널) → <strong>리뷰</strong>에서 「가져오기」를 먼저 하세요.</div>';
     updateSelectCounts();
     return;
   }
@@ -184,7 +184,7 @@ function renderSelect() {
 
   if (!parsedRows.length) {
     els.selectList.innerHTML =
-      '<div class="empty">아직 리뷰가 없어요.<br>확장 아이콘 → <strong>리뷰</strong> 탭에서 「가져오기」를 먼저 하세요.</div>';
+      '<div class="empty">아직 리뷰가 없어요.<br>확장 아이콘(사이드 패널) → <strong>리뷰</strong>에서 「가져오기」를 먼저 하세요.</div>';
     updateSelectCounts();
     return;
   }
@@ -698,6 +698,15 @@ async function onGenerate() {
 
   if (!(await hasAiCredentialsAsync(apiKey))) {
     showProgress('AI 연결이 필요해요. [계정]에서 로그인하거나 API 키를 넣어 주세요.', true);
+    return;
+  }
+
+  const reviewPrompt = String(settings.systemPrompt || '').trim();
+  if (!reviewPrompt || (typeof isLegacyBuiltinPrompt === 'function' && isLegacyBuiltinPrompt(reviewPrompt))) {
+    showProgress(
+      '답글 지침이 없습니다. 사이드 패널 「리뷰」→ 답변 스타일에서 기존 답글로 말투를 먼저 만들어 주세요.',
+      true
+    );
     return;
   }
 

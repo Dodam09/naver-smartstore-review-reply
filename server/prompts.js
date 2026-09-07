@@ -23,9 +23,15 @@ export function buildInquiryPlaybookPrompt(pairs) {
   return `당신은 이 스마트스토어의 상품문의 응대 지침서를 만듭니다.
 아래는 사장님이 실제로 주고받은 문의와 답변입니다. 말투만이 아니라, 이 스토어가 어떻게 안내하는지를 추출하세요.
 
-출력은 이후 새 문의 답글을 작성할 **시스템 지시문** 본문만 (설명·제목·따옴표·마크다운 없이).
-8~16문장.
+출력은 이후 새 문의 답글을 작성할 **시스템 지시문** 본문만.
+각 지침은 한 줄에 하나씩, 아래 형식으로만 쓰세요 (설명·따옴표·마크다운 없이):
+[말투·표현] - ...
+[응대 원칙] - ...
+[답변 방식] - ...
+[상품·안내] - ...
+[기타] - ... (해당 없으면 생략)
 
+8~16개 지침.
 반드시 포함할 것:
 - 말투, 문장 길이, 이모지, 자주 쓰는 표현
 - 샘플에서 반복되는 안내(대상, 사용법, 배송, 품질 우려, 일정 등) — 샘플에 있는 내용만
@@ -60,8 +66,10 @@ export function buildAnalyzeMetaPrompt(context, normalizedSamples) {
 아래는 실제 사장님이 작성한 **상품문의** 판매자 답글 샘플입니다. 말투, 문장 길이, 인사·안내 표현, 이모지 사용, 종결어미, 자주 쓰는 표현, 피해야 할 표현을 분석한 뒤, 같은 스타일로 고객 상품문의 답글을 작성하게 할 **시스템 지시문(system instruction)** 을 한국어로 작성하세요.
 
 규칙:
-- 출력은 시스템 지시문 본문만 (설명·제목·따옴표·마크다운 없이)
-- 5~12문장 분량
+- 출력은 시스템 지시문 본문만
+- 각 지침은 한 줄에 하나씩. 예: [말투·표현] - 존댓말로 짧게 답한다
+- 분류는 [말투·표현] [응대 원칙] [답변 방식] [상품·안내] [기타] 중 하나만 사용
+- 5~12개 지침
 - "복붙 티 나지 않게", "문의 내용의 질문에 구체적으로 답변"을 반드시 포함
 - 공개된 상품 정보는 문의 질문에 맞게 검색해 확인된 사실을 답하도록 지시. 확인되지 않은 사실은 지어내지 말 것
 - 리뷰 감사 인사 위주가 아닌, 문의 Q&A·안내 톤으로 작성하도록 지시
@@ -76,8 +84,10 @@ ${sampleBlock}`;
 아래는 실제 사장님이 작성한 판매자 답글 샘플입니다. 말투, 문장 길이, 인사·감사 표현, 이모지 사용, 종결어미, 자주 쓰는 표현, 피해야 할 표현을 분석한 뒤, 같은 스타일로 고객 리뷰 답글을 작성하게 할 **시스템 지시문(system instruction)** 을 한국어로 작성하세요.
 
 규칙:
-- 출력은 시스템 지시문 본문만 (설명·제목·따옴표·마크다운 없이)
-- 5~12문장 분량
+- 출력은 시스템 지시문 본문만
+- 각 지침은 한 줄에 하나씩. 예: [말투·표현] - 존댓말로 짧게 답한다
+- 분류는 [말투·표현] [응대 원칙] [답변 방식] [상품·안내] [기타] 중 하나만 사용
+- 5~12개 지침
 - "복붙 티 나지 않게", "리뷰 내용에 구체적으로 반응"을 반드시 포함
 - 샘플에 없는 이모지·유행어를 무리하게 추가하지 말 것
 - 스마트스토어 판매자 답글임을 명시
@@ -258,7 +268,7 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
           factMode
             ? '아래는 이 상품(또는 비슷한 문의)에 대한 실제 판매자 답변입니다. 확인된 사실로 쓰세요.'
             : '아래는 이 스토어의 실제 판매자 답변입니다. 비슷한 문의의 결론·안내 방식을 분석해 이번 문의에 맞게 새로 쓰세요. 그대로 복붙하지 마세요.',
-          '다른 상품 답변의 스펙은 가져오지 마세요. 과거 답에 없는 고유명·수치는 지어내지 마세요.',
+          '다른 상품 답변의 스펙은 가져오지 마세요. 과거 답에 없는 구체 사실(고유명·수치·일정·URL·혜택)은 지어내지 마세요.',
           ...references.map(
             (ref, index) =>
               `[참고 ${index + 1}${ref.product ? ` · ${ref.product}` : ''}]\n문의: ${ref.question}\n답변: ${ref.answer}`
@@ -286,13 +296,25 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
   const hasFacts = Array.isArray(verifiedFacts) && verifiedFacts.length > 0;
   const hasSellerRefs = references.length > 0;
   const isReturn = /교환|반품|환불|취소/.test(String(row?.content || ''));
+  const isEligibility =
+    /(먹어도|먹여도|먹일|급여|섭취|사용해도|써도|발라도|입어도|해도\s*될|해도\s*되|해도\s*괜찮|괜찮을|괜찮나|가능한가|가능할까|가능한지|문제\s*없|부작용)/.test(
+      String(row?.content || '')
+    );
   const returnRules = isReturn
     ? [
         '- 없는 반품 주소·기한·수거 일정·환불 금액은 지어내지 마세요.',
         '- 고객이 "해 주세요"로 처리를 요청한 경우에만 확인 후 안내하겠다고 하세요. 그 전에는 대체 방안만 말하세요.',
       ]
     : [];
+  const eligibilityRules = isEligibility
+    ? [
+        '- 가능 여부 문의입니다. 참고 답변에 고객이 물은 조건(연령·상태 등)이 함께 있을 때만 그 결론을 따르세요.',
+        '- 참고에 없는 조건까지 일반화해 "됩니다/안 됩니다"라고 단정하지 마세요.',
+      ]
+    : [];
   const commonPriorityRules = [
+    '- 최우선: 구체 사실은 참고 답변·응대 지침(사장님이 저장한 지침)·확인된 사실·문의문에 있는 것만 쓰세요. 어디에도 없으면 지어내지 마세요.',
+    '- 근거에 없으면 그 내용을 빼세요. 추측으로 채우지 마세요.',
     '- 문의에 적힌 질문 그대로 답하세요. 더 넓은 질문으로 바꾸거나 상품 소개로 시작하지 마세요.',
     '- 고객이 처리해 달라고 명확히 요청하지 않은 조치(취소·반품·환불·고객센터·병원 상담)는 제안하지 마세요.',
     '- 죄송·사과 문구는 넣지 마세요. 공감은 짧게 하고 바로 안내하세요.',
@@ -309,7 +331,7 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
     '- 금지 문구: "확인된 정보가 없어", "정확한 안내가 어렵습니다", "담당 부서에 확인 후", "잠시만 기다려 주세요"(사실 문의 회피용).',
     '- 고객이 A 포함 여부를 물었고 확인된 사실에 관련 구성이 있으면: 그 고유명을 말하고, A 자체 포함 여부는 확인된 범위만 말하세요.',
     '- "상세페이지를 확인해 주세요"처럼 확인된 사실을 고객에게 떠넘기지 마세요.',
-    '- 확인된 사실에 없는 고유명·함량·개수는 절대 추가하지 마세요.',
+    '- 확인된 사실에 없는 고유명·함량·개수·출시 월·날짜는 절대 추가하지 마세요.',
     '- 다른 제품·일반 상식으로 빈칸을 채우지 마세요.',
     hasFacts
       ? '- 확인되지 않은 항목이 있으면, 확인된 내용을 말한 뒤에만 그 항목을 짧게 보완 안내하세요.'
@@ -324,13 +346,13 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
     '- "상세페이지를 참고하세요"로 사용법·가능 여부를 떠넘기지 마세요.',
     '- 과거 답변에 없는 상담 권고("전문가/병원에 문의하세요")는 넣지 마세요.',
     hasSellerRefs
-      ? '- 과거 답변에 없는 고유명·수치는 추가하지 마세요.'
+      ? '- 과거 답변에 없는 구체 사실(고유명·수치·일정·URL·혜택)은 추가하지 마세요.'
       : '- 참고 답변이 없으면 문의·상품명에 있는 범위만 짧게 답하세요. 없는 사실은 지어내지 마세요.',
     '- 과거 판매자 답변에 있는 안내를, 웹 상세에 없다고 해서 뒤집지 마세요.',
   ];
   const rules = factMode
-    ? [...factRules, ...commonPriorityRules, ...returnRules]
-    : [...sellerRules, ...commonPriorityRules, ...returnRules];
+    ? [...factRules, ...commonPriorityRules, ...returnRules, ...eligibilityRules]
+    : [...sellerRules, ...commonPriorityRules, ...returnRules, ...eligibilityRules];
 
   return [
     refBlock,
@@ -348,4 +370,99 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
   ]
     .filter(Boolean)
     .join('\n');
+}
+
+function extractInquiryScheduleTokens(text) {
+  const raw = String(text || '');
+  const tokens = [];
+  const seen = new Set();
+  const push = (value) => {
+    const token = String(value || '').replace(/\s+/g, '').toLowerCase();
+    if (!token || token.length < 2 || seen.has(token)) return;
+    seen.add(token);
+    tokens.push(token);
+  };
+  for (const match of raw.matchAll(/(\d{2,4})\s*년/g)) push(`${match[1]}년`);
+  for (const match of raw.matchAll(/(\d{1,2})\s*월/g)) push(`${match[1]}월`);
+  for (const match of raw.matchAll(/(\d{1,2})\s*일/g)) push(`${match[1]}일`);
+  for (const match of raw.matchAll(/(\d+)\s*(주|주일|개월)\s*(안|내|후|뒤)?/g)) {
+    push(`${match[1]}${match[2]}${match[3] || ''}`);
+  }
+  for (const match of raw.matchAll(/이번\s*년도|금년|올해|내년|다음\s*달|이번\s*달|연내/g)) {
+    push(match[0]);
+  }
+  return tokens;
+}
+
+export function extractInquiryConcreteClaims(text) {
+  const raw = String(text || '');
+  const claims = [];
+  const seen = new Set();
+  const push = (value) => {
+    const token = String(value || '').replace(/\s+/g, '').toLowerCase();
+    if (!token || token.length < 2 || seen.has(token)) return;
+    seen.add(token);
+    claims.push(token);
+  };
+
+  for (const token of extractInquiryScheduleTokens(raw)) push(token);
+  for (const match of raw.matchAll(/https?:\/\/[^\s)>\]]+/gi)) push(match[0].replace(/[.,;!?]+$/, ''));
+  for (const match of raw.matchAll(/\bwww\.[^\s)>\]]+/gi)) push(match[0].replace(/[.,;!?]+$/, ''));
+  for (const match of raw.matchAll(/[a-z0-9][a-z0-9-]{1,40}\.(?:com|net|kr|co\.kr|shop|store|cafe|site)/gi)) {
+    push(match[0]);
+  }
+  for (const match of raw.matchAll(/(\d+(?:\.\d+)?)\s*(개|병|팩|세트|박스|포|장|ml|mL|ℓ|L|kg|g|원|%|호|회|인분)/g)) {
+    push(`${match[1]}${match[2]}`);
+  }
+  for (const match of raw.matchAll(/(무상|무료)\s*(지급|제공|증정|나눔)/g)) {
+    push(`${match[1]}${match[2]}`);
+  }
+  return claims;
+}
+
+export function buildInquiryAllowedFactBlob(row, references = [], verifiedFacts = [], guidelines = '') {
+  return [
+    row?.content,
+    row?.question,
+    row?.product,
+    guidelines,
+    ...(Array.isArray(references) ? references : []).flatMap((ref) => [
+      ref?.question,
+      ref?.content,
+      ref?.answer,
+      ref?.reply,
+    ]),
+    ...(Array.isArray(verifiedFacts) ? verifiedFacts : []),
+  ]
+    .map((part) => String(part || ''))
+    .filter(Boolean)
+    .join('\n');
+}
+
+export function assessInquiryReplyGrounding(row, reply, references = [], verifiedFacts = [], guidelines = '') {
+  const allowed = buildInquiryAllowedFactBlob(row, references, verifiedFacts, guidelines);
+  const allowedNorm = allowed.replace(/\s+/g, '').toLowerCase();
+  const unsupported = extractInquiryConcreteClaims(reply).filter((claim) => !allowedNorm.includes(claim));
+  return { grounded: unsupported.length === 0, unsupported, allowed };
+}
+
+export function buildInquiryGroundingRewritePrompt(row, draftReply, references = [], verifiedFacts = [], guidelines = '') {
+  const allowed = buildInquiryAllowedFactBlob(row, references, verifiedFacts, guidelines);
+  return [
+    '아래 초안에서, 허용된 근거에 없는 구체 사실을 전부 삭제하세요.',
+    '허용 근거: 참고 답변, 응대 지침(사장님이 저장한 지침), 확인된 사실, 문의문.',
+    '구체 사실 예: 몇 월/며칠/몇 주/이번년도, 수량, URL/도메인, 무상·무료 혜택, 고유 수치, 없는 절차.',
+    '근거에 있는 말투·안내는 남기고, 없는 내용은 지어내어 메우지 마세요.',
+    '',
+    '[허용된 근거 — 여기 없는 구체 사실은 답에 넣지 마세요]',
+    allowed || '(근거 없음)',
+    '',
+    `상품명: ${row?.product || '(없음)'}`,
+    `문의 내용:\n${row?.content || ''}`,
+    '',
+    '[수정 전 초안]',
+    String(draftReply || '').trim(),
+    '',
+    '수정된 판매자 답글만 출력하세요. 따옴표나 설명 없이 본문만.',
+  ].join('\n');
 }

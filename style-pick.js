@@ -66,9 +66,6 @@ async function loadCatalog() {
     selectedIds.clear();
 
     const readable = catalog.filter((item) => item.hasBody);
-    if (readable.length >= 2) {
-      readable.slice(0, Math.min(5, readable.length)).forEach((item) => selectedIds.add(item.id));
-    }
 
     const searchedDays = response.searchedDays || days;
     const rangeNote =
@@ -79,7 +76,7 @@ async function loadCatalog() {
     setBanner(
       `답글 등록 ${catalog.length}건 · 본문 ${response.withBodyCount || readable.length}건 (${rangeNote})\n` +
         (readable.length
-          ? '원하는 답글 2개 이상을 선택한 뒤 [선택한 답글로 스타일 분석]을 누르세요.'
+          ? '원하는 답글 2개 이상을 고른 뒤 [선택한 답글로 스타일 분석]을 누르세요.'
           : '목록 search에는 답글 본문이 없어 상세 API로도 읽지 못했습니다.\n판매자센터 [리뷰 관리]에서 리뷰 1건을 클릭한 뒤 다시 시도해 주세요.'),
       readable.length ? 'success' : 'warn'
     );

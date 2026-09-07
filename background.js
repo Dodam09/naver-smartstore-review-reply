@@ -7,6 +7,16 @@ let inquiryStopRequested = false;
 let abortController = null;
 let inquiryAbortController = null;
 
+function enableSidePanelOnActionClick() {
+  if (!chrome.sidePanel?.setPanelBehavior) return;
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((err) => {
+    console.warn('사이드 패널 설정 실패:', err);
+  });
+}
+
+enableSidePanelOnActionClick();
+chrome.runtime.onInstalled.addListener(enableSidePanelOnActionClick);
+
 async function notifyUsageLimit(message) {
   const summary = String(message || '이번 달 답글 생성 한도에 도달했습니다.')
     .split('\n')[0]
@@ -36,6 +46,21 @@ async function notifyConfirmInquiryNeeded(count) {
     });
   } catch (err) {
     console.warn('확인 필요 알림 표시 실패:', err);
+  }
+}
+
+async function notifyManualInquiryNeeded(count) {
+  if (!count) return;
+  try {
+    await chrome.notifications.create(`manual-inquiry-${Date.now()}`, {
+      type: 'basic',
+      iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
+      title: '직접 작성할 문의가 있어요',
+      message: `참고·지침이 없는 ${count}건은 AI가 쓰지 않았습니다. 검토 탭에서 직접 작성해 주세요.`,
+      priority: 2,
+    });
+  } catch (err) {
+    console.warn('직접 작성 알림 표시 실패:', err);
   }
 }
 
@@ -295,9 +320,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 async function runGenerate(payload) {
-  const { rows, apiKey, systemPrompt, model } = payload;
+  const { rows, apiKey, model } = payload;
   if (!rows?.length) throw new Error('처리할 리뷰가 없습니다.');
   await ensureAiCredentials(apiKey);
+
+  const systemPrompt = String(payload.systemPrompt || '').trim();
+  if (!systemPrompt || isLegacyBuiltinPrompt(systemPrompt)) {
+    throw new Error(
+      '답글 지침이 없습니다. 사이드 패널에서 기존 답글로 말투를 만든 뒤 다시 시도해 주세요.'
+    );
+  }
 
   isRunning = true;
   stopRequested = false;
@@ -461,7 +493,12 @@ async function runGenerateInquiries(payload) {
   if (!rows?.length) throw new Error('처리할 상품문의가 없습니다.');
   await ensureAiCredentials(apiKey);
 
-  systemPrompt = String(systemPrompt || '').trim() || getDefaultInquirySystemPrompt();
+  systemPrompt = String(systemPrompt || '').trim();
+  if (!systemPrompt || isLegacyBuiltinPrompt(systemPrompt)) {
+    throw new Error(
+      '응대 지침이 없습니다. 사이드 패널에서 기존 답글로 지침서를 만든 뒤 다시 시도해 주세요.'
+    );
+  }
   // 배송·재고 문의는 과거 답변 참고가 핵심이라 기본으로 켭니다.
   const shouldUseReference = useReference !== false;
 
@@ -489,6 +526,10 @@ async function runGenerateInquiries(payload) {
     });
 
     let referenceCatalog = [];
+    const settingsData = await storageGet([CONFIG.SETTINGS_KEY]);
+    const settings = settingsData[CONFIG.SETTINGS_KEY] || {};
+    const userGuidelines = normalizeUserInquiryGuidelines(settings.inquiryUserGuidelines);
+
     if (shouldUseReference) {
       try {
         await updateInquiryProgress({
@@ -512,10 +553,12 @@ async function runGenerateInquiries(payload) {
         console.warn('기존 문의 답변 참고 로드 실패:', err);
       }
     }
+    referenceCatalog = mergeInquiryReferenceCatalog(referenceCatalog, userGuidelines);
 
     let success = 0;
     let failed = 0;
     let confirmCount = 0;
+    let manualCount = 0;
     let lastError = '';
     const existingReplies = (await storageGet([storageKey]))[storageKey] || {};
     const replyMap = { ...existingReplies };
@@ -537,6 +580,7 @@ async function runGenerateInquiries(payload) {
       success: 0,
       failed: 0,
       manual: 0,
+      confirm: 0,
       currentId: '',
       message: `문의 답변 생성 시작 (0/${total})`,
       lastError: '',
@@ -558,7 +602,7 @@ async function runGenerateInquiries(payload) {
         current: i + 1,
         success,
         failed,
-        manual: confirmCount,
+        manual: manualCount,
         confirm: confirmCount,
         currentId: row.id,
         message: `문의 답변 생성 중 (${i + 1}/${total}) — 문의번호 ${row.id}`,
@@ -568,7 +612,37 @@ async function runGenerateInquiries(payload) {
       });
 
       try {
-        const reply = await generateInquiryReply(
+        if (shouldDeferInquiryToManual(row, references, settings)) {
+          draftItems.push({
+            id: row.id,
+            inquiryContent: row.content,
+            product: row.product || '',
+            writer: row.writer || '',
+            secret: !!row.secret,
+            reply: '',
+            aiReply: '',
+            originalReply: '',
+            needsManual: true,
+            learnAsGuideline: true,
+            needsConfirm: false,
+            confirmReason: '',
+            manualReason: getManualInquiryReason(row, references, settings),
+            referenceIds: [],
+          });
+          success++;
+          manualCount++;
+
+          await storageSet({
+            [storageKey]: { ...replyMap },
+            [draftKey]: {
+              items: [...draftItems],
+              updatedAt: Date.now(),
+            },
+          });
+          continue;
+        }
+
+        const replyRaw = await generateInquiryReply(
           apiKey,
           systemPrompt,
           row,
@@ -578,7 +652,40 @@ async function runGenerateInquiries(payload) {
         );
         if (inquiryStopRequested || signal.aborted) break;
 
-        const needsConfirm = inquiryNeedsConfirm(row);
+        const confirm = evaluateInquiryReplyConfirm(row, replyRaw, references, [], systemPrompt);
+        if (confirm.needsManual || !String(replyRaw || '').trim()) {
+          draftItems.push({
+            id: row.id,
+            inquiryContent: row.content,
+            product: row.product || '',
+            writer: row.writer || '',
+            secret: !!row.secret,
+            reply: '',
+            aiReply: '',
+            originalReply: '',
+            needsManual: true,
+            learnAsGuideline: true,
+            needsConfirm: false,
+            confirmReason: '',
+            manualReason:
+              confirm.reason ||
+              '참고·확인된 사실에 없는 구체 내용을 지어내 직접 작성으로 넘겼습니다.',
+            referenceIds: references.map((ref) => ref.id),
+          });
+          success++;
+          manualCount++;
+
+          await storageSet({
+            [storageKey]: { ...replyMap },
+            [draftKey]: {
+              items: [...draftItems],
+              updatedAt: Date.now(),
+            },
+          });
+          continue;
+        }
+
+        const reply = replyRaw;
         storeInquiryReplyKeys(replyMap, row.id, reply);
         draftItems.push({
           id: row.id,
@@ -587,13 +694,17 @@ async function runGenerateInquiries(payload) {
           writer: row.writer || '',
           secret: !!row.secret,
           reply,
+          aiReply: reply,
+          originalReply: reply,
           needsManual: false,
-          needsConfirm,
-          confirmReason: needsConfirm ? getConfirmInquiryReason(row) : '',
+          learnAsGuideline: false,
+          needsConfirm: confirm.needsConfirm,
+          confirmReason: confirm.reason,
+          manualReason: '',
           referenceIds: references.map((ref) => ref.id),
         });
         success++;
-        if (needsConfirm) confirmCount++;
+        if (confirm.needsConfirm) confirmCount++;
 
         await storageSet({
           [storageKey]: { ...replyMap },
@@ -625,18 +736,20 @@ async function runGenerateInquiries(payload) {
         current: processed,
         success,
         failed,
-        manual: confirmCount,
+        manual: manualCount,
         confirm: confirmCount,
         currentId: '',
         lastError,
         message:
-          `중지됨: AI ${success}건` +
+          `중지됨: AI ${success - manualCount}건` +
+          (manualCount > 0 ? `, 직접 작성 ${manualCount}건` : '') +
           (confirmCount > 0 ? `, 확인 필요 ${confirmCount}건` : '') +
           ` 저장됨 (전체 ${total}건 중 ${processed}건 처리).` +
           (failed > 0 ? ` 실패 ${failed}건.` : '') +
           '\n작업 화면 「2. 답글 검토」 탭에서 확인·수정 후 자동 입력을 활성화하세요.',
         finishedAt: Date.now(),
       });
+      if (manualCount > 0) await notifyManualInquiryNeeded(manualCount);
       if (confirmCount > 0) await notifyConfirmInquiryNeeded(confirmCount);
       return;
     }
@@ -649,13 +762,14 @@ async function runGenerateInquiries(payload) {
         current: processed,
         success,
         failed,
-        manual: confirmCount,
+        manual: manualCount,
         confirm: confirmCount,
         currentId: '',
         lastError,
         message: formatUsageLimitMessage(lastError, success),
         finishedAt: Date.now(),
       });
+      if (manualCount > 0) await notifyManualInquiryNeeded(manualCount);
       if (confirmCount > 0) await notifyConfirmInquiryNeeded(confirmCount);
       return;
     }
@@ -667,6 +781,7 @@ async function runGenerateInquiries(payload) {
           ? `\n\n최근 오류: ${lastError}`
           : '';
 
+    const aiCount = Math.max(0, success - manualCount);
     const doneOk = success > 0;
     await updateInquiryProgress({
       status: doneOk ? 'done' : 'error',
@@ -674,21 +789,25 @@ async function runGenerateInquiries(payload) {
       current: total,
       success,
       failed,
-      manual: confirmCount,
+      manual: manualCount,
       confirm: confirmCount,
       currentId: '',
       lastError,
       message: doneOk
-        ? `완료: AI ${success}건` +
+        ? `완료: AI ${aiCount}건` +
+          (manualCount > 0 ? `, 직접 작성 ${manualCount}건` : '') +
           (confirmCount > 0 ? `, 확인 필요 ${confirmCount}건` : '') +
           (failed > 0 ? `, 실패 ${failed}건` : '') +
           `.${errorHint}\n` +
-          (confirmCount > 0
-            ? `반품·배송 등 ${confirmCount}건은 「2. 답글 검토」에서 확인한 뒤 올려 주세요.`
-            : `작업 화면 「2. 답글 검토」 탭에서 확인·수정 후 [자동 입력 모드]를 눌러주세요.`)
+          (manualCount > 0
+            ? `참고·지침이 없는 ${manualCount}건은 「2. 답글 검토」에서 직접 작성해 주세요. 작성한 답글은 다음 문의 지침으로 저장됩니다.`
+            : confirmCount > 0
+              ? `반품·배송 등 ${confirmCount}건은 「2. 답글 검토」에서 확인한 뒤 올려 주세요.`
+              : `작업 화면 「2. 답글 검토」 탭에서 확인·수정 후 [자동 입력 모드]를 눌러주세요.`)
         : `답변 생성 실패 (${failed}건).${errorHint}`,
       finishedAt: Date.now(),
     });
+    if (manualCount > 0) await notifyManualInquiryNeeded(manualCount);
     if (confirmCount > 0) await notifyConfirmInquiryNeeded(confirmCount);
   } catch (err) {
     if (!inquiryStopRequested && err.name !== 'AbortError') {
@@ -704,11 +823,9 @@ async function runGenerateInquiries(payload) {
 }
 
 function getDefaultInquirySystemPrompt() {
-  return (
-    BUILTIN_INQUIRY_TONE_PRESETS?.[0]?.prompt ||
-    '당신은 네이버 스마트스토어 판매자입니다. 고객 상품문의에 정확하고 친절한 답글을 한국어로 작성하세요.'
-  );
+  return '';
 }
+
 
 function splitInquirySampleAnswers(text) {
   return String(text || '')
@@ -721,13 +838,15 @@ function splitInquirySampleAnswers(text) {
 async function loadInquiryReferencesForRow(row) {
   const cacheKey = CONFIG.INQUIRY_REFERENCE_CACHE_KEY || 'smartstoreInquiryReferenceCache';
   const data = await storageGet([cacheKey, CONFIG.SETTINGS_KEY]);
-  const catalog = data[cacheKey]?.catalog || [];
+  const settings = data[CONFIG.SETTINGS_KEY] || {};
+  const userGuidelines = normalizeUserInquiryGuidelines(settings.inquiryUserGuidelines);
+  const catalog = mergeInquiryReferenceCatalog(data[cacheKey]?.catalog || [], userGuidelines);
   if (catalog.length) {
     const fromCatalog = pickInquiryReferencesForRow(row, catalog);
     if (fromCatalog.length) return fromCatalog;
   }
 
-  const sampleText = data[CONFIG.SETTINGS_KEY]?.inquirySampleReplies || '';
+  const sampleText = settings.inquirySampleReplies || '';
   const answers = splitInquirySampleAnswers(sampleText);
   if (!answers.length) return [];
   return pickInquiryReferencesFromAnswers(row, answers, 4);
@@ -810,8 +929,10 @@ async function analyzeToneSamples(payload) {
 아래는 실제 사장님이 작성한 **상품문의** 판매자 답글 샘플입니다. 말투, 문장 길이, 인사·안내 표현, 이모지 사용, 종결어미, 자주 쓰는 표현, 피해야 할 표현을 분석한 뒤, 같은 스타일로 고객 상품문의 답글을 작성하게 할 **시스템 지시문(system instruction)** 을 한국어로 작성하세요.
 
 규칙:
-- 출력은 시스템 지시문 본문만 (설명·제목·따옴표·마크다운 없이)
-- 5~12문장 분량
+- 출력은 시스템 지시문 본문만
+- 각 지침은 한 줄에 하나씩. 예: [말투·표현] - 존댓말로 짧게 답한다
+- 분류는 [말투·표현] [응대 원칙] [답변 방식] [상품·안내] [기타] 중 하나만 사용
+- 5~12개 지침
 - "복붙 티 나지 않게", "문의 내용의 질문에 구체적으로 답변"을 반드시 포함
 - 공개된 상품 정보는 문의 질문에 맞게 검색해 확인된 사실을 답하도록 지시. 확인되지 않은 사실은 지어내지 말 것
 - 리뷰 감사 인사 위주가 아닌, 문의 Q&A·안내 톤으로 작성하도록 지시
@@ -824,8 +945,10 @@ ${sampleBlock}`
 아래는 실제 사장님이 작성한 판매자 답글 샘플입니다. 말투, 문장 길이, 인사·감사 표현, 이모지 사용, 종결어미, 자주 쓰는 표현, 피해야 할 표현을 분석한 뒤, 같은 스타일로 고객 리뷰 답글을 작성하게 할 **시스템 지시문(system instruction)** 을 한국어로 작성하세요.
 
 규칙:
-- 출력은 시스템 지시문 본문만 (설명·제목·따옴표·마크다운 없이)
-- 5~12문장 분량
+- 출력은 시스템 지시문 본문만
+- 각 지침은 한 줄에 하나씩. 예: [말투·표현] - 존댓말로 짧게 답한다
+- 분류는 [말투·표현] [응대 원칙] [답변 방식] [상품·안내] [기타] 중 하나만 사용
+- 5~12개 지침
 - "복붙 티 나지 않게", "리뷰 내용에 구체적으로 반응"을 반드시 포함
 - 샘플에 없는 이모지·유행어를 무리하게 추가하지 말 것
 - 스마트스토어 판매자 답글임을 명시
@@ -964,9 +1087,6 @@ async function runTestInquiryReply(payload = {}) {
   const apiKey = payload.apiKey;
   await ensureAiCredentials(apiKey);
 
-  const check = await ensureReplyGenerationAllowed(1);
-  if (!check.ok) throw new Error(check.message);
-
   const row = {
     id: 'test',
     content,
@@ -974,13 +1094,29 @@ async function runTestInquiryReply(payload = {}) {
     productNo: String(payload.productNo || '').replace(/[^\d]/g, ''),
     secret: false,
   };
-  const systemPrompt =
-    String(payload.systemPrompt || '').trim() || getDefaultInquirySystemPrompt();
+  const systemPrompt = String(payload.systemPrompt || '').trim();
+  if (!systemPrompt || isLegacyBuiltinPrompt(systemPrompt)) {
+    throw new Error(
+      '응대 지침이 없습니다. 「답변 스타일 설정」에서 기존 답글로 지침서를 먼저 만들어 주세요.'
+    );
+  }
 
   let references = [];
   try {
     references = await loadInquiryReferencesForRow(row);
   } catch (_) {}
+
+  if (!references.length) {
+    const err = new Error(
+      '테스트는 기존 판매자 답변을 1건 이상 참고해야 합니다. 「응대 지침서 만들기」에서 문의 답변을 먼저 불러오거나, 비슷한 과거 답변이 있는 문의로 다시 시도해 주세요.'
+    );
+    err.code = 'NO_REFERENCE';
+    err.referenceCount = 0;
+    throw err;
+  }
+
+  const check = await ensureReplyGenerationAllowed(1);
+  if (!check.ok) throw new Error(check.message);
 
   const text = await generateInquiryReply(
     apiKey,
@@ -992,11 +1128,25 @@ async function runTestInquiryReply(payload = {}) {
   );
 
   const session = await loadAuthSession();
-  const needsConfirm = inquiryNeedsConfirm(row);
+  const confirm = evaluateInquiryReplyConfirm(row, text, references, [], systemPrompt);
+  if (confirm.needsManual || !String(text || '').trim()) {
+    return {
+      deferred: true,
+      needsManual: true,
+      needsConfirm: false,
+      reason:
+        confirm.reason ||
+        '참고·확인된 사실에 없는 구체 내용을 지어내 직접 작성으로 넘겼습니다.',
+      text: '',
+      usage: session?.usage || check.usage || null,
+      referenceCount: references.length,
+    };
+  }
   return {
     deferred: false,
-    needsConfirm,
-    reason: needsConfirm ? getConfirmInquiryReason(row) : '',
+    needsManual: false,
+    needsConfirm: confirm.needsConfirm,
+    reason: confirm.reason,
     text,
     usage: session?.usage || check.usage || null,
     referenceCount: references.length,
@@ -1025,7 +1175,7 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
           inquiryNeedsWebSearch(row)
             ? '아래는 이 상품(또는 비슷한 문의)에 대한 실제 판매자 답변입니다. 확인된 사실로 쓰세요.'
             : '아래는 이 스토어의 실제 판매자 답변입니다. 비슷한 문의의 결론·안내 방식을 분석해 이번 문의에 맞게 새로 쓰세요. 그대로 복붙하지 마세요.',
-          '다른 상품 답변의 스펙은 가져오지 마세요. 과거 답에 없는 고유명·수치는 지어내지 마세요.',
+          '다른 상품 답변의 스펙은 가져오지 마세요. 과거 답에 없는 구체 사실(고유명·수치·일정·URL·혜택)은 지어내지 마세요.',
           ...references.map(
             (ref, index) =>
               `[참고 ${index + 1}${ref.product ? ` · ${ref.product}` : ''}]\n문의: ${ref.question}\n답변: ${ref.answer}`
@@ -1106,6 +1256,7 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
       hasVerifiedFacts: Array.isArray(verifiedFacts) && verifiedFacts.length > 0,
       hasSellerRefs: references.length > 0,
       isReturn: isReturnInquiry(row),
+      isEligibility: isEligibilityInquiry(row),
       product: row.product || '',
     }),
     '위 상품문의에 대한 판매자 답글만 출력하세요. 따옴표나 접두어 없이 본문만.',
@@ -1128,7 +1279,7 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
       },
     ],
     generationConfig: {
-      temperature: webSearch ? 0.35 : 0.7,
+      temperature: webSearch ? 0.3 : 0.35,
     },
   };
 
@@ -1150,12 +1301,70 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
   }
 
   const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts
+  let text = data.candidates?.[0]?.content?.parts
     ?.map((p) => p.text)
     .join('')
     .trim();
   if (!text) throw new Error('빈 응답');
+
+  text = await groundInquiryReplyText(
+    apiKey,
+    row,
+    text,
+    references,
+    verifiedFacts || [],
+    geminiModel,
+    signal,
+    systemPrompt
+  );
   return text;
+}
+
+async function groundInquiryReplyText(apiKey, row, draft, references, verifiedFacts, model, signal, guidelines = '') {
+  let reply = String(draft || '').trim();
+  if (!reply) return '';
+
+  let grounding = assessInquiryReplyGrounding(row, reply, references, verifiedFacts, guidelines);
+  if (grounding.grounded) return reply;
+
+  const rewriteSystem =
+    '당신은 판매자 답글 교정기입니다. 근거에 없는 구체 사실을 삭제하고, 수정된 답글 본문만 출력하세요.';
+  const rewriteUser = buildInquiryGroundingRewritePrompt(
+    row,
+    reply,
+    references,
+    verifiedFacts,
+    guidelines
+  );
+
+  try {
+    const url =
+      `https://generativelanguage.googleapis.com/v1beta/models/${
+        model || CONFIG.GEMINI_MODEL
+      }:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal,
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: rewriteSystem }] },
+        contents: [{ role: 'user', parts: [{ text: rewriteUser }] }],
+        generationConfig: { temperature: 0.15 },
+      }),
+    });
+    if (!response.ok) return '';
+    const data = await response.json();
+    reply = data.candidates?.[0]?.content?.parts
+      ?.map((p) => p.text)
+      .join('')
+      .trim();
+  } catch (_) {
+    return '';
+  }
+
+  grounding = assessInquiryReplyGrounding(row, reply, references, verifiedFacts, guidelines);
+  if (!grounding.grounded) return '';
+  return reply;
 }
 
 function normalizeReviewId(id) {

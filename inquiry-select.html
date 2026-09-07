@@ -6,12 +6,23 @@
   <title>상품문의 답글 작업</title>
   <style>
     * { box-sizing: border-box; }
+    html, body {
+      height: 100%;
+    }
     body {
       margin: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       font-size: 15px;
       color: #1a1a1a;
       background: #eef1f5;
+    }
+    .page-body {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: auto;
     }
     .header {
       position: sticky;
@@ -173,8 +184,8 @@
     .banner.success { background: #eef8f2; border: 1px solid #b8e6cc; color: #0a5c32; }
     .banner.warn { background: #fff4e5; border: 1px solid #f0d9a8; color: #9a6700; }
     .footer-bar {
-      position: fixed;
-      left: 0; right: 0; bottom: 0;
+      position: relative;
+      flex-shrink: 0;
       z-index: 30;
       background: #fff;
       border-top: 1px solid #dde2e8;
@@ -223,7 +234,7 @@
     .gen-progress.success { background: #eef8f2; border-color: #b8e6cc; }
     .gen-progress.error { background: #fff4e5; border-color: #f0d9a8; }
     .gen-progress.stopped { background: #fefce8; border-color: #fde047; }
-    .main { max-width: 1100px; margin: 0 auto; padding: 20px 24px 160px; }
+    .main { max-width: 1100px; margin: 0 auto; padding: 20px 24px 32px; }
     .panel { display: none; }
     .panel.active { display: block; }
     .card {
@@ -256,16 +267,21 @@
     }
     .badge.secret { background: #fef3c7; color: #92400e; }
     .badge.manual { background: #fee2e2; color: #b91c1c; }
-    .badge.confirm { background: #fef3c7; color: #92400e; }
+    .badge.confirm {
+      background: #f59e0b;
+      color: #fff;
+      font-weight: 800;
+    }
     .card.needs-manual {
       border-color: #fca5a5;
       background: #fff7f7;
       box-shadow: 0 4px 16px rgba(185, 28, 28, .08);
     }
     .card.needs-confirm {
-      border-color: #fcd34d;
+      border-color: #f59e0b;
+      border-width: 2px;
       background: #fffbeb;
-      box-shadow: 0 4px 16px rgba(180, 83, 9, .08);
+      box-shadow: 0 4px 16px rgba(180, 83, 9, .12);
     }
     .manual-hint {
       margin: 0 0 10px;
@@ -279,12 +295,13 @@
     }
     .confirm-hint {
       margin: 0 0 10px;
-      padding: 10px 12px;
+      padding: 12px 14px;
       border-radius: 10px;
-      background: #fffbeb;
-      border: 1px solid #fde68a;
-      color: #92400e;
-      font-size: 13px;
+      background: #fff7ed;
+      border: 1px solid #fdba74;
+      color: #9a3412;
+      font-size: 14px;
+      font-weight: 700;
       line-height: 1.5;
     }
     .card-product { font-size: 13px; color: #666; margin-bottom: 10px; line-height: 1.4; }
@@ -328,6 +345,7 @@
   </style>
 </head>
 <body>
+  <div class="page-body">
   <header class="header">
     <div class="header-inner">
       <h1>상품문의 답글 만들기</h1>
@@ -364,8 +382,8 @@
     </div>
     <div class="style-row" id="inquiryStyleRow">
       <span class="style-title">지금 쓰는 말투</span>
-      <span class="style-name" id="inquiryStyleLabel">기본 (친절·안내)</span>
-      <span class="style-hint" id="inquiryStyleHint">확장 아이콘 → 「설정」에서 바꿀 수 있어요</span>
+      <span class="style-name" id="inquiryStyleLabel">지침 미설정</span>
+      <span class="style-hint" id="inquiryStyleHint">사이드 패널 「계정」에서 바꿀 수 있어요</span>
     </div>
   </div>
 
@@ -396,6 +414,7 @@
       <div id="reviewList"></div>
     </section>
   </main>
+  </div>
 
   <footer class="footer-bar">
     <div class="footer-inner">

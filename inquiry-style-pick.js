@@ -148,20 +148,17 @@ async function loadCatalog() {
     selectedIds.clear();
 
     const readable = catalog.filter((item) => hasReadableAnswer(item));
-    if (readable.length >= 2) {
-      readable.forEach((item) => selectedIds.add(item.id));
-    }
 
     setBanner(
       `답변 완료 ${catalog.length}건 · 분석 가능 ${readable.length}건 (${formatLookupDaysLabel(days)})\n` +
         (readable.length
-          ? '불러온 문의/답변으로 응대 지침서를 만듭니다.'
+          ? '원하는 답변 2개 이상을 고른 뒤, 아래 [지침서 만들기]를 누르세요.'
           : `${formatLookupDaysLabel(days)} 내 답변 완료 문의가 없습니다.\n상품문의 페이지에서 답변 완료 목록을 연 뒤 다시 시도하세요.`),
       readable.length ? 'success' : 'warn'
     );
     renderList();
-    if (readable.length >= 2) {
-      onAnalyzeSelected();
+    if (readable.length) {
+      setProgress(100, '목록 불러오기 완료 · 답변을 선택해 주세요', 'list');
     } else {
       hideProgress();
     }
@@ -341,9 +338,11 @@ async function onAnalyzeSelected() {
       },
     };
 
+    stopAnalyzeProgress();
+    setProgress(100, `지침서 작성 완료 · ${response.sampleCount || pairs.length}건 · 확인 대기`, 'done');
+
     const confirm = await confirmAndApplyLearnedStyle(existing, 'inquiry', response, flowPatch);
     if (!confirm.applied) {
-      stopAnalyzeProgress();
       setProgress(100, '지침서는 만들었지만 적용하지 않았습니다.', 'done');
       setBanner(
         confirm.choice === 'keep'
@@ -356,7 +355,6 @@ async function onAnalyzeSelected() {
 
     await storageSet({ [CONFIG.SETTINGS_KEY]: confirm.patch });
 
-    stopAnalyzeProgress();
     setProgress(100, `지침서 저장 완료 · ${response.sampleCount || pairs.length}건 반영`, 'done');
     setBanner(
       `✓ 응대 지침서 저장 · ${response.sampleCount || pairs.length}건 실제 답변을 반영했습니다.\n` +

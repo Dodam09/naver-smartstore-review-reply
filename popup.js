@@ -101,6 +101,11 @@ const els = {
   inquiryTestProductHint: document.getElementById('inquiryTestProductHint'),
   inquiryTestQuestion: document.getElementById('inquiryTestQuestion'),
   inquiryTestResult: document.getElementById('inquiryTestResult'),
+  inquiryTestResultBlock: document.getElementById('inquiryTestResultBlock'),
+  inquiryTestBanner: document.getElementById('inquiryTestBanner'),
+  inquiryTestBannerTitle: document.getElementById('inquiryTestBannerTitle'),
+  inquiryTestBannerDetail: document.getElementById('inquiryTestBannerDetail'),
+  inquiryTestMeta: document.getElementById('inquiryTestMeta'),
   inquiryTestBtn: document.getElementById('inquiryTestBtn'),
   inquiryTestStatus: document.getElementById('inquiryTestStatus'),
   inquiryTestUsageHint: document.getElementById('inquiryTestUsageHint'),
@@ -119,15 +124,6 @@ const els = {
   accountLoggedOut: document.getElementById('accountLoggedOut'),
   accountLoggedIn: document.getElementById('accountLoggedIn'),
   kakaoLoginBtn: document.getElementById('kakaoLoginBtn'),
-  accountDivider: document.getElementById('accountDivider'),
-  loginEmail: document.getElementById('loginEmail'),
-  loginPassword: document.getElementById('loginPassword'),
-  loginBtn: document.getElementById('loginBtn'),
-  registerBtn: document.getElementById('registerBtn'),
-  accountTabLogin: document.getElementById('accountTabLogin'),
-  accountTabRegister: document.getElementById('accountTabRegister'),
-  registerExtra: document.getElementById('registerExtra'),
-  registerPasswordConfirm: document.getElementById('registerPasswordConfirm'),
   logoutBtn: document.getElementById('logoutBtn'),
   refreshUsageBtn: document.getElementById('refreshUsageBtn'),
   openBillingBtn: document.getElementById('openBillingBtn'),
@@ -159,9 +155,7 @@ let inquiryRows = [];
 let inquiryJobPollTimer = null;
 let reviewStyle;
 let inquiryStyle;
-let accountAuthMode = 'login';
 let kakaoLoginEnabled = false;
-let registrationOpen = true;
 let authGateActive = false;
 let reviewPanelStep = 'fetch';
 let inquiryPanelStep = 'fetch';
@@ -278,11 +272,7 @@ async function init() {
   els.apiKey.addEventListener('input', scheduleSaveSettings);
   els.fetchDays.addEventListener('change', scheduleSaveSettings);
   els.inquiryFetchDays.addEventListener('change', scheduleSaveSettings);
-  els.loginBtn?.addEventListener('click', onLoginAccount);
-  els.registerBtn?.addEventListener('click', onRegisterAccount);
   els.kakaoLoginBtn?.addEventListener('click', onKakaoLogin);
-  els.accountTabLogin?.addEventListener('click', () => setAccountAuthMode('login'));
-  els.accountTabRegister?.addEventListener('click', () => setAccountAuthMode('register'));
   els.logoutBtn?.addEventListener('click', onLogoutAccount);
   els.refreshUsageBtn?.addEventListener('click', onRefreshAccountUsage);
   els.openBillingBtn?.addEventListener('click', onOpenBillingPage);
@@ -449,8 +439,11 @@ async function saveInquiryTestDraft(extra = {}) {
       productNo: selected?.productNo || existing.productNo || '',
       question: String(els.inquiryTestQuestion?.value || ''),
       result: String(els.inquiryTestResult?.value || ''),
-      statusText: String(els.inquiryTestStatus?.textContent || ''),
+      statusText: String(els.inquiryTestBannerTitle?.textContent || els.inquiryTestStatus?.textContent || ''),
+      statusDetail: String(els.inquiryTestBannerDetail?.textContent || ''),
+      statusKind: String(els.inquiryTestBanner?.className || '').replace('test-banner', '').trim() || '',
       statusColor: els.inquiryTestStatus?.style?.color || '',
+      metaHtml: String(els.inquiryTestMeta?.innerHTML || ''),
       panelMode: inquiryPanelMode,
       mainTab: 'inquiry',
       updatedAt: Date.now(),
@@ -485,9 +478,21 @@ async function restoreInquiryTestDraft() {
     els.inquiryTestResult.value = String(draft.result);
     els.inquiryTestResult.readOnly = !String(draft.result).trim();
   }
-  if (els.inquiryTestStatus && draft.statusText) {
-    els.inquiryTestStatus.textContent = String(draft.statusText);
-    els.inquiryTestStatus.style.color = draft.statusColor || '#64748b';
+
+  const hasResult = !!String(draft.result || '').trim() || !!String(draft.statusText || '').trim();
+  if (hasResult && els.inquiryTestResultBlock) {
+    els.inquiryTestResultBlock.hidden = false;
+    if (draft.statusText) {
+      setInquiryTestFeedback(
+        draft.statusKind || (draft.statusColor?.includes('b91c') ? 'error' : draft.statusColor?.includes('9a67') ? 'warn' : 'ok'),
+        String(draft.statusText),
+        String(draft.statusDetail || '')
+      );
+    }
+    if (els.inquiryTestMeta && draft.metaHtml) {
+      els.inquiryTestMeta.hidden = false;
+      els.inquiryTestMeta.innerHTML = String(draft.metaHtml);
+    }
   }
 
   applyInquiryTestProductSelection(draft.productName, draft.productNo);
@@ -642,21 +647,69 @@ async function refreshInquiryTestUsageHint() {
   }
 }
 
+function setInquiryTestFeedback(kind, title, detail = '', metaChips = []) {
+  const block = els.inquiryTestResultBlock;
+  const banner = els.inquiryTestBanner;
+  const titleEl = els.inquiryTestBannerTitle;
+  const detailEl = els.inquiryTestBannerDetail;
+  const meta = els.inquiryTestMeta;
+  const legacy = els.inquiryTestStatus;
+
+  if (block) block.hidden = false;
+  if (banner) {
+    banner.hidden = !title;
+    banner.className = `test-banner ${kind || 'info'}`;
+  }
+  if (titleEl) titleEl.textContent = title || '';
+  if (detailEl) {
+    detailEl.textContent = detail || '';
+    detailEl.hidden = !detail;
+  }
+  if (meta) {
+    const chips = (metaChips || []).filter(Boolean);
+    meta.hidden = !chips.length;
+    meta.innerHTML = chips
+      .map(
+        (chip, index) =>
+          `<span class="test-meta-chip${index === 0 ? ' accent' : ''}">${escapeHtml(String(chip))}</span>`
+      )
+      .join('');
+  }
+  if (legacy) {
+    legacy.hidden = true;
+    legacy.textContent = [title, detail].filter(Boolean).join(' · ');
+    legacy.style.color = '';
+  }
+}
+
+function clearInquiryTestFeedback() {
+  if (els.inquiryTestBanner) {
+    els.inquiryTestBanner.hidden = true;
+    els.inquiryTestBanner.className = 'test-banner info';
+  }
+  if (els.inquiryTestBannerTitle) els.inquiryTestBannerTitle.textContent = '';
+  if (els.inquiryTestBannerDetail) els.inquiryTestBannerDetail.textContent = '';
+  if (els.inquiryTestMeta) {
+    els.inquiryTestMeta.hidden = true;
+    els.inquiryTestMeta.innerHTML = '';
+  }
+  if (els.inquiryTestStatus) {
+    els.inquiryTestStatus.hidden = true;
+    els.inquiryTestStatus.textContent = '';
+  }
+}
+
 async function onInquiryTestGenerate() {
   const question = String(els.inquiryTestQuestion?.value || '').trim();
   const selected = getSelectedInquiryTestProduct();
   if (!selected?.name) {
-    if (els.inquiryTestStatus) {
-      els.inquiryTestStatus.textContent = '테스트할 상품을 선택해 주세요.';
-      els.inquiryTestStatus.style.color = '#b91c1c';
-    }
+    setInquiryTestFeedback('error', '상품을 선택해 주세요', '목록에서 고르거나 상품명을 직접 입력해 주세요.');
+    if (els.inquiryTestResultBlock) els.inquiryTestResultBlock.hidden = false;
     return;
   }
   if (!question) {
-    if (els.inquiryTestStatus) {
-      els.inquiryTestStatus.textContent = '테스트 문의를 입력해 주세요.';
-      els.inquiryTestStatus.style.color = '#b91c1c';
-    }
+    setInquiryTestFeedback('error', '테스트 문의를 입력해 주세요');
+    if (els.inquiryTestResultBlock) els.inquiryTestResultBlock.hidden = false;
     return;
   }
 
@@ -664,24 +717,24 @@ async function onInquiryTestGenerate() {
   const settings = settingsData[CONFIG.SETTINGS_KEY] || {};
   const apiKey = settings.apiKey || CONFIG.GEMINI_API_KEY;
   if (!(await hasAiCredentialsAsync(apiKey))) {
-    if (els.inquiryTestStatus) {
-      els.inquiryTestStatus.textContent = 'AI 연결이 필요해요. [계정]에서 로그인하거나 API 키를 넣어 주세요.';
-      els.inquiryTestStatus.style.color = '#b91c1c';
-    }
+    setInquiryTestFeedback('error', 'AI 연결이 필요해요', '[계정]에서 로그인하거나 API 키를 넣어 주세요.');
     return;
   }
 
-  const systemPrompt =
-    String(settings.inquirySystemPrompt || '').trim() ||
-    BUILTIN_INQUIRY_TONE_PRESETS?.[0]?.prompt ||
-    '';
+  const systemPrompt = String(settings.inquirySystemPrompt || '').trim();
+  if (!systemPrompt || (typeof isLegacyBuiltinPrompt === 'function' && isLegacyBuiltinPrompt(systemPrompt))) {
+    setInquiryTestFeedback(
+      'error',
+      '응대 지침이 없습니다',
+      '「답변 스타일 설정」에서 기존 답글로 지침서를 먼저 만들어 주세요.'
+    );
+    return;
+  }
 
   if (els.inquiryTestBtn) els.inquiryTestBtn.disabled = true;
   if (els.inquiryTestResult) els.inquiryTestResult.value = '';
-  if (els.inquiryTestStatus) {
-    els.inquiryTestStatus.textContent = '답글 만드는 중… (성공 시 1건 차감)';
-    els.inquiryTestStatus.style.color = '#64748b';
-  }
+  if (els.inquiryTestResultBlock) els.inquiryTestResultBlock.hidden = false;
+  setInquiryTestFeedback('info', '답글 만드는 중…', '성공하면 답글 1건이 차감됩니다.');
 
   chrome.runtime.sendMessage(
     {
@@ -698,11 +751,11 @@ async function onInquiryTestGenerate() {
     async (response) => {
       if (els.inquiryTestBtn) els.inquiryTestBtn.disabled = false;
       if (chrome.runtime.lastError || !response?.ok) {
-        if (els.inquiryTestStatus) {
-          els.inquiryTestStatus.textContent =
-            response?.error || chrome.runtime.lastError?.message || '테스트 실패';
-          els.inquiryTestStatus.style.color = '#b91c1c';
-        }
+        setInquiryTestFeedback(
+          'error',
+          '테스트 실패',
+          response?.error || chrome.runtime.lastError?.message || '다시 시도해 주세요.'
+        );
         await refreshInquiryTestUsageHint();
         await saveInquiryTestDraft();
         return;
@@ -712,24 +765,38 @@ async function onInquiryTestGenerate() {
         els.inquiryTestResult.value = response.text || '';
         els.inquiryTestResult.readOnly = false;
       }
-      if (els.inquiryTestStatus) {
-        const usageText = formatUsageSummary(response.usage);
-        const refCount = Number(response.referenceCount) || 0;
-        const refText = refCount
-          ? `참고 답변 ${refCount}건`
-          : '참고 답변 없음 · 상품문의 답변 목록을 먼저 불러오세요';
-        if (response.needsConfirm) {
-          els.inquiryTestStatus.textContent = response.reason
-            ? `초안 작성됨 · 확인 필요 · ${response.reason} · ${refText}${usageText ? ` · ${usageText}` : ''}`
-            : `초안 작성됨 · 확인 필요 · ${refText}${usageText ? ` · ${usageText}` : ''}`;
-          els.inquiryTestStatus.style.color = '#9a6700';
-        } else {
-          els.inquiryTestStatus.textContent = usageText
-            ? `테스트 완료 · 1건 차감됨 · ${refText} · ${usageText}`
-            : `테스트 완료 · 1건 차감됨 · ${refText}`;
-          els.inquiryTestStatus.style.color = refCount ? '#0a7a3f' : '#9a6700';
-        }
+
+      const usageText = formatUsageSummary(response.usage);
+      const refCount = Number(response.referenceCount) || 0;
+      const meta = [
+        refCount ? `참고 ${refCount}건` : '참고 없음',
+        usageText || '',
+      ].filter(Boolean);
+
+      if (response.needsManual || response.deferred) {
+        setInquiryTestFeedback(
+          'error',
+          '직접 작성으로 넘김',
+          response.reason ||
+            '참고 답변이 없어 테스트할 수 없습니다. 기존 문의 답변을 먼저 불러와 주세요.',
+          meta
+        );
+      } else if (response.needsConfirm) {
+        setInquiryTestFeedback(
+          'warn',
+          '확인 필요',
+          response.reason || '초안을 검토한 뒤 사용하세요.',
+          meta
+        );
+      } else {
+        setInquiryTestFeedback(
+          'ok',
+          '테스트 완료',
+          '1건 차감됨 · 미리보기 초안입니다.',
+          meta
+        );
       }
+
       await refreshInquiryTestUsageHint();
       await saveInquiryTestDraft();
     }
@@ -1584,9 +1651,7 @@ function applyAuthGate(loggedIn) {
   }
 
   if (els.accountCardDesc) {
-    els.accountCardDesc.textContent = authGateActive
-      ? '카카오 로그인으로 시작하세요. 처음이면 자동 가입됩니다.'
-      : '카카오로 간편 로그인하거나 이메일로 가입·로그인하세요.';
+    els.accountCardDesc.textContent = '카카오 로그인으로 시작하세요. 처음이면 자동 가입됩니다.';
   }
 
   if (authGateActive) {
@@ -1639,49 +1704,19 @@ async function initAccountUi() {
 
   try {
     const health = await fetchServerHealth();
-    registrationOpen = health?.registrationOpen !== false;
-    kakaoLoginEnabled = health?.kakaoLoginEnabled === true;
+    kakaoLoginEnabled = health?.kakaoLoginEnabled !== false;
   } catch (_) {
-    registrationOpen = true;
-    kakaoLoginEnabled = false;
+    kakaoLoginEnabled = true;
   }
 
   if (els.kakaoLoginBtn) {
     els.kakaoLoginBtn.hidden = !kakaoLoginEnabled;
   }
-  if (els.accountDivider) {
-    els.accountDivider.hidden = !kakaoLoginEnabled;
+  if (els.accountStatus && !kakaoLoginEnabled) {
+    els.accountStatus.textContent = '카카오 로그인을 잠시 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.';
   }
 
-  if (els.accountTabRegister) {
-    els.accountTabRegister.hidden = !registrationOpen;
-  }
-  setAccountAuthMode('login');
   await syncAccountUi({ force: true });
-}
-
-function setAccountAuthMode(mode) {
-  if (mode === 'register' && !registrationOpen) {
-    mode = 'login';
-  }
-  accountAuthMode = mode;
-
-  els.accountTabLogin?.classList.toggle('active', mode === 'login');
-  els.accountTabRegister?.classList.toggle('active', mode === 'register');
-  if (els.registerExtra) els.registerExtra.hidden = mode !== 'register';
-  if (els.loginBtn) els.loginBtn.hidden = mode !== 'login';
-  if (els.registerBtn) els.registerBtn.hidden = mode !== 'register';
-
-  if (els.accountStatus) {
-    els.accountStatus.textContent =
-      mode === 'register'
-        ? '이메일과 비밀번호(8자 이상)로 가입할 수 있습니다.'
-        : kakaoLoginEnabled
-          ? '카카오 로그인을 권장합니다. 이메일 로그인도 이용할 수 있습니다.'
-          : registrationOpen
-            ? '로그인하거나 [가입하기] 탭에서 새 계정을 만드세요.'
-            : '이메일과 비밀번호로 로그인해 주세요.';
-  }
 }
 
 async function renderAccountUi() {
@@ -1694,7 +1729,6 @@ async function renderAccountUi() {
   if (els.accountLoggedIn) els.accountLoggedIn.hidden = !loggedIn;
 
   if (!loggedIn) {
-    setAccountAuthMode(accountAuthMode);
     return;
   }
 
@@ -1703,7 +1737,7 @@ async function renderAccountUi() {
     const subText = formatSubscriptionSummary(session.subscription);
     const planLabel = session.subscription?.active
       ? session.planName || session.planId || '플랜'
-      : '구독 전';
+      : session.planName || session.usage?.planName || '무료 체험';
     const accountLabel = session.displayName || session.email || '계정';
     const providerLabel = session.authProvider === 'kakao' ? '카카오' : '이메일';
     els.accountSummary.innerHTML = `
@@ -1817,40 +1851,6 @@ async function onConfirmCancelSubscription() {
   }
 }
 
-async function onRegisterAccount() {
-  const email = els.loginEmail?.value.trim() || '';
-  const password = els.loginPassword?.value || '';
-  const confirm = els.registerPasswordConfirm?.value || '';
-
-  if (!email || !password) {
-    if (els.accountStatus) els.accountStatus.textContent = '이메일과 비밀번호를 입력해 주세요.';
-    return;
-  }
-  if (password.length < 8) {
-    if (els.accountStatus) els.accountStatus.textContent = '비밀번호는 8자 이상이어야 합니다.';
-    return;
-  }
-  if (password !== confirm) {
-    if (els.accountStatus) els.accountStatus.textContent = '비밀번호 확인이 일치하지 않습니다.';
-    return;
-  }
-
-  if (els.registerBtn) els.registerBtn.disabled = true;
-  if (els.accountStatus) els.accountStatus.textContent = '가입 중…';
-
-  try {
-    await registerWithPassword(email, password);
-    if (els.loginPassword) els.loginPassword.value = '';
-    if (els.registerPasswordConfirm) els.registerPasswordConfirm.value = '';
-    if (els.accountStatus) els.accountStatus.textContent = '가입 완료! [구독하기]에서 플랜을 선택해 주세요.';
-    await renderAccountUi();
-  } catch (err) {
-    if (els.accountStatus) els.accountStatus.textContent = err.message || '가입에 실패했습니다.';
-  } finally {
-    if (els.registerBtn) els.registerBtn.disabled = false;
-  }
-}
-
 async function onKakaoLogin() {
   if (els.kakaoLoginBtn) els.kakaoLoginBtn.disabled = true;
   if (els.accountStatus) els.accountStatus.textContent = '카카오 로그인 창을 여는 중… (창이 닫히면 [계정]을 다시 확인하세요)';
@@ -1864,35 +1864,6 @@ async function onKakaoLogin() {
     if (els.accountStatus) els.accountStatus.textContent = err.message || '카카오 로그인에 실패했습니다.';
   } finally {
     if (els.kakaoLoginBtn) els.kakaoLoginBtn.disabled = false;
-  }
-}
-
-async function onLoginAccount() {
-  const email = els.loginEmail?.value.trim() || '';
-  const password = els.loginPassword?.value || '';
-  if (!email || !password) {
-    if (els.accountStatus) els.accountStatus.textContent = '이메일과 비밀번호를 입력해 주세요.';
-    return;
-  }
-
-  if (els.loginBtn) els.loginBtn.disabled = true;
-  if (els.accountStatus) els.accountStatus.textContent = '로그인 중…';
-
-  try {
-    await loginWithPassword(email, password);
-    if (els.loginPassword) els.loginPassword.value = '';
-    if (els.accountStatus) els.accountStatus.textContent = '로그인되었습니다.';
-    await renderAccountUi();
-    switchTab('work');
-  } catch (err) {
-    if (els.accountStatus) {
-      const msg = err.message || '로그인에 실패했습니다.';
-      els.accountStatus.textContent = /비밀번호|찾을 수 없|올바르지|존재하지/.test(msg)
-        ? `${msg} (서버 재배포 후에는 [가입하기]로 새 계정을 만들거나 카카오로 다시 로그인해 주세요.)`
-        : msg;
-    }
-  } finally {
-    if (els.loginBtn) els.loginBtn.disabled = false;
   }
 }
 

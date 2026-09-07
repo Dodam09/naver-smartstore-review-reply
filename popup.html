@@ -67,11 +67,13 @@
 
     body {
 
-      width: 360px;
+      width: 100%;
 
-      height: 600px;
+      min-width: 280px;
 
-      max-height: 600px;
+      height: 100%;
+
+      max-height: none;
 
       margin: 0;
 
@@ -485,83 +487,187 @@
 
     }
 
-    .account-auth-tabs {
+    /* 답글 테스트 — 가시성 강화 */
+    #inquiryTestPanel .card {
+      padding: 0;
+      overflow: hidden;
+      border: none;
+      background: transparent;
+      box-shadow: none;
+    }
 
+    .test-layout {
       display: flex;
-
-      gap: 6px;
-
-      margin-bottom: 10px;
-
+      flex-direction: column;
+      gap: 12px;
     }
 
-    .account-auth-tab {
+    .test-setup,
+    .test-result-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+    }
 
-      flex: 1;
+    .test-setup-title {
+      margin: 0 0 4px;
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--text-primary);
+    }
 
-      margin-top: 0;
-
-      padding: 8px;
-
-      border: 1px solid #ddd;
-
-      border-radius: 8px;
-
-      background: #f5f6fa;
-
-      color: #444;
-
+    .test-setup-lead {
+      margin: 0 0 12px;
       font-size: 12px;
-
-      font-weight: 600;
-
-      cursor: pointer;
-
-    }
-
-    .account-auth-tab.active {
-
-      background: var(--accent-soft);
-
-      border-color: var(--accent);
-
-      color: var(--accent-text);
-
-    }
-
-    #accountLoggedOut label {
-      display: block;
-      margin-top: var(--space-2);
-      margin-bottom: var(--space-1);
-      font-size: var(--font-body);
-      font-weight: 600;
+      line-height: 1.45;
       color: var(--text-secondary);
     }
 
-    #accountLoggedOut label:first-of-type {
-      margin-top: 0;
+    .test-field {
+      margin-bottom: 10px;
     }
 
-    #accountLoggedOut input[type="email"],
-    #accountLoggedOut input[type="password"] {
-      margin-bottom: var(--space-1);
+    .test-field label {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-primary);
     }
 
-    .account-divider {
+    .test-field .hint {
+      margin-top: 4px;
+    }
+
+    #inquiryTestBtn.fetch {
+      margin-top: 4px;
+      padding: 12px 14px;
+      font-size: 14px;
+      font-weight: 800;
+      border-radius: 10px;
+      background: #2563eb;
+    }
+
+    #inquiryTestBtn.fetch:hover {
+      background: #1d4ed8;
+    }
+
+    .test-usage-chip {
+      margin-top: 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: var(--surface-muted);
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .test-result-panel[hidden] {
+      display: none !important;
+    }
+
+    .test-banner {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      margin-bottom: 10px;
+      border: 1px solid transparent;
+    }
+
+    .test-banner[hidden] {
+      display: none !important;
+    }
+
+    .test-banner-title {
+      font-size: 14px;
+      font-weight: 800;
+      line-height: 1.35;
+    }
+
+    .test-banner-detail {
+      font-size: 12px;
+      line-height: 1.45;
+      opacity: 0.95;
+    }
+
+    .test-banner.ok {
+      background: #ecfdf5;
+      border-color: #a7f3d0;
+      color: #065f46;
+    }
+
+    .test-banner.warn {
+      background: #fff7ed;
+      border-color: #fdba74;
+      color: #9a3412;
+    }
+
+    .test-banner.error {
+      background: #fef2f2;
+      border-color: #fecaca;
+      color: #991b1b;
+    }
+
+    .test-banner.info {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+      color: #1e40af;
+    }
+
+    .test-result-label {
       display: flex;
       align-items: center;
-      gap: 10px;
-      margin: 14px 0 10px;
-      color: #6b7280;
-      font-size: 12px;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
     }
 
-    .account-divider::before,
-    .account-divider::after {
-      content: '';
-      flex: 1;
-      height: 1px;
-      background: #e5e7eb;
+    .test-result-label strong {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--text-primary);
+    }
+
+    #inquiryTestResult {
+      min-height: 180px;
+      font-size: 13px;
+      line-height: 1.55;
+      background: #f8fafc;
+      border: 1px solid var(--border-strong);
+      border-radius: 10px;
+    }
+
+    .test-meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .test-meta-row[hidden] {
+      display: none !important;
+    }
+
+    .test-meta-chip {
+      padding: 5px 9px;
+      border-radius: 999px;
+      background: var(--surface-muted);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .test-meta-chip.accent {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+      color: #1d4ed8;
     }
 
     button.kakao-login {
@@ -745,6 +851,10 @@
       line-height: 1.45;
     }
 
+    .style-mode-card.preset-mode {
+      display: none !important;
+    }
+
     .style-mode-intro {
       font-size: var(--font-body);
       color: var(--text-secondary);
@@ -761,6 +871,11 @@
       font-weight: 600;
     }
 
+    .style-mode-list.is-configured .style-mode-intro,
+    .mode-panel.is-style-configured .style-mode-intro {
+      display: none;
+    }
+
     .style-mode-list {
       display: flex;
       flex-direction: column;
@@ -774,12 +889,51 @@
       overflow: hidden;
     }
 
+    .mode-panel.is-style-configured .style-mode-card:not(.active) {
+      opacity: 0.72;
+      background: #fafafa;
+    }
+
     .style-mode-card.active,
     .style-mode-card.active.preset-mode,
     .style-mode-card.active.custom-mode {
-      border-color: var(--accent-border);
-      background: var(--accent-soft);
+      border-color: var(--accent);
+      border-width: 1.5px;
+      background: #fff;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.08);
+    }
+
+    .panel.work .style-mode-card.active {
+      box-shadow: 0 4px 14px rgba(3, 199, 90, 0.1);
+    }
+
+    .style-mode-card.active.is-applied .style-page-badge,
+    .style-mode-card.active.is-applied .style-step-hint {
+      display: none;
+    }
+
+    .style-mode-card.active.is-applied .sample-flow {
+      display: none;
+    }
+
+    .style-mode-card.active.is-applied .style-hero-btn {
+      order: 2;
+      margin-top: 8px;
+      background: #fff;
+      color: var(--accent-text, #1d4ed8);
+      border: 1px solid var(--accent-border, #bfdbfe);
       box-shadow: none;
+      font-weight: 700;
+    }
+
+    .panel.work .style-mode-card.active.is-applied .style-hero-btn {
+      color: var(--accent-text);
+      border-color: var(--accent-border);
+    }
+
+    .style-mode-card.active.is-applied .learned-prompt-host,
+    .style-mode-card.active.is-applied .learned-prompt-editor {
+      order: 1;
     }
 
     .style-mode-head {
@@ -878,19 +1032,21 @@
     }
 
     .style-mode-body {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
       padding: 0 var(--space-3) var(--space-3);
       border-top: 1px solid var(--border);
-      background: rgba(255, 255, 255, 0.55);
+      background: #fff;
     }
 
     .style-mode-card.active .style-mode-body {
-      background: rgba(255, 255, 255, 0.65);
+      display: flex;
     }
 
     .style-mode-body.is-collapsed {
-      display: none;
+      display: none !important;
     }
-
     .style-mode-body .style-hero-btn {
       margin-top: 10px;
     }
@@ -980,6 +1136,70 @@
       resize: vertical;
       font-family: inherit;
       background: var(--surface-muted);
+    }
+
+    .guideline-summary-card {
+      margin-top: 0;
+      padding: 14px;
+      border: 1px solid var(--accent-border, #bfdbfe);
+      border-radius: 12px;
+      background: var(--accent-soft, #eff6ff);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .guideline-summary-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .guideline-summary-count {
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--text-primary, #0f172a);
+    }
+
+    .guideline-summary-state {
+      font-size: 12px;
+      font-weight: 800;
+      color: #047857;
+      background: #ecfdf5;
+      border: 1px solid #a7f3d0;
+      border-radius: 999px;
+      padding: 4px 8px;
+      white-space: nowrap;
+    }
+
+    .guideline-summary-preview {
+      display: none;
+    }
+
+    .guideline-manage-btn {
+      align-self: stretch;
+      border: none;
+      background: #2563eb;
+      color: #fff;
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 14px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .panel.work .guideline-manage-btn {
+      background: var(--accent, #03c75a);
+    }
+
+    .guideline-manage-btn:hover {
+      filter: brightness(0.95);
+    }
+
+    .learned-prompt-editor label,
+    .learned-prompt-editor .hint {
+      display: none;
     }
 
     .card {
@@ -1448,7 +1668,7 @@
 
           <span class="active-style-label">적용 중인 AI 지침</span>
 
-          <span class="active-style-sub">프리셋 · 기본 (친절·감사)</span>
+          <span class="active-style-sub">지침 미설정</span>
 
         </div>
 
@@ -1456,7 +1676,7 @@
 
       </div>
 
-      <div class="active-style-prompt-box" id="reviewActiveStylePrompt">당신은 네이버 스마트스토어 판매자입니다…</div>
+      <div class="active-style-prompt-box" id="reviewActiveStylePrompt">아직 지침이 없습니다. 기존 답글로 만들거나 직접 작성해 주세요.</div>
 
     </div>
 
@@ -1536,7 +1756,7 @@
 
     <div id="reviewStylePanel" class="mode-panel">
 
-      <p class="style-mode-intro">말투 방식을 <strong>하나만</strong> 선택하세요. 선택한 방식의 지침이 답글에 적용됩니다.</p>
+      <p class="style-mode-intro">말투는 <strong>직접 만드세요</strong>. 기존 답글 분석이나 직접 지침 중 하나만 선택합니다. 미리 들어 있는 예시 지침은 없습니다.</p>
 
       <div class="style-mode-list" id="reviewStyleModeList">
 
@@ -1578,7 +1798,7 @@
 
                 <label for="reviewLearnedSystemPrompt">분석된 AI 지침</label>
 
-                <p class="hint">위에서 만든 말투입니다. 여기서 바로 수정할 수 있어요.</p>
+                <p class="hint">새 창에서 의미별로 수정·삭제·추가할 수 있어요.</p>
 
                 <textarea id="reviewLearnedSystemPrompt" placeholder="답글 분석으로 만들어진 AI 지침"></textarea>
 
@@ -1634,7 +1854,7 @@
 
                 <label for="reviewLearnedSystemPromptPaste">분석된 AI 지침</label>
 
-                <p class="hint">위에서 만든 말투입니다. 여기서 바로 수정할 수 있어요.</p>
+                <p class="hint">새 창에서 의미별로 수정·삭제·추가할 수 있어요.</p>
 
                 <textarea id="reviewLearnedSystemPromptPaste" placeholder="답글 분석으로 만들어진 AI 지침"></textarea>
 
@@ -1750,7 +1970,7 @@
 
           <span class="active-style-label">적용 중인 AI 지침</span>
 
-          <span class="active-style-sub">프리셋 · 기본 (친절·안내)</span>
+          <span class="active-style-sub">지침 미설정</span>
 
         </div>
 
@@ -1758,7 +1978,7 @@
 
       </div>
 
-      <div class="active-style-prompt-box" id="inquiryActiveStylePrompt">당신은 네이버 스마트스토어 판매자입니다…</div>
+      <div class="active-style-prompt-box" id="inquiryActiveStylePrompt">아직 지침이 없습니다. 기존 답글로 만들거나 직접 작성해 주세요.</div>
 
     </div>
 
@@ -1824,7 +2044,7 @@
 
     <div id="inquiryStylePanel" class="mode-panel">
 
-      <p class="style-mode-intro">말투 방식을 <strong>하나만</strong> 선택하세요. 선택한 방식의 지침이 답글에 적용됩니다.</p>
+      <p class="style-mode-intro">말투는 <strong>직접 만드세요</strong>. 기존 답글 분석이나 직접 지침 중 하나만 선택합니다. 미리 들어 있는 예시 지침은 없습니다.</p>
 
       <div class="style-mode-list" id="inquiryStyleModeList">
 
@@ -1852,11 +2072,11 @@
 
             <button id="openInquiryStylePickBtn" class="style-hero-btn" type="button">기존 답변으로 응대 지침서 만들기</button>
 
-            <p class="style-step-hint">판매자센터 답변을 불러오면, 말투와 안내 방식을 지침서로 만듭니다.</p>
+            <p class="style-step-hint">새 창에서 쓸 답변을 고른 뒤 지침서를 만듭니다.</p>
 
             <div class="sample-flow" id="inquirySampleFlow">
 
-              <div class="sample-flow-status" id="inquirySampleFlowStatus">버튼을 누르면 기존 문의 답변을 모아 응대 지침서를 만듭니다.</div>
+              <div class="sample-flow-status" id="inquirySampleFlowStatus">버튼을 누르면 새 창에서 답변을 고른 뒤 지침서를 만듭니다.</div>
 
             </div>
 
@@ -1866,7 +2086,7 @@
 
                 <label for="inquiryLearnedSystemPrompt">응대 지침서</label>
 
-                <p class="hint">기존 문의 답변에서 만든 지침입니다. 여기서 바로 수정할 수 있어요.</p>
+                <p class="hint">새 창에서 의미별로 수정·삭제·추가할 수 있어요.</p>
 
                 <textarea id="inquiryLearnedSystemPrompt" placeholder="답글 분석으로 만들어진 AI 지침"></textarea>
 
@@ -1922,7 +2142,7 @@
 
                 <label for="inquiryLearnedSystemPromptPaste">분석된 AI 지침</label>
 
-                <p class="hint">위에서 만든 말투입니다. 여기서 바로 수정할 수 있어요.</p>
+                <p class="hint">새 창에서 의미별로 수정·삭제·추가할 수 있어요.</p>
 
                 <textarea id="inquiryLearnedSystemPromptPaste" placeholder="답글 분석으로 만들어진 AI 지침"></textarea>
 
@@ -2009,41 +2229,48 @@
 
 
     <div id="inquiryTestPanel" class="mode-panel">
-
       <div class="card">
+        <div class="test-layout">
+          <section class="test-setup">
+            <h3 class="test-setup-title">답글 테스트</h3>
+            <p class="test-setup-lead">샘플 문의로 미리 확인합니다. 참고 답변이 1건 이상 있어야 하며, 성공 시 답글 1건이 차감됩니다.</p>
 
-        <div class="card-title">답글 테스트</div>
+            <div class="test-field">
+              <label for="inquiryTestProduct">상품 선택</label>
+              <select id="inquiryTestProduct">
+                <option value="">직접 입력 또는 아래 목록에서 선택</option>
+              </select>
+            </div>
 
-        <div class="card-desc">샘플 문의로 답글을 미리 확인합니다. <strong>성공 시 답글 1건</strong>이 사용량에서 차감됩니다.</div>
+            <div class="test-field">
+              <label for="inquiryTestProductName">상품명</label>
+              <input type="text" id="inquiryTestProductName" placeholder="예: 상품명을 입력하세요" autocomplete="off" />
+              <div class="hint" id="inquiryTestProductHint">문의/리뷰를 가져오면 목록이 채워집니다. 직접 입력도 가능합니다.</div>
+            </div>
 
-        <label for="inquiryTestProduct">상품 선택</label>
+            <div class="test-field">
+              <label for="inquiryTestQuestion">테스트 문의</label>
+              <textarea id="inquiryTestQuestion" rows="3" placeholder="예: 이 제품에 OO이 들어있나요?"></textarea>
+            </div>
 
-        <select id="inquiryTestProduct">
-          <option value="">직접 입력 또는 아래 목록에서 선택</option>
-        </select>
+            <button id="inquiryTestBtn" class="fetch" type="button">테스트 답글 만들기 (1건)</button>
+            <div class="test-usage-chip" id="inquiryTestUsageHint">사용량: 확인 중…</div>
+          </section>
 
-        <label for="inquiryTestProductName" style="margin-top:8px;">상품명 (직접 입력 가능)</label>
-
-        <input type="text" id="inquiryTestProductName" placeholder="예: 상품명을 입력하세요" autocomplete="off" />
-
-        <div class="hint" id="inquiryTestProductHint">문의/리뷰를 가져오면 목록이 채워집니다. 없어도 상품명을 직접 입력해 테스트할 수 있습니다.</div>
-
-        <label for="inquiryTestQuestion">테스트 문의</label>
-
-        <textarea id="inquiryTestQuestion" rows="4" placeholder="예: 이 제품에 OO이 들어있나요?"></textarea>
-
-        <div class="hint" id="inquiryTestUsageHint">사용량: 확인 중…</div>
-
-        <button id="inquiryTestBtn" class="fetch" type="button">테스트 답글 만들기 (1건)</button>
-
-        <label for="inquiryTestResult" style="margin-top:12px;">결과</label>
-
-        <textarea id="inquiryTestResult" rows="6" placeholder="여기에 테스트 답글이 표시됩니다." readonly></textarea>
-
-        <div class="hint" id="inquiryTestStatus"></div>
-
+          <section class="test-result-panel" id="inquiryTestResultBlock" hidden>
+            <div class="test-banner info" id="inquiryTestBanner" hidden>
+              <div class="test-banner-title" id="inquiryTestBannerTitle"></div>
+              <div class="test-banner-detail" id="inquiryTestBannerDetail"></div>
+            </div>
+            <div class="test-result-label">
+              <strong>생성된 답글</strong>
+            </div>
+            <textarea id="inquiryTestResult" rows="10" placeholder="여기에 테스트 답글이 표시됩니다." readonly></textarea>
+            <div class="test-meta-row" id="inquiryTestMeta" hidden></div>
+            <div class="hint" id="inquiryTestStatus" hidden></div>
+          </section>
+        </div>
       </div>
-
     </div>
 
 
@@ -2062,41 +2289,11 @@
 
       <div class="card-title">계정</div>
 
-      <div class="card-desc" id="accountCardDesc">카카오로 간편 로그인하거나 이메일로 가입·로그인하세요.</div>
+      <div class="card-desc" id="accountCardDesc">카카오 로그인으로 시작하세요. 처음이면 자동 가입됩니다.</div>
 
       <div id="accountLoggedOut">
 
         <button id="kakaoLoginBtn" class="kakao-login" type="button" hidden>카카오로 로그인</button>
-
-        <div class="account-divider" id="accountDivider" hidden>또는</div>
-
-        <div class="account-auth-tabs">
-
-          <button type="button" class="account-auth-tab active" id="accountTabLogin">로그인</button>
-
-          <button type="button" class="account-auth-tab" id="accountTabRegister">가입하기</button>
-
-        </div>
-
-        <label for="loginEmail">이메일</label>
-
-        <input type="email" id="loginEmail" placeholder="you@example.com" autocomplete="username" />
-
-        <label for="loginPassword">비밀번호</label>
-
-        <input type="password" id="loginPassword" placeholder="8자 이상" autocomplete="current-password" />
-
-        <div id="registerExtra" hidden>
-
-          <label for="registerPasswordConfirm">비밀번호 확인</label>
-
-          <input type="password" id="registerPasswordConfirm" placeholder="한 번 더 입력" autocomplete="new-password" />
-
-        </div>
-
-        <button id="loginBtn" type="button">로그인</button>
-
-        <button id="registerBtn" type="button" hidden>가입하기</button>
 
         <div class="hint" id="accountStatus"></div>
 
@@ -2179,6 +2376,8 @@
   <script src="lib/lookup-days.js"></script>
 
   <script src="lib/tone-presets.js"></script>
+
+  <script src="lib/guideline-items.js"></script>
 
   <script src="lib/style-apply-confirm.js"></script>
 

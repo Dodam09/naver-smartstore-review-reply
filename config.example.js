@@ -36,7 +36,8 @@ if (!globalThis.CONFIG) {
   // 참고 답변 선택(selectedIds)은 INQUIRY_REFERENCE_CACHE_KEY 캐시에 저장됩니다.
   // 아래 inquiry* 설정은 popup에서 자동 저장됩니다 (리뷰와 별도):
   // inquirySystemPrompt, inquiryTonePresetId, inquiryCustomPresets,
-  // inquirySampleReplies, inquirySampleFlow
+  // inquirySampleReplies, inquirySampleFlow, inquiryUserGuidelines
+  // inquiryUserGuidelines: 참고·지침 없이 직접 작성한 문의 답변(다음 생성 참고용)
   };
 }
 var CONFIG = globalThis.CONFIG;

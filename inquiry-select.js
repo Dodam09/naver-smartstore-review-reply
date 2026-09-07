@@ -140,7 +140,7 @@ async function loadData() {
 
   if (!cache?.inquiryRows?.length) {
     els.selectList.innerHTML =
-      '<div class="empty">아직 문의가 없어요.<br>확장 아이콘 → <strong>상품문의</strong> 탭에서 「가져오기」를 먼저 하세요.</div>';
+      '<div class="empty">아직 문의가 없어요.<br>확장 아이콘(사이드 패널) → <strong>상품문의</strong>에서 「가져오기」를 먼저 하세요.</div>';
     updateSelectCounts();
     return;
   }
@@ -175,7 +175,7 @@ function renderSelect() {
 
   if (!parsedRows.length) {
     els.selectList.innerHTML =
-      '<div class="empty">아직 문의가 없어요.<br>확장 아이콘 → <strong>상품문의</strong> 탭에서 「가져오기」를 먼저 하세요.</div>';
+      '<div class="empty">아직 문의가 없어요.<br>확장 아이콘(사이드 패널) → <strong>상품문의</strong>에서 「가져오기」를 먼저 하세요.</div>';
     updateSelectCounts();
     return;
   }
@@ -470,8 +470,26 @@ function collectItemsFromUi() {
     const item = map.get(id);
     item.reply = ta.value.trim();
     if (item.reply) item.needsManual = false;
+    if (shouldLearnEditedInquiryReply(item)) item.learnAsGuideline = true;
   });
   return [...map.values()];
+}
+
+async function persistLearnedInquiryGuidelines(items) {
+  const learnItems = (items || []).filter((item) => shouldLearnEditedInquiryReply(item));
+  if (!learnItems.length) return 0;
+
+  const data = await storageGet(SETTINGS_KEY);
+  const settings = data[SETTINGS_KEY] || {};
+  const next = upsertUserInquiryGuidelines(settings.inquiryUserGuidelines, learnItems);
+
+  await storageSet({
+    [SETTINGS_KEY]: {
+      ...settings,
+      inquiryUserGuidelines: next,
+    },
+  });
+  return learnItems.length;
 }
 
 async function saveDraft(showMessage = false) {
@@ -497,9 +515,17 @@ async function saveDraft(showMessage = false) {
   }
 
   await storageSet(updates);
+  const learned = await persistLearnedInquiryGuidelines(draftItems);
   updateReviewStats();
   updateReviewBadge();
-  if (showMessage) showBanner('잠깐 저장했어요.', 'info');
+  if (showMessage) {
+    showBanner(
+      learned > 0
+        ? `잠깐 저장했어요. 수정·직접 작성 ${learned}건은 다음 비슷한 문의 지침으로도 저장됩니다.`
+        : '잠깐 저장했어요.',
+      'info'
+    );
+  }
 }
 
 function scheduleSaveDraft() {
@@ -541,10 +567,13 @@ async function onConfirmAll() {
   await storageSet({
     [DRAFT_KEY]: { items: draftItems, updatedAt: Date.now() },
   });
+  const learned = await persistLearnedInquiryGuidelines(draftItems);
   await syncInquiryApplyFromDraft();
   updateReviewStats();
   showBanner(
-    `${draftItems.length}건 준비됐어요.\n판매자센터 상품문의에서 [답글]을 누르면 자동으로 채워집니다.`,
+    `${draftItems.length}건 준비됐어요.` +
+      (learned > 0 ? ` 수정·직접 작성 ${learned}건은 다음 비슷한 문의 지침으로 저장했습니다.` : '') +
+      `\n판매자센터 상품문의에서 [답글]을 누르면 자동으로 채워집니다.`,
     'info'
   );
 }
@@ -600,6 +629,14 @@ async function onGenerate() {
 
   if (!(await hasAiCredentialsAsync(apiKey))) {
     showProgress('AI 연결이 필요해요. [계정]에서 로그인하거나 API 키를 넣어 주세요.', true);
+    return;
+  }
+
+  if (!isInquiryStyleConfigured(settings)) {
+    showProgress(
+      '응대 지침이 없습니다. 사이드 패널 「상품문의」→ 답변 스타일에서 기존 답글로 지침서를 먼저 만들어 주세요.',
+      true
+    );
     return;
   }
 
@@ -816,15 +853,19 @@ function showLimitProgress(job) {
 function showDoneProgress(job) {
   const success = job.success ?? 0;
   const failed = job.failed ?? 0;
-  const confirm = job.confirm ?? job.manual ?? 0;
+  const manual = job.manual ?? 0;
+  const confirm = job.confirm ?? 0;
   const total = job.total ?? 0;
+  const aiCount = Math.max(0, success - manual);
 
   els.genProgress.classList.remove('hidden', 'error', 'stopped');
-  els.genProgress.classList.add(confirm > 0 ? 'error' : 'success');
-  els.genStatusText.textContent = confirm > 0 ? '일부 확인 필요' : '생성 완료';
+  els.genProgress.classList.add(manual > 0 || confirm > 0 ? 'error' : 'success');
+  els.genStatusText.textContent =
+    manual > 0 ? '직접 작성 필요' : confirm > 0 ? '일부 확인 필요' : '생성 완료';
   els.genCountText.textContent = `${success} / ${total}`;
   els.genProgressFill.style.width = '100%';
-  const parts = [`AI ${success}건`];
+  const parts = [`AI ${aiCount}건`];
+  if (manual > 0) parts.push(`직접 작성 ${manual}건`);
   if (confirm > 0) parts.push(`확인 필요 ${confirm}건`);
   if (failed > 0) parts.push(`실패 ${failed}건`);
   els.genSubText.textContent = `${parts.join(' · ')} · 검토 탭에서 확인하세요`;
@@ -835,11 +876,13 @@ function showStoppedProgress(job) {
   els.genProgress.classList.add('stopped');
   els.genStatusText.textContent = '멈추기됨';
   els.genCountText.textContent = `${job.success ?? 0} / ${job.total ?? 0}`;
-  const confirm = job.confirm ?? job.manual ?? 0;
-  els.genSubText.textContent =
-    confirm > 0
-      ? `AI ${job.success ?? 0}건 · 확인 필요 ${confirm}건 — 검토 탭에서 확인하세요`
-      : `저장 ${job.success ?? 0}건 — 검토 탭에서 확인하세요`;
+  const manual = job.manual ?? 0;
+  const confirm = job.confirm ?? 0;
+  const aiCount = Math.max(0, (job.success ?? 0) - manual);
+  const parts = [`AI ${aiCount}건`];
+  if (manual > 0) parts.push(`직접 작성 ${manual}건`);
+  if (confirm > 0) parts.push(`확인 필요 ${confirm}건`);
+  els.genSubText.textContent = `${parts.join(' · ')} — 검토 탭에서 확인하세요`;
 }
 
 function showProgress(message, isError = false) {
@@ -862,44 +905,36 @@ function getInquiryJobStatus() {
 
 function resolveInquirySystemPrompt(settings = {}) {
   const saved = String(settings.inquirySystemPrompt || '').trim();
-  if (saved) return saved;
+  if (saved && !isLegacyBuiltinPrompt(saved)) return saved;
 
-  const presetId = settings.inquiryTonePresetId || 'default';
+  const presetId = settings.inquiryTonePresetId || '';
+  if (presetId === CUSTOM_PRESET_ID) return '';
+
   const customPresets = settings.inquiryCustomPresets || [];
-  if (presetId === CUSTOM_PRESET_ID) {
-    return BUILTIN_INQUIRY_TONE_PRESETS[0]?.prompt || saved;
-  }
-
   const preset = findInquiryPreset(presetId, customPresets);
-  if (preset?.prompt) return preset.prompt;
+  if (preset?.prompt && !isLegacyBuiltinPrompt(preset.prompt)) return preset.prompt;
 
-  return BUILTIN_INQUIRY_TONE_PRESETS[0]?.prompt || '';
+  return '';
 }
 
 function getInquiryStyleLabel(settings = {}) {
-  const presetId = settings.inquiryTonePresetId || 'default';
-  if (presetId === CUSTOM_PRESET_ID) return '직접 입력';
+  const presetId = settings.inquiryTonePresetId || '';
+  if (presetId === CUSTOM_PRESET_ID) {
+    return String(settings.inquirySystemPrompt || '').trim() ? '직접 입력' : '지침 미설정';
+  }
   if (presetId === INQUIRY_LEARNED_PRESET_ID) return '내 스타일 (학습)';
 
   const preset = findInquiryPreset(presetId, settings.inquiryCustomPresets || []);
-  return preset?.name || BUILTIN_INQUIRY_TONE_PRESETS[0]?.name || '기본 (친절·안내)';
+  return preset?.name || '지침 미설정';
 }
 
 function isInquiryStyleConfigured(settings = {}) {
-  const presetId = settings.inquiryTonePresetId || 'default';
-  if (presetId === INQUIRY_LEARNED_PRESET_ID || presetId === CUSTOM_PRESET_ID) return true;
-  if (presetId !== 'default') return true;
-
-  const saved = String(settings.inquirySystemPrompt || '').trim();
-  if (!saved) return false;
-
-  const defaultPrompt = String(BUILTIN_INQUIRY_TONE_PRESETS[0]?.prompt || '').trim();
-  return saved !== defaultPrompt;
+  return !!resolveInquirySystemPrompt(settings);
 }
 
 function getInquiryStyleHint(settings = {}) {
   if (isInquiryStyleConfigured(settings)) return '';
-  return '확장 아이콘 → 「설정」에서 말투를 정해 주세요';
+  return '사이드 패널에서 응대 지침서를 먼저 만들어 주세요';
 }
 
 function updateInquiryStyleLabel(settings = {}) {

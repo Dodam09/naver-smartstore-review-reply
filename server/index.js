@@ -37,7 +37,7 @@ import {
 } from './admin.js';
 import { getDb, findUserById, updateUserPlan } from './db.js';
 import { generateText, generateWithSystem } from './gemini.js';
-import { getPlan, normalizePlanId } from './plans.js';
+import { FREE_TRIAL, getPlan, normalizePlanId } from './plans.js';
 import {
   buildAnalyzeMetaPrompt,
   buildInquiryPlaybookPrompt,
@@ -49,8 +49,10 @@ import {
   inquiryNeedsWebSearch,
   normalizeSamples,
   parseProductFactLookup,
+  assessInquiryReplyGrounding,
+  buildInquiryGroundingRewritePrompt,
 } from './prompts.js';
-import { assertSubscriptionActive, SubscriptionError, cancelUserSubscriptionAtPeriodEnd, undoCancelSubscription } from './subscription.js';
+import { SubscriptionError, cancelUserSubscriptionAtPeriodEnd, undoCancelSubscription } from './subscription.js';
 import { startRenewalScheduler } from './renewal.js';
 import { assertWithinLimit, getUsageSummary, recordUsage, UsageLimitError } from './usage.js';
 import {
@@ -133,6 +135,7 @@ function requireAdmin(req, res, next) {
 function sendUsageLimit(res, err) {
   res.status(429).json({
     ok: false,
+    code: 'USAGE_LIMIT',
     error: err.message,
     usage: err.usage,
   });
@@ -146,11 +149,8 @@ function sendSubscriptionRequired(res, err) {
   });
 }
 
-function assertUserCanUseAi(req) {
-  if (req.auth.mode !== 'user') return;
-  if (REQUIRE_SUBSCRIPTION) {
-    assertSubscriptionActive(req.auth.user.id);
-  }
+function isReqSubscriptionActive(req) {
+  return !!req.auth.user?.subscription?.active;
 }
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -159,7 +159,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'naver-smartstore-reply-api',
-    version: '1.3.45',
+    version: '1.3.59',
     geminiConfigured: !!String(process.env.GEMINI_API_KEY || '').trim(),
     authEnabled: true,
     registrationOpen: ALLOW_REGISTRATION,
@@ -167,6 +167,7 @@ app.get('/health', (_req, res) => {
     adminConfigured: !!ADMIN_SECRET,
     billing: getBillingConfig(),
     requireSubscription: REQUIRE_SUBSCRIPTION,
+    freeTrial: FREE_TRIAL,
   });
 });
 
@@ -672,8 +673,13 @@ app.post('/api/admin/orders/:id/refund', requireAdmin, async (req, res) => {
 app.post('/api/analyze-tone', authenticate, async (req, res) => {
   try {
     if (req.auth.mode === 'user') {
-      assertUserCanUseAi(req);
-      assertWithinLimit(req.auth.user.id, req.auth.user.planId, 'tone');
+      assertWithinLimit(
+        req.auth.user.id,
+        req.auth.user.planId,
+        'tone',
+        undefined,
+        isReqSubscriptionActive(req)
+      );
     }
 
     const context = req.body?.context === 'inquiry' ? 'inquiry' : 'review';
@@ -712,8 +718,13 @@ app.post('/api/analyze-tone', authenticate, async (req, res) => {
 
     let usage;
     if (req.auth.mode === 'user') {
-      recordUsage(req.auth.user.id, 'tone', context);
-      usage = getUsageSummary(req.auth.user.id, req.auth.user.planId, undefined, !!req.auth.user.subscription?.active);
+      recordUsage(req.auth.user.id, 'tone', context, undefined, isReqSubscriptionActive(req));
+      usage = getUsageSummary(
+        req.auth.user.id,
+        req.auth.user.planId,
+        undefined,
+        isReqSubscriptionActive(req)
+      );
     }
 
     res.json({
@@ -738,8 +749,13 @@ app.post('/api/analyze-tone', authenticate, async (req, res) => {
 app.post('/api/generate-reply', authenticate, async (req, res) => {
   try {
     if (req.auth.mode === 'user') {
-      assertUserCanUseAi(req);
-      assertWithinLimit(req.auth.user.id, req.auth.user.planId, 'reply');
+      assertWithinLimit(
+        req.auth.user.id,
+        req.auth.user.planId,
+        'reply',
+        undefined,
+        isReqSubscriptionActive(req)
+      );
     }
 
     const channel = req.body?.channel === 'inquiry' ? 'inquiry' : 'review';
@@ -798,16 +814,41 @@ app.post('/api/generate-reply', authenticate, async (req, res) => {
           })
         : buildReviewUserContent(row);
 
-    const text = await generateWithSystem(systemPrompt, userContent, {
+    let text = await generateWithSystem(systemPrompt, userContent, {
       model,
-      temperature: webSearch ? 0.35 : 0.7,
+      temperature: webSearch ? 0.3 : 0.35,
       googleSearch: false,
     });
 
+    if (channel === 'inquiry') {
+      const refs = req.body?.references || [];
+      const facts = webSearch ? verifiedFacts || [] : [];
+      const guidelines = systemPrompt;
+      let grounding = assessInquiryReplyGrounding(row, text, refs, facts, guidelines);
+      if (!grounding.grounded) {
+        try {
+          text = await generateWithSystem(
+            '당신은 판매자 답글 교정기입니다. 근거에 없는 구체 사실을 삭제하고 수정된 답글 본문만 출력하세요.',
+            buildInquiryGroundingRewritePrompt(row, text, refs, facts, guidelines),
+            { model, temperature: 0.15, googleSearch: false }
+          );
+        } catch (_) {
+          text = '';
+        }
+        grounding = assessInquiryReplyGrounding(row, text, refs, facts, guidelines);
+        if (!grounding.grounded) text = '';
+      }
+    }
+
     let usage;
     if (req.auth.mode === 'user') {
-      recordUsage(req.auth.user.id, 'reply', channel);
-      usage = getUsageSummary(req.auth.user.id, req.auth.user.planId, undefined, !!req.auth.user.subscription?.active);
+      recordUsage(req.auth.user.id, 'reply', channel, undefined, isReqSubscriptionActive(req));
+      usage = getUsageSummary(
+        req.auth.user.id,
+        req.auth.user.planId,
+        undefined,
+        isReqSubscriptionActive(req)
+      );
     }
 
     res.json({ ok: true, text, usage: usage || null });
@@ -846,9 +887,9 @@ app.listen(PORT, '0.0.0.0', () => {
   if (String(process.env.RENEWAL_ENABLED || 'true').toLowerCase() !== 'false') {
     startRenewalScheduler();
   }
-  if (REQUIRE_SUBSCRIPTION) {
-    console.log('REQUIRE_SUBSCRIPTION enabled (paid subscription required for AI)');
-  }
+  console.log(
+    `Free trial: ${FREE_TRIAL.replyLimit} replies + ${FREE_TRIAL.toneLimit} tone / account (lifetime)`
+  );
   if (isKakaoConfigured()) {
     console.log(`Kakao login enabled (redirect: ${getKakaoRedirectUri()})`);
   }
