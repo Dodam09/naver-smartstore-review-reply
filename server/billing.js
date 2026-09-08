@@ -13,6 +13,7 @@ import {
   upgradeUserSubscription,
 } from './db.js';
 import { FREE_TRIAL, getPlan, getPlanRank, listPaidPlans, normalizePaidPlanId } from './plans.js';
+import { formatCardLabel, resolveCardCompanyName } from './card-codes.js';
 import {
   getSubscriptionSummary,
   isSubscriptionActive,
@@ -204,12 +205,13 @@ export async function issueTossBillingKey({ authKey, customerKey }) {
 
 export function extractCardMetaFromBillingIssue(data) {
   const card = data?.card && typeof data.card === 'object' ? data.card : {};
-  const company = String(
+  const companyRaw = String(
     card.cardCompany || card.issuerCode || data?.cardCompany || data?.issuerCode || ''
   ).trim();
   const number = String(
-    card.number || card.cardNumber || data?.cardNumber || data?.number || ''
+    card.cardNumber || card.number || data?.cardNumber || data?.number || ''
   ).trim();
+  const company = resolveCardCompanyName(companyRaw) || companyRaw || null;
   return {
     cardCompany: company || null,
     cardNumber: number || null,
