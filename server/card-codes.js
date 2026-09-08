@@ -42,9 +42,16 @@ export function resolveCardCompanyName(codeOrName) {
   return raw;
 }
 
+export function formatMaskedCardNumber(number) {
+  const raw = String(number || '').replace(/[^\d*]/g, '');
+  if (!raw) return '';
+  const chunks = raw.match(/.{1,4}/g) || [];
+  return chunks.join('-');
+}
+
 export function formatCardLabel(company, number) {
   const c = resolveCardCompanyName(company);
-  const n = String(number || '').trim();
+  const n = formatMaskedCardNumber(number);
   if (!c && !n) return null;
   if (c && n) return `${c} ${n}`;
   return c || n;

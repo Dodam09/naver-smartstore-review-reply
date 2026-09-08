@@ -75,6 +75,114 @@
     .history-meta { color: #666; font-size: 12px; margin-top: 2px; }
     .toolbar-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
     .toolbar-row button { width: auto; min-width: 140px; margin-top: 0; }
+
+    .sub-manage {
+      display: grid;
+      gap: 14px;
+    }
+    .sub-summary {
+      display: grid;
+      gap: 6px;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #444;
+    }
+    .sub-summary .plan-name {
+      font-size: 18px;
+      font-weight: 700;
+      color: #111;
+    }
+    .sub-summary .muted { color: #6b7280; }
+    .sub-summary .pending {
+      color: #9a6700;
+      background: #fff8e8;
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+
+    .pay-card {
+      position: relative;
+      width: 100%;
+      max-width: 360px;
+      aspect-ratio: 1.68 / 1;
+      border-radius: 16px;
+      padding: 18px 20px;
+      color: #f8fafc;
+      background:
+        radial-gradient(120% 80% at 0% 0%, rgba(255,255,255,0.18), transparent 55%),
+        linear-gradient(145deg, #1e293b 0%, #0f172a 55%, #334155 100%);
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.28);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .pay-card::before {
+      content: '';
+      position: absolute;
+      right: -40px;
+      top: -50px;
+      width: 160px;
+      height: 160px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.06);
+    }
+    .pay-card::after {
+      content: '';
+      position: absolute;
+      right: 24px;
+      bottom: -60px;
+      width: 140px;
+      height: 140px;
+      border-radius: 50%;
+      background: rgba(3, 199, 90, 0.18);
+    }
+    .pay-card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      position: relative;
+      z-index: 1;
+    }
+    .pay-card-brand {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      opacity: 0.95;
+    }
+    .pay-card-chip {
+      width: 36px;
+      height: 26px;
+      border-radius: 6px;
+      background: linear-gradient(135deg, #f6e7b4, #d4b56a 45%, #c9a227);
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12);
+    }
+    .pay-card-number {
+      position: relative;
+      z-index: 1;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: clamp(15px, 4.2vw, 20px);
+      letter-spacing: 0.08em;
+      font-weight: 600;
+      margin: 8px 0 4px;
+    }
+    .pay-card-bottom {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 10px;
+      font-size: 12px;
+      opacity: 0.9;
+    }
+    .pay-card-empty {
+      opacity: 0.85;
+      font-size: 14px;
+      line-height: 1.45;
+      position: relative;
+      z-index: 1;
+    }
   </style>
 </head>
 <body>
@@ -190,6 +298,26 @@
       }
     }
 
+    function escapeHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function formatCardNumberDisplay(number) {
+      const raw = String(number || '').replace(/[^\d*]/g, '');
+      if (!raw) return '';
+      return (raw.match(/.{1,4}/g) || []).join('-');
+    }
+
+    function formatExpiresLocal(expiresAt) {
+      const s = String(expiresAt || '').trim();
+      if (!s) return '-';
+      return s.replace('T', ' ').slice(0, 16);
+    }
+
     function renderAccountPanel(sub, config) {
       if (!sub?.active) {
         accountPanel.hidden = true;
@@ -198,22 +326,54 @@
         return;
       }
       accountPanel.hidden = false;
-      const renewLine = sub.pendingPlanId
-        ? `만료일부터 ${sub.pendingPlanName || sub.pendingPlanId}로 전환·자동 결제됩니다.`
+
+      const planName = escapeHtml(sub.planName || sub.planId || '플랜');
+      const expires = escapeHtml(formatExpiresLocal(sub.expiresAt));
+      const renewText = sub.pendingPlanId
+        ? `만료일부터 ${escapeHtml(sub.pendingPlanName || sub.pendingPlanId)}로 전환·자동 결제`
         : sub.autoRenew
-          ? '만료일에 같은 플랜으로 자동 결제됩니다.'
-          : '자동 갱신이 꺼져 있습니다.';
-      const graceLine = sub.renewalGrace ? ' (결제 재시도 중 — 잠시 이용 유지)' : '';
-      const pendingLine = sub.pendingPlanId
-        ? `\n다운그레이드 예약: ${sub.planName || sub.planId} → ${sub.pendingPlanName || sub.pendingPlanId} (만료일까지 현재 플랜 유지)`
+          ? '만료일에 같은 플랜으로 자동 결제'
+          : '자동 갱신 꺼짐';
+      const graceText = sub.renewalGrace ? ' · 결제 재시도 중' : '';
+      const pendingHtml = sub.pendingPlanId
+        ? `<div class="pending">다운그레이드 예약: ${escapeHtml(sub.planName || sub.planId)} → ${escapeHtml(sub.pendingPlanName || sub.pendingPlanId)} (만료까지 현재 플랜)</div>`
         : '';
-      const cardLine = sub.cardLabel
-        ? `\n등록 카드: ${sub.cardLabel}`
-        : sub.autoRenew
-          ? '\n등록 카드: 카드 변경 후 표시됩니다. (기존 등록분은 미저장)'
-          : '';
-      accountPanelBody.textContent =
-        `${sub.planName || sub.planId} · 만료 ${sub.expiresAt || '-'} · ${renewLine}${graceLine}${pendingLine}${cardLine}`;
+
+      const company = escapeHtml(String(sub.cardCompany || '').trim() || '등록 카드');
+      const numberDisplay = formatCardNumberDisplay(sub.cardNumber);
+      const hasCard = !!(sub.cardCompany || sub.cardNumber || sub.cardLabel);
+      const cardInner = hasCard
+        ? `
+          <div class="pay-card-top">
+            <div class="pay-card-brand">${company}</div>
+            <div class="pay-card-chip" aria-hidden="true"></div>
+          </div>
+          <div class="pay-card-number">${escapeHtml(numberDisplay || '···· ···· ···· ····')}</div>
+          <div class="pay-card-bottom">
+            <div>자동결제</div>
+            <div>${escapeHtml(sub.planName || sub.planId || '')}</div>
+          </div>
+        `
+        : `
+          <div class="pay-card-top">
+            <div class="pay-card-brand">결제 카드</div>
+            <div class="pay-card-chip" aria-hidden="true"></div>
+          </div>
+          <div class="pay-card-empty">카드 정보가 아직 없어요.<br />아래에서 결제 수단을 변경하면 여기에 표시됩니다.</div>
+        `;
+
+      accountPanelBody.innerHTML = `
+        <div class="sub-manage">
+          <div class="sub-summary">
+            <div class="plan-name">${planName}</div>
+            <div class="muted">만료 ${expires}</div>
+            <div class="muted">${renewText}${graceText}</div>
+            ${pendingHtml}
+          </div>
+          <div class="pay-card" aria-label="등록된 결제 카드">${cardInner}</div>
+        </div>
+      `;
+
       const canUpdateCard =
         sub.status === 'active' &&
         !sub.cancelled &&

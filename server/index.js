@@ -159,7 +159,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'naver-smartstore-reply-api',
-    version: '1.3.66',
+    version: '1.3.67',
     geminiConfigured: !!String(process.env.GEMINI_API_KEY || '').trim(),
     authEnabled: true,
     registrationOpen: ALLOW_REGISTRATION,
