@@ -207,8 +207,13 @@
       const pendingLine = sub.pendingPlanId
         ? `\n다운그레이드 예약: ${sub.planName || sub.planId} → ${sub.pendingPlanName || sub.pendingPlanId} (만료일까지 현재 플랜 유지)`
         : '';
+      const cardLine = sub.cardLabel
+        ? `\n등록 카드: ${sub.cardLabel}`
+        : sub.autoRenew
+          ? '\n등록 카드: 카드 변경 후 표시됩니다. (기존 등록분은 미저장)'
+          : '';
       accountPanelBody.textContent =
-        `${sub.planName || sub.planId} · 만료 ${sub.expiresAt || '-'} · ${renewLine}${graceLine}${pendingLine}`;
+        `${sub.planName || sub.planId} · 만료 ${sub.expiresAt || '-'} · ${renewLine}${graceLine}${pendingLine}${cardLine}`;
       const canUpdateCard =
         sub.status === 'active' &&
         !sub.cancelled &&

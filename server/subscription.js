@@ -63,7 +63,21 @@ export function getSubscriptionSummary(user) {
     price: active ? plan.price : 0,
     pendingPlanId,
     pendingPlanName: pendingPlan?.name || null,
+    cardCompany: active && user.billing_key ? user.card_company || null : null,
+    cardNumber: active && user.billing_key ? user.card_number || null : null,
+    cardLabel:
+      active && user.billing_key
+        ? formatCardLabel(user.card_company, user.card_number)
+        : null,
   };
+}
+
+function formatCardLabel(company, number) {
+  const c = String(company || '').trim();
+  const n = String(number || '').trim();
+  if (!c && !n) return null;
+  if (c && n) return `${c} ${n}`;
+  return c || n;
 }
 
 export function isSubscriptionActive(user, now = new Date()) {

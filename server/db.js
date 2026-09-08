@@ -132,6 +132,12 @@ function migrateUsersTable(database) {
   if (!cols.includes('pending_plan_id')) {
     database.exec(`ALTER TABLE users ADD COLUMN pending_plan_id TEXT`);
   }
+  if (!cols.includes('card_company')) {
+    database.exec(`ALTER TABLE users ADD COLUMN card_company TEXT`);
+  }
+  if (!cols.includes('card_number')) {
+    database.exec(`ALTER TABLE users ADD COLUMN card_number TEXT`);
+  }
 
   database.exec(`
     UPDATE users
@@ -241,7 +247,7 @@ export function deactivateUserSubscription(userId) {
       `UPDATE users
        SET plan_id = 'none', subscription_status = 'none', subscription_expires_at = NULL,
            auto_renew = 0, billing_key = NULL, renewal_fail_count = 0, renewal_last_attempt_at = NULL,
-           pending_plan_id = NULL, updated_at = datetime('now')
+           pending_plan_id = NULL, card_company = NULL, card_number = NULL, updated_at = datetime('now')
        WHERE id = ?`
     )
     .run(userId);
@@ -266,15 +272,37 @@ export function clearPendingPlanId(userId) {
   return setPendingPlanId(userId, null);
 }
 
-export function setUserBillingKey(userId, billingKey, { enableAutoRenew = true } = {}) {
-  getDb()
-    .prepare(
-      `UPDATE users
-       SET billing_key = ?, auto_renew = ?, renewal_fail_count = 0, renewal_last_attempt_at = NULL,
-           updated_at = datetime('now')
-       WHERE id = ?`
-    )
-    .run(String(billingKey || ''), enableAutoRenew ? 1 : 0, userId);
+export function setUserBillingKey(userId, billingKey, options = {}) {
+  const enableAutoRenew = options.enableAutoRenew !== false;
+  const hasCardMeta =
+    Object.prototype.hasOwnProperty.call(options, 'cardCompany') ||
+    Object.prototype.hasOwnProperty.call(options, 'cardNumber');
+
+  if (hasCardMeta) {
+    getDb()
+      .prepare(
+        `UPDATE users
+         SET billing_key = ?, auto_renew = ?, renewal_fail_count = 0, renewal_last_attempt_at = NULL,
+             card_company = ?, card_number = ?, updated_at = datetime('now')
+         WHERE id = ?`
+      )
+      .run(
+        String(billingKey || ''),
+        enableAutoRenew ? 1 : 0,
+        options.cardCompany != null && options.cardCompany !== '' ? String(options.cardCompany) : null,
+        options.cardNumber != null && options.cardNumber !== '' ? String(options.cardNumber) : null,
+        userId
+      );
+  } else {
+    getDb()
+      .prepare(
+        `UPDATE users
+         SET billing_key = ?, auto_renew = ?, renewal_fail_count = 0, renewal_last_attempt_at = NULL,
+             updated_at = datetime('now')
+         WHERE id = ?`
+      )
+      .run(String(billingKey || ''), enableAutoRenew ? 1 : 0, userId);
+  }
   return findUserById(userId);
 }
 
@@ -334,7 +362,7 @@ export function expireEndedSubscriptions(nowIso = new Date().toISOString().slice
       `UPDATE users
        SET plan_id = 'none', subscription_status = 'none', subscription_expires_at = NULL,
            auto_renew = 0, billing_key = NULL, renewal_fail_count = 0, renewal_last_attempt_at = NULL,
-           pending_plan_id = NULL, updated_at = datetime('now')
+           pending_plan_id = NULL, card_company = NULL, card_number = NULL, updated_at = datetime('now')
        WHERE subscription_expires_at IS NOT NULL
          AND subscription_expires_at <= ?
          AND (

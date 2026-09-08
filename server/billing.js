@@ -202,6 +202,16 @@ export async function issueTossBillingKey({ authKey, customerKey }) {
   return data;
 }
 
+export function extractCardMetaFromBillingIssue(data) {
+  const card = data?.card && typeof data.card === 'object' ? data.card : data || {};
+  const company = String(card.cardCompany || card.issuerCode || data?.cardCompany || '').trim();
+  const number = String(card.cardNumber || data?.cardNumber || '').trim();
+  return {
+    cardCompany: company || null,
+    cardNumber: number || null,
+  };
+}
+
 export async function chargeWithBillingKey({ billingKey, customerKey, amount, orderId, orderName }) {
   if (!TOSS_SECRET_KEY) throw new Error('TOSS_SECRET_KEY가 설정되지 않았습니다.');
   const data = await tossRequest(`https://api.tosspayments.com/v1/billing/${billingKey}`, {
@@ -354,15 +364,22 @@ export async function confirmBillingAuthCheckout(userId, { authKey, customerKey,
   }
 
   let billingKey;
+  let cardMeta = { cardCompany: null, cardNumber: null };
   if (BILLING_MOCK && String(authKey || '').startsWith('mock_auth_')) {
     billingKey = mockBillingKeyForUser(userId);
+    cardMeta = { cardCompany: '테스트', cardNumber: '****0000' };
   } else {
     if (!TOSS_SECRET_KEY) throw new Error('TOSS_SECRET_KEY가 설정되지 않았습니다.');
     const issued = await issueTossBillingKey({ authKey, customerKey });
     billingKey = issued.billingKey;
+    cardMeta = extractCardMetaFromBillingIssue(issued);
   }
 
-  setUserBillingKey(userId, billingKey);
+  setUserBillingKey(userId, billingKey, {
+    enableAutoRenew: true,
+    cardCompany: cardMeta.cardCompany,
+    cardNumber: cardMeta.cardNumber,
+  });
   markBillingOrderPaid(order.id, billingKey);
 
   const user = activateUserSubscription(userId, order.plan_id, SUBSCRIPTION_DAYS, {
@@ -472,15 +489,22 @@ export async function confirmCardUpdate(userId, { authKey, customerKey }) {
   }
 
   let billingKey;
+  let cardMeta = { cardCompany: null, cardNumber: null };
   if (BILLING_MOCK && String(authKey || '').startsWith('mock_auth_card_')) {
     billingKey = mockBillingKeyForUser(userId);
+    cardMeta = { cardCompany: '테스트', cardNumber: '****0000' };
   } else {
     if (!TOSS_SECRET_KEY) throw new Error('TOSS_SECRET_KEY가 설정되지 않았습니다.');
     const issued = await issueTossBillingKey({ authKey, customerKey });
     billingKey = issued.billingKey;
+    cardMeta = extractCardMetaFromBillingIssue(issued);
   }
 
-  setUserBillingKey(userId, billingKey, { enableAutoRenew: !!user.auto_renew });
+  setUserBillingKey(userId, billingKey, {
+    enableAutoRenew: !!user.auto_renew,
+    cardCompany: cardMeta.cardCompany,
+    cardNumber: cardMeta.cardNumber,
+  });
   return {
     user: findUserById(userId),
     subscription: getSubscriptionSummary(findUserById(userId)),
