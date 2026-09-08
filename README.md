@@ -15,7 +15,7 @@
 
 1. `scripts/package-beta.ps1` 실행 → `beta/dist/naver-smartstore-reply-beta.zip` 생성
 2. ZIP 압축 해제 후 `chrome://extensions` → 개발자 모드 → 폴더 로드
-3. **[계정]** 탭 로그인 → **테스트 결제**(구독)
+3. **[계정]** 탭 로그인 → **구독하기**(토스페이먼츠 결제)
 4. 설명서: `beta/지인용-설치안내.txt`, `beta/사용설명서.txt`
 
 베타 ZIP에는 `beta/config.js`가 포함되어 **API 키 입력이 필요 없습니다** (Railway 서버 연동).

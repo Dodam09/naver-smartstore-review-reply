@@ -46,9 +46,6 @@ Chrome Web Store 비공개(Unlisted) 등록 가이드
   구독은 토스페이먼츠 카드 자동결제(빌링)로 등록됩니다. 플랜 업그레이드는 차액 결제,
   다운그레이드는 만료일부터 전환 예약할 수 있습니다. 구독 취소 시 만료일까지 이용 가능합니다.
 
-  (참고) Railway에 BILLING_MOCK=true 인 동안만 「테스트 결제」가 노출됩니다.
-  연결 확인: scripts/verify-billing-ready.ps1 또는 /health 의 billing.productionReady
-
 ■ 권한 사유 (심사·Privacy practices)
 
   storage

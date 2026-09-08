@@ -1788,8 +1788,11 @@ async function refreshBillingModeHint() {
     }
     if (data.productionReady) {
       els.billingModeHint.hidden = false;
-      els.billingModeHint.textContent =
-        '결제: 토스페이먼츠 카드 자동결제 · 업그레이드 차액 · 다운그레이드 예약 지원';
+      els.billingModeHint.textContent = data.liveMode
+        ? '결제: 토스페이먼츠 실결제(라이브) · 카드 자동결제'
+        : data.testModeKeys
+          ? '결제: 토스 테스트 키 사용 중(실제 청구 없음). Railway에 live 키로 교체하세요.'
+          : '결제: 토스페이먼츠 카드 자동결제 · 업그레이드 차액 · 다운그레이드 예약 지원';
     } else if (data.mockMode) {
       els.billingModeHint.hidden = false;
       els.billingModeHint.textContent =

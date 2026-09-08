@@ -56,10 +56,16 @@ function assertOrderHasLegalConsent(order) {
 export function getBillingConfig() {
   const tossConfigured = !!TOSS_SECRET_KEY && !!TOSS_CLIENT_KEY;
   const productionReady = tossConfigured && !BILLING_MOCK;
+  const liveKeys =
+    TOSS_CLIENT_KEY.startsWith('live_') && TOSS_SECRET_KEY.startsWith('live_');
+  const testKeys =
+    TOSS_CLIENT_KEY.startsWith('test_') && TOSS_SECRET_KEY.startsWith('test_');
   return {
     mockMode: BILLING_MOCK,
     tossConfigured,
     productionReady,
+    liveMode: productionReady && liveKeys,
+    testModeKeys: productionReady && testKeys,
     clientKey: TOSS_CLIENT_KEY || null,
     appBaseUrl: APP_BASE_URL,
     subscriptionDays: SUBSCRIPTION_DAYS,

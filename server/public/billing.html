@@ -262,7 +262,11 @@
         `· 갱신 실패: ${notice.retryPolicy || '재시도 후 해지'}`,
         `· 구독 취소: ${notice.cancelMethod || '확장 [설정] → [구독 취소]'}`,
         config.productionReady
-          ? '· <strong>실결제 모드</strong> (토스페이먼츠)'
+          ? config.liveMode
+            ? '· <strong>실결제 모드</strong> (토스페이먼츠 라이브)'
+            : config.testModeKeys
+              ? '· <strong>토스 테스트 키</strong> (실제 청구 없음 · live 키로 교체 필요)'
+              : '· <strong>토스 연동</strong>'
           : config.mockMode
             ? '· <strong>테스트 모드</strong> (BILLING_MOCK)'
             : '· 결제 설정 필요 (TOSS 키 또는 BILLING_MOCK)',
