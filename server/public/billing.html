@@ -80,7 +80,7 @@
 <body>
   <div class="wrap">
     <h1>스마트스토어 답글 구독</h1>
-    <div class="sub">로그인하면 답글 20건·말투 분석 1회를 계정마다 한 번 무료로 써볼 수 있습니다. 신규 구독은 카드 자동결제 등록(만료일 자동 갱신). 업그레이드는 차액만 결제(만료일 유지). 낮은 플랜은 만료일부터 전환되도록 예약할 수 있습니다. 취소하면 자동결제가 중단되고 만료일까지 이용 가능합니다.</div>
+    <div class="sub">로그인하면 답글 20건·말투 분석 1회를 계정마다 한 번 무료로 써볼 수 있습니다. 신규 구독은 토스페이먼츠 카드 자동결제 등록(만료일 자동 갱신). 업그레이드는 차액만 결제(만료일 유지). 낮은 플랜은 만료일부터 전환 예약. 취소하면 자동결제가 중단되고 만료일까지 이용 가능합니다.</div>
     <div class="legal" id="legalBox">
       <strong>정기결제 안내</strong>
       <div id="legalText" style="margin:8px 0;">불러오는 중…</div>
@@ -357,8 +357,10 @@
         return;
       }
 
-      if (config.mockMode && !config.tossConfigured) {
-        setStatus('테스트 모드입니다. 아래 「테스트 결제」 버튼을 누르세요.');
+      if (config.productionReady) {
+        setStatus('원하는 플랜의 결제하기를 누르세요. 카드 등록·결제는 토스페이먼츠에서 진행됩니다.');
+      } else if (config.mockMode && !config.tossConfigured) {
+        setStatus('테스트 모드입니다. 아래 「테스트 결제」 버튼을 누르세요.\n(실결제: Railway에 TOSS 키 + BILLING_MOCK=false)');
       } else if (config.mockMode) {
         setStatus('테스트 결제 또는 실제 토스 결제 중 선택하세요.');
       } else if (config.tossConfigured) {

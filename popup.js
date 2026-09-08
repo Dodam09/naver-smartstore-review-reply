@@ -127,6 +127,7 @@ const els = {
   logoutBtn: document.getElementById('logoutBtn'),
   refreshUsageBtn: document.getElementById('refreshUsageBtn'),
   openBillingBtn: document.getElementById('openBillingBtn'),
+  billingModeHint: document.getElementById('billingModeHint'),
   openBillingManageBtn: document.getElementById('openBillingManageBtn'),
   paymentHistorySection: document.getElementById('paymentHistorySection'),
   paymentHistoryList: document.getElementById('paymentHistoryList'),
@@ -1760,11 +1761,45 @@ async function renderAccountUi() {
       els.openBillingBtn.textContent = '구독하기';
     }
   }
+  await refreshBillingModeHint();
   if (els.undoCancelBtn) els.undoCancelBtn.hidden = !canUndoCancel;
   if (els.cancelSubscriptionBtn) els.cancelSubscriptionBtn.hidden = !canCancel;
   if (els.openBillingManageBtn) els.openBillingManageBtn.hidden = false;
   if (!canCancel && els.cancelConfirmBox) els.cancelConfirmBox.hidden = true;
   await renderPaymentHistory();
+}
+
+async function refreshBillingModeHint() {
+  if (!els.billingModeHint || !useAiProxy()) {
+    if (els.billingModeHint) els.billingModeHint.hidden = true;
+    return;
+  }
+  try {
+    const base = String(CONFIG.API_BASE_URL || '').replace(/\/$/, '');
+    if (!base) {
+      els.billingModeHint.hidden = true;
+      return;
+    }
+    const res = await fetch(`${base}/api/billing/config`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) {
+      els.billingModeHint.hidden = true;
+      return;
+    }
+    if (data.productionReady) {
+      els.billingModeHint.hidden = false;
+      els.billingModeHint.textContent =
+        '결제: 토스페이먼츠 카드 자동결제 · 업그레이드 차액 · 다운그레이드 예약 지원';
+    } else if (data.mockMode) {
+      els.billingModeHint.hidden = false;
+      els.billingModeHint.textContent =
+        '결제: 테스트 모드(실제 카드 청구 없음). 운영 연결 전입니다.';
+    } else {
+      els.billingModeHint.hidden = true;
+    }
+  } catch (_) {
+    els.billingModeHint.hidden = true;
+  }
 }
 
 async function renderPaymentHistory() {
