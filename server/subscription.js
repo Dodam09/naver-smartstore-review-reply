@@ -6,6 +6,7 @@ import {
   setPendingPlanId,
 } from './db.js';
 import { getPlan, getUpgradePrice, normalizePaidPlanId } from './plans.js';
+import { formatCardLabel } from './card-labels.js';
 
 const RENEWAL_GRACE_DAYS = Number(process.env.RENEWAL_GRACE_DAYS || 3);
 const RENEWAL_MAX_ATTEMPTS = Number(process.env.RENEWAL_MAX_ATTEMPTS || 3);
@@ -70,14 +71,6 @@ export function getSubscriptionSummary(user) {
         ? formatCardLabel(user.card_company, user.card_number)
         : null,
   };
-}
-
-function formatCardLabel(company, number) {
-  const c = String(company || '').trim();
-  const n = String(number || '').trim();
-  if (!c && !n) return null;
-  if (c && n) return `${c} ${n}`;
-  return c || n;
 }
 
 export function isSubscriptionActive(user, now = new Date()) {

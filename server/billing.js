@@ -203,9 +203,13 @@ export async function issueTossBillingKey({ authKey, customerKey }) {
 }
 
 export function extractCardMetaFromBillingIssue(data) {
-  const card = data?.card && typeof data.card === 'object' ? data.card : data || {};
-  const company = String(card.cardCompany || card.issuerCode || data?.cardCompany || '').trim();
-  const number = String(card.cardNumber || data?.cardNumber || '').trim();
+  const card = data?.card && typeof data.card === 'object' ? data.card : {};
+  const company = String(
+    card.cardCompany || card.issuerCode || data?.cardCompany || data?.issuerCode || ''
+  ).trim();
+  const number = String(
+    card.number || card.cardNumber || data?.cardNumber || data?.number || ''
+  ).trim();
   return {
     cardCompany: company || null,
     cardNumber: number || null,
