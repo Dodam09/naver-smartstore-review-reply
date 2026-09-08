@@ -52,7 +52,7 @@ import {
   assessInquiryReplyGrounding,
   buildInquiryGroundingRewritePrompt,
 } from './prompts.js';
-import { SubscriptionError, cancelUserSubscriptionAtPeriodEnd, undoCancelSubscription } from './subscription.js';
+import { SubscriptionError, cancelUserSubscriptionAtPeriodEnd, clearPendingDowngrade, undoCancelSubscription } from './subscription.js';
 import { startRenewalScheduler } from './renewal.js';
 import { assertWithinLimit, getUsageSummary, recordUsage, UsageLimitError } from './usage.js';
 import {
@@ -423,6 +423,8 @@ app.post('/api/billing/mock-subscribe', authenticate, async (req, res) => {
     });
     res.json({
       ok: true,
+      scheduled: !!result.scheduled,
+      checkoutType: result.checkoutType || null,
       user: {
         id: result.user.id,
         email: result.user.email,
@@ -550,6 +552,32 @@ app.post('/api/billing/undo-cancel', authenticate, (req, res) => {
 
   try {
     const subscription = undoCancelSubscription(req.auth.user.id);
+    const user = findUserById(req.auth.user.id);
+    res.json({
+      ok: true,
+      subscription,
+      usage: getUsageSummary(user.id, user.plan_id, undefined, true),
+      user: {
+        id: user.id,
+        email: user.email,
+        planId: user.plan_id,
+        plan: getPlan(user.plan_id),
+        subscription,
+      },
+    });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.post('/api/billing/pending-plan/clear', authenticate, (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(400).json({ ok: false, error: '로그인 계정으로만 예약을 취소할 수 있습니다.' });
+    return;
+  }
+
+  try {
+    const subscription = clearPendingDowngrade(req.auth.user.id);
     const user = findUserById(req.auth.user.id);
     res.json({
       ok: true,

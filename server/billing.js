@@ -13,7 +13,12 @@ import {
   upgradeUserSubscription,
 } from './db.js';
 import { FREE_TRIAL, getPlan, getPlanRank, listPaidPlans, normalizePaidPlanId } from './plans.js';
-import { getSubscriptionSummary, isSubscriptionActive, resolveCheckoutAction } from './subscription.js';
+import {
+  getSubscriptionSummary,
+  isSubscriptionActive,
+  resolveCheckoutAction,
+  scheduleDowngrade,
+} from './subscription.js';
 
 const TOSS_SECRET_KEY = String(process.env.TOSS_SECRET_KEY || '').trim();
 const TOSS_CLIENT_KEY = String(process.env.TOSS_CLIENT_KEY || '').trim();
@@ -217,6 +222,30 @@ export function prepareCheckout(userId, planId, { legalConsent } = {}) {
   if (!user) throw new Error('사용자를 찾을 수 없습니다.');
   const action = resolveCheckoutAction(user, planId);
   const plan = getPlan(action.planId);
+
+  if (action.type === 'schedule_downgrade') {
+    const subscription = scheduleDowngrade(userId, action.planId);
+    const updated = findUserById(userId);
+    return {
+      orderId: null,
+      amount: 0,
+      orderName: action.orderName,
+      customerKey: getOrCreateCustomerKey(userId),
+      planId: plan.id,
+      planName: plan.name,
+      checkoutType: action.type,
+      useBillingAuth: false,
+      clientKey: TOSS_CLIENT_KEY || null,
+      successUrl: `${APP_BASE_URL}/billing.html`,
+      billingAuthSuccessUrl: `${APP_BASE_URL}/billing.html`,
+      failUrl: `${APP_BASE_URL}/billing-fail.html`,
+      mockMode: BILLING_MOCK,
+      scheduled: true,
+      subscription,
+      user: updated,
+    };
+  }
+
   const orderId = createOrderId(userId);
   const customerKey = getOrCreateCustomerKey(userId);
 
@@ -391,6 +420,16 @@ export async function mockSubscribe(userId, planId, { legalConsent } = {}) {
     throw new Error('BILLING_MOCK 모드에서만 사용할 수 있습니다.');
   }
   const checkout = prepareCheckout(userId, planId, { legalConsent });
+  if (checkout.checkoutType === 'schedule_downgrade') {
+    return {
+      order: null,
+      user: checkout.user,
+      subscription: checkout.subscription,
+      alreadyPaid: false,
+      scheduled: true,
+      checkoutType: 'schedule_downgrade',
+    };
+  }
   return mockConfirmBillingAuth(userId, checkout.orderId);
 }
 

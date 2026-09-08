@@ -1,11 +1,22 @@
-import { findUserById, markUserSubscriptionCancelled, resumeUserSubscription } from './db.js';
+import {
+  clearPendingPlanId,
+  findUserById,
+  markUserSubscriptionCancelled,
+  resumeUserSubscription,
+  setPendingPlanId,
+} from './db.js';
 import { getPlan, getUpgradePrice, normalizePaidPlanId } from './plans.js';
 
 const RENEWAL_GRACE_DAYS = Number(process.env.RENEWAL_GRACE_DAYS || 3);
 const RENEWAL_MAX_ATTEMPTS = Number(process.env.RENEWAL_MAX_ATTEMPTS || 3);
+const PAID_PLAN_IDS = ['basic', 'standard', 'pro'];
 
 function parseDbDate(value) {
   return new Date(String(value || '').replace(' ', 'T') + 'Z');
+}
+
+function isPaidPlanId(planId) {
+  return PAID_PLAN_IDS.includes(String(planId || ''));
 }
 
 export function isInRenewalGrace(user, now = new Date()) {
@@ -35,6 +46,9 @@ export function getSubscriptionSummary(user) {
   const active = isSubscriptionActive(user);
   const cancelled = status === 'cancelled';
   const renewalGrace = isInRenewalGrace(user);
+  const pendingPlanId =
+    active && isPaidPlanId(user.pending_plan_id) ? normalizePaidPlanId(user.pending_plan_id) : null;
+  const pendingPlan = pendingPlanId ? getPlan(pendingPlanId) : null;
 
   return {
     status,
@@ -47,6 +61,8 @@ export function getSubscriptionSummary(user) {
     planId: active ? user.plan_id : 'none',
     planName: active ? plan.name : '구독 전',
     price: active ? plan.price : 0,
+    pendingPlanId,
+    pendingPlanName: pendingPlan?.name || null,
   };
 }
 
@@ -101,6 +117,42 @@ export function undoCancelSubscription(userId) {
   return getSubscriptionSummary(updated);
 }
 
+export function scheduleDowngrade(userId, planId) {
+  const user = findUserById(userId);
+  if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+  if (String(user.subscription_status || 'none') !== 'active' || !isSubscriptionActive(user)) {
+    throw new Error('활성 구독이 있을 때만 다운그레이드를 예약할 수 있습니다.');
+  }
+  if (!user.auto_renew || !user.billing_key) {
+    throw new Error(
+      '자동 결제가 꺼져 있어 다운그레이드 예약을 할 수 없습니다.\n' +
+        '구독 취소 후 만료일에 낮은 플랜으로 다시 구독해 주세요.'
+    );
+  }
+
+  const target = normalizePaidPlanId(planId);
+  const current = normalizePaidPlanId(user.plan_id);
+  if (target === current) {
+    throw new Error(`이미 ${getPlan(current).name} 플랜을 이용 중입니다.`);
+  }
+  if (getUpgradePrice(current, target) != null) {
+    throw new Error('더 높은 플랜은 업그레이드(차액 결제)로 변경해 주세요.');
+  }
+
+  const updated = setPendingPlanId(userId, target);
+  return getSubscriptionSummary(updated);
+}
+
+export function clearPendingDowngrade(userId) {
+  const user = findUserById(userId);
+  if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+  if (!user.pending_plan_id) {
+    throw new Error('예약된 다운그레이드가 없습니다.');
+  }
+  const updated = clearPendingPlanId(userId);
+  return getSubscriptionSummary(updated);
+}
+
 export function assertCanPurchaseSubscription(user) {
   if (!user) throw new Error('사용자를 찾을 수 없습니다.');
   const status = String(user.subscription_status || 'none');
@@ -108,7 +160,8 @@ export function assertCanPurchaseSubscription(user) {
     const summary = getSubscriptionSummary(user);
     throw new Error(
       `이미 구독 중입니다. (만료: ${summary.expiresAt || '-'})\n` +
-        '더 높은 플랜은 [플랜 업그레이드]에서 차액 결제로 변경할 수 있습니다.'
+        '더 높은 플랜은 [플랜 업그레이드]에서 차액 결제로 변경할 수 있습니다.\n' +
+        '낮은 플랜은 만료일부터 전환되도록 예약할 수 있습니다.'
     );
   }
 }
@@ -148,10 +201,13 @@ export function resolveCheckoutAction(user, targetPlanId) {
     const upgradePrice = getUpgradePrice(currentPlanId, target);
     if (upgradePrice == null) {
       const currentPlan = getPlan(currentPlanId);
-      throw new Error(
-        `${currentPlan.name}에서 ${targetPlan.name}(으)로 다운그레이드는 지원하지 않습니다.\n` +
-          '구독 취소 후 만료일 이후 낮은 플랜으로 다시 구독해 주세요.'
-      );
+      return {
+        type: 'schedule_downgrade',
+        planId: target,
+        fromPlanId: currentPlanId,
+        amount: 0,
+        orderName: `스마트스토어 답글 ${currentPlan.name} → ${targetPlan.name} 다운그레이드 예약`,
+      };
     }
 
     const currentPlan = getPlan(currentPlanId);

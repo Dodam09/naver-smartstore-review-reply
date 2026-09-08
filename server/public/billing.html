@@ -80,7 +80,7 @@
 <body>
   <div class="wrap">
     <h1>스마트스토어 답글 구독</h1>
-    <div class="sub">로그인하면 답글 20건·말투 분석 1회를 계정마다 한 번 무료로 써볼 수 있습니다. 신규 구독은 카드 자동결제 등록(만료일 자동 갱신). 업그레이드는 차액만 결제(만료일 유지). 취소하면 자동결제가 중단되고 만료일까지 이용 가능합니다.</div>
+    <div class="sub">로그인하면 답글 20건·말투 분석 1회를 계정마다 한 번 무료로 써볼 수 있습니다. 신규 구독은 카드 자동결제 등록(만료일 자동 갱신). 업그레이드는 차액만 결제(만료일 유지). 낮은 플랜은 만료일부터 전환되도록 예약할 수 있습니다. 취소하면 자동결제가 중단되고 만료일까지 이용 가능합니다.</div>
     <div class="legal" id="legalBox">
       <strong>정기결제 안내</strong>
       <div id="legalText" style="margin:8px 0;">불러오는 중…</div>
@@ -93,6 +93,7 @@
       <div id="accountPanelBody"></div>
       <div class="toolbar-row">
         <button id="cardUpdateBtn" class="secondary" type="button" hidden>결제 수단 변경</button>
+        <button id="clearPendingBtn" class="secondary" type="button" hidden>다운그레이드 예약 취소</button>
       </div>
     </div>
     <div class="panel" id="historyPanel" hidden>
@@ -111,6 +112,7 @@
     const accountPanel = document.getElementById('accountPanel');
     const accountPanelBody = document.getElementById('accountPanelBody');
     const cardUpdateBtn = document.getElementById('cardUpdateBtn');
+    const clearPendingBtn = document.getElementById('clearPendingBtn');
     const historyPanel = document.getElementById('historyPanel');
     const historyList = document.getElementById('historyList');
 
@@ -148,6 +150,7 @@
       const notice = config.legalNotice || {};
       legalText.innerHTML = [
         `· 결제 주기: <strong>${config.subscriptionDays || 30}일</strong> (만료일 자동 갱신)`,
+        `· 플랜 변경: 업그레이드는 즉시(차액) · 다운그레이드는 만료일부터 예약`,
         `· 갱신 실패: ${notice.retryPolicy || '재시도 후 해지'}`,
         `· 구독 취소: ${notice.cancelMethod || '확장 [설정] → [구독 취소]'}`,
         config.productionReady
@@ -191,18 +194,27 @@
       if (!sub?.active) {
         accountPanel.hidden = true;
         cardUpdateBtn.hidden = true;
+        clearPendingBtn.hidden = true;
         return;
       }
       accountPanel.hidden = false;
-      const renewLine = sub.autoRenew ? '만료일에 같은 플랜으로 자동 결제됩니다.' : '자동 갱신이 꺼져 있습니다.';
+      const renewLine = sub.pendingPlanId
+        ? `만료일부터 ${sub.pendingPlanName || sub.pendingPlanId}로 전환·자동 결제됩니다.`
+        : sub.autoRenew
+          ? '만료일에 같은 플랜으로 자동 결제됩니다.'
+          : '자동 갱신이 꺼져 있습니다.';
       const graceLine = sub.renewalGrace ? ' (결제 재시도 중 — 잠시 이용 유지)' : '';
+      const pendingLine = sub.pendingPlanId
+        ? `\n다운그레이드 예약: ${sub.planName || sub.planId} → ${sub.pendingPlanName || sub.pendingPlanId} (만료일까지 현재 플랜 유지)`
+        : '';
       accountPanelBody.textContent =
-        `${sub.planName || sub.planId} · 만료 ${sub.expiresAt || '-'} · ${renewLine}${graceLine}`;
+        `${sub.planName || sub.planId} · 만료 ${sub.expiresAt || '-'} · ${renewLine}${graceLine}${pendingLine}`;
       const canUpdateCard =
         sub.status === 'active' &&
         !sub.cancelled &&
         (config.tossConfigured || config.mockMode);
       cardUpdateBtn.hidden = !canUpdateCard;
+      clearPendingBtn.hidden = !(sub.pendingPlanId && !sub.cancelled);
     }
 
     function setPayButtonsDisabled(disabled) {
@@ -263,12 +275,32 @@
         };
       }
       if (plan.rank < currentRank) {
+        if (sub.pendingPlanId === plan.id) {
+          return {
+            enabled: false,
+            payLabel: '전환 예약됨',
+            mockLabel: '전환 예약됨',
+            note: `만료일(${sub.expiresAt || '-'})부터 ${plan.name} · 그전까지 현재 플랜 유지`,
+            priceLabel: `${plan.price.toLocaleString()}원 / 30일`,
+            current: false,
+          };
+        }
+        if (!sub.autoRenew) {
+          return {
+            enabled: false,
+            payLabel: '다운그레이드 불가',
+            mockLabel: '다운그레이드 불가',
+            note: '자동결제가 꺼져 있습니다. 구독 취소 후 만료일에 다시 구독하세요.',
+            priceLabel: `${plan.price.toLocaleString()}원 / 30일`,
+            current: false,
+          };
+        }
         return {
-          enabled: false,
-          payLabel: '다운그레이드 불가',
-          mockLabel: '다운그레이드 불가',
-          note: '만료 후 낮은 플랜으로 구독할 수 있습니다.',
-          priceLabel: `${plan.price.toLocaleString()}원 / 30일`,
+          enabled: true,
+          payLabel: `만료일부터 ${plan.name}로 예약`,
+          mockLabel: `만료일부터 ${plan.name}로 예약`,
+          note: `${current?.name || '현재 플랜'} → ${plan.name} · 만료까지 현재 플랜 유지`,
+          priceLabel: `다음 결제 ${plan.price.toLocaleString()}원`,
           current: false,
         };
       }
@@ -299,17 +331,27 @@
       if (isActivePaidSubscription(sub)) {
         const current = findPlan(config, sub.planId);
         const hasUpgrade = (config.plans || []).some((p) => p.rank > (current?.rank || 0));
+        if (sub.pendingPlanId) {
+          setStatus(
+            `현재 ${current?.name || sub.planName} 플랜 (만료: ${sub.expiresAt || '-'})\n` +
+              `다운그레이드 예약: → ${sub.pendingPlanName || sub.pendingPlanId}\n` +
+              '만료일까지 현재 플랜을 이용하고, 다음 자동결제부터 예약 플랜으로 전환됩니다.\n' +
+              '예약을 취소하려면 [다운그레이드 예약 취소]를 누르세요.'
+          );
+          return;
+        }
         const renewLine = sub.autoRenew ? '만료일에 같은 플랜으로 자동 결제됩니다.' : '';
         if (hasUpgrade) {
           setStatus(
             `현재 ${current?.name || sub.planName} 플랜 (만료: ${sub.expiresAt || '-'})\n` +
               `${renewLine ? renewLine + '\n' : ''}` +
-              '더 높은 플랜은 차액 결제로 즉시 업그레이드할 수 있습니다.'
+              '더 높은 플랜은 차액 결제로 즉시 업그레이드, 낮은 플랜은 만료일부터 전환 예약할 수 있습니다.'
           );
         } else {
           setStatus(
             `현재 ${current?.name || sub.planName} 최고 플랜을 이용 중입니다. (만료: ${sub.expiresAt || '-'})\n` +
-              (renewLine || '만료일에 자동 갱신됩니다.')
+              `${renewLine ? renewLine + '\n' : ''}` +
+              '낮은 플랜은 만료일부터 전환되도록 예약할 수 있습니다.'
           );
         }
         return;
@@ -470,6 +512,17 @@
           body: { planId, legalConsent: true },
         });
         const checkout = data.checkout;
+        if (checkout.checkoutType === 'schedule_downgrade' || checkout.scheduled) {
+          const sub = checkout.subscription || {};
+          setStatus(
+            `다운그레이드가 예약되었습니다.\n` +
+              `현재 ${sub.planName || '-'} → 만료일부터 ${sub.pendingPlanName || checkout.planName}\n` +
+              `만료: ${sub.expiresAt || '-'}\n` +
+              '그전까지 현재 플랜을 그대로 이용합니다.\n\n확장프로그램 [설정] 탭을 다시 열면 반영됩니다.'
+          );
+          await refreshBillingView();
+          return;
+        }
         const tossPayments = TossPayments(checkout.clientKey);
         if (checkout.checkoutType === 'subscribe' && checkout.useBillingAuth) {
           await tossPayments.requestBillingAuth('카드', {
@@ -513,7 +566,7 @@
       const prevLabel = clickedBtn?.textContent;
       if (clickedBtn) clickedBtn.textContent = '처리 중…';
       try {
-        setStatus('모의 결제 처리 중…');
+        setStatus('처리 중…');
         let result;
         const isSubscribe = !currentSub?.active;
         if (isSubscribe) {
@@ -526,10 +579,31 @@
             method: 'POST',
             body: { planId, legalConsent: true },
           });
+          if (prepared.checkout?.checkoutType === 'schedule_downgrade' || prepared.checkout?.scheduled) {
+            const sub = prepared.checkout.subscription || {};
+            setStatus(
+              `다운그레이드가 예약되었습니다.\n` +
+                `현재 ${sub.planName || '-'} → 만료일부터 ${sub.pendingPlanName || prepared.checkout.planName}\n` +
+                `만료: ${sub.expiresAt || '-'}\n` +
+                '그전까지 현재 플랜을 그대로 이용합니다.\n\n확장프로그램 [설정] 탭을 다시 열면 반영됩니다.'
+            );
+            await refreshBillingView();
+            return;
+          }
           result = await api('/api/billing/mock-confirm', {
             method: 'POST',
             body: { orderId: prepared.checkout.orderId },
           });
+        }
+        if (result.scheduled || result.checkoutType === 'schedule_downgrade') {
+          const sub = result.user?.subscription || {};
+          setStatus(
+            `다운그레이드가 예약되었습니다.\n` +
+              `현재 ${result.user.plan.name} → 만료일부터 ${sub.pendingPlanName || '-'}\n` +
+              `만료: ${sub.expiresAt || '-'}\n\n확장프로그램 [설정] 탭을 다시 열면 반영됩니다.`
+          );
+          await refreshBillingView();
+          return;
         }
         const checkoutType = isSubscribe ? 'subscribe' : 'upgrade';
         const typeLabel =
@@ -557,6 +631,21 @@
     cardUpdateBtn?.addEventListener('click', () => {
       if (!billingConfig) return;
       startCardUpdate(billingConfig);
+    });
+
+    clearPendingBtn?.addEventListener('click', async () => {
+      if (checkoutBusy) return;
+      if (!window.confirm('다운그레이드 예약을 취소할까요?\n만료일에 지금 플랜으로 자동 갱신됩니다.')) return;
+      checkoutBusy = true;
+      try {
+        await api('/api/billing/pending-plan/clear', { method: 'POST', body: {} });
+        setStatus('다운그레이드 예약을 취소했습니다. 만료일에 현재 플랜으로 자동 갱신됩니다.');
+        await refreshBillingView();
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+      } finally {
+        checkoutBusy = false;
+      }
     });
 
     async function init() {

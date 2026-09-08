@@ -64,14 +64,18 @@ export async function processSubscriptionRenewals() {
 }
 
 async function renewSingleUser(user) {
-  const plan = getPlan(user.plan_id);
+  const renewPlanId = user.pending_plan_id || user.plan_id;
+  const plan = getPlan(renewPlanId);
   if (!plan.price) {
     throw new Error('갱신할 유료 플랜이 없습니다.');
   }
 
   const orderId = createOrderId(user.id);
   const customerKey = user.customer_key || getOrCreateCustomerKey(user.id);
-  const orderName = `스마트스토어 답글 ${plan.name} 자동 갱신`;
+  const isDowngradeRenewal = !!(user.pending_plan_id && user.pending_plan_id !== user.plan_id);
+  const orderName = isDowngradeRenewal
+    ? `스마트스토어 답글 ${plan.name} 다운그레이드 갱신`
+    : `스마트스토어 답글 ${plan.name} 자동 갱신`;
 
   const order = createBillingOrder({
     userId: user.id,
@@ -98,7 +102,7 @@ async function renewSingleUser(user) {
   }
 
   markBillingOrderPaid(order.id, paymentKey);
-  renewUserSubscriptionPeriod(user.id, SUBSCRIPTION_DAYS);
+  renewUserSubscriptionPeriod(user.id, SUBSCRIPTION_DAYS, { planId: plan.id });
   return findUserById(user.id);
 }
 

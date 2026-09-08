@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
-import { DEFAULT_PLAN_ID, normalizePlanId } from './plans.js';
+import { DEFAULT_PLAN_ID, normalizePaidPlanId, normalizePlanId } from './plans.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
@@ -129,6 +129,9 @@ function migrateUsersTable(database) {
   if (!cols.includes('renewal_last_attempt_at')) {
     database.exec(`ALTER TABLE users ADD COLUMN renewal_last_attempt_at TEXT`);
   }
+  if (!cols.includes('pending_plan_id')) {
+    database.exec(`ALTER TABLE users ADD COLUMN pending_plan_id TEXT`);
+  }
 
   database.exec(`
     UPDATE users
@@ -208,7 +211,8 @@ export function markUserSubscriptionCancelled(userId) {
   getDb()
     .prepare(
       `UPDATE users
-       SET subscription_status = 'cancelled', auto_renew = 0, updated_at = datetime('now')
+       SET subscription_status = 'cancelled', auto_renew = 0, pending_plan_id = NULL,
+           updated_at = datetime('now')
        WHERE id = ?`
     )
     .run(userId);
@@ -237,11 +241,29 @@ export function deactivateUserSubscription(userId) {
       `UPDATE users
        SET plan_id = 'none', subscription_status = 'none', subscription_expires_at = NULL,
            auto_renew = 0, billing_key = NULL, renewal_fail_count = 0, renewal_last_attempt_at = NULL,
-           updated_at = datetime('now')
+           pending_plan_id = NULL, updated_at = datetime('now')
        WHERE id = ?`
     )
     .run(userId);
   return findUserById(userId);
+}
+
+export function setPendingPlanId(userId, planId) {
+  const user = findUserById(userId);
+  if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+  const next = planId == null || planId === '' ? null : normalizePaidPlanId(planId);
+  getDb()
+    .prepare(
+      `UPDATE users
+       SET pending_plan_id = ?, updated_at = datetime('now')
+       WHERE id = ?`
+    )
+    .run(next, userId);
+  return findUserById(userId);
+}
+
+export function clearPendingPlanId(userId) {
+  return setPendingPlanId(userId, null);
 }
 
 export function setUserBillingKey(userId, billingKey, { enableAutoRenew = true } = {}) {
@@ -312,7 +334,7 @@ export function expireEndedSubscriptions(nowIso = new Date().toISOString().slice
       `UPDATE users
        SET plan_id = 'none', subscription_status = 'none', subscription_expires_at = NULL,
            auto_renew = 0, billing_key = NULL, renewal_fail_count = 0, renewal_last_attempt_at = NULL,
-           updated_at = datetime('now')
+           pending_plan_id = NULL, updated_at = datetime('now')
        WHERE subscription_expires_at IS NOT NULL
          AND subscription_expires_at <= ?
          AND (
@@ -515,7 +537,7 @@ export function activateUserSubscription(userId, planId, days = 30, options = {}
     .prepare(
       `UPDATE users
        SET plan_id = ?, subscription_status = 'active', subscription_expires_at = ?,
-           billing_key = ?, auto_renew = ?, updated_at = datetime('now')
+           billing_key = ?, auto_renew = ?, pending_plan_id = NULL, updated_at = datetime('now')
        WHERE id = ?`
     )
     .run(normalizePlanId(planId), expiresAt, nextBillingKey, nextAutoRenew, userId);
@@ -523,23 +545,31 @@ export function activateUserSubscription(userId, planId, days = 30, options = {}
   return findUserById(userId);
 }
 
-export function renewUserSubscriptionPeriod(userId, days = 30) {
+export function renewUserSubscriptionPeriod(userId, days = 30, options = {}) {
   const user = findUserById(userId);
   if (!user) throw new Error('사용자를 찾을 수 없습니다.');
   if (!user.subscription_expires_at) {
     throw new Error('갱신할 구독 만료일이 없습니다.');
   }
 
+  const nextPlanId =
+    options.planId != null && options.planId !== ''
+      ? normalizePaidPlanId(options.planId)
+      : user.pending_plan_id
+        ? normalizePaidPlanId(user.pending_plan_id)
+        : normalizePaidPlanId(user.plan_id);
+
   const base = new Date(String(user.subscription_expires_at).replace(' ', 'T') + 'Z');
   const expiresAt = addDaysIsoLocal(days, base);
   getDb()
     .prepare(
       `UPDATE users
-       SET subscription_status = 'active', subscription_expires_at = ?, auto_renew = 1,
-           renewal_fail_count = 0, renewal_last_attempt_at = NULL, updated_at = datetime('now')
+       SET plan_id = ?, subscription_status = 'active', subscription_expires_at = ?, auto_renew = 1,
+           pending_plan_id = NULL, renewal_fail_count = 0, renewal_last_attempt_at = NULL,
+           updated_at = datetime('now')
        WHERE id = ?`
     )
-    .run(expiresAt, userId);
+    .run(nextPlanId, expiresAt, userId);
 
   return findUserById(userId);
 }
@@ -554,7 +584,8 @@ export function upgradeUserSubscription(userId, planId) {
   getDb()
     .prepare(
       `UPDATE users
-       SET plan_id = ?, subscription_status = 'active', updated_at = datetime('now')
+       SET plan_id = ?, subscription_status = 'active', pending_plan_id = NULL,
+           updated_at = datetime('now')
        WHERE id = ?`
     )
     .run(normalizePlanId(planId), userId);

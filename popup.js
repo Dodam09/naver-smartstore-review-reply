@@ -336,7 +336,6 @@ async function init() {
     if (document.visibilityState === 'hidden') flushInquiryTestDraft();
   });
   window.addEventListener('pagehide', flushInquiryTestDraft);
-  await restoreInquiryTestSession();
 }
 
 function initWorkPanelSteps() {
@@ -345,7 +344,7 @@ function initWorkPanelSteps() {
   els.reviewActiveStyleChangeBtn?.addEventListener('click', () => setReviewPanelMode('style'));
   els.inquiryModeWork?.addEventListener('click', () => setInquiryPanelMode('work'));
   els.inquiryModeStyle?.addEventListener('click', () => setInquiryPanelMode('style'));
-  els.inquiryModeTest?.addEventListener('click', () => setInquiryPanelMode('test'));
+  // 답글 테스트는 개발자용 — 일반 UI에서 숨김
   els.inquiryTestBtn?.addEventListener('click', onInquiryTestGenerate);
   els.inquiryTestProduct?.addEventListener('change', onInquiryTestProductChange);
   els.inquiryTestProductName?.addEventListener('input', scheduleSaveInquiryTestDraft);
@@ -389,26 +388,20 @@ function setReviewPanelMode(mode) {
 }
 
 function setInquiryPanelMode(mode) {
+  if (mode === 'test') mode = 'work';
   inquiryPanelMode = mode;
   els.inquiryModeWork?.classList.toggle('active', mode === 'work');
   els.inquiryModeStyle?.classList.toggle('active', mode === 'style');
-  els.inquiryModeTest?.classList.toggle('active', mode === 'test');
+  els.inquiryModeTest?.classList.toggle('active', false);
   els.inquiryWorkPanel?.classList.toggle('active', mode === 'work');
   els.inquiryStylePanel?.classList.toggle('active', mode === 'style');
-  els.inquiryTestPanel?.classList.toggle('active', mode === 'test');
+  els.inquiryTestPanel?.classList.toggle('active', false);
   if (els.inquiryActiveStyleBanner) {
-    els.inquiryActiveStyleBanner.hidden = mode === 'test';
+    els.inquiryActiveStyleBanner.hidden = false;
   }
   if (mode === 'style') {
     inquiryStyle?.updateSampleFlowUI();
     setInquiryStatus('판매자센터 문의 답글을 분석해 내 말투로 설정합니다.');
-  } else if (mode === 'test') {
-    refreshInquiryTestProductOptions()
-      .then(() => restoreInquiryTestDraft())
-      .then(() => flushInquiryTestDraft())
-      .catch(() => {});
-    refreshInquiryTestUsageHint();
-    setInquiryStatus('샘플 문의로 답글을 미리 확인합니다. 성공 시 1건 차감됩니다.');
   } else {
     flushInquiryTestDraft();
     refreshInquiryWorkStatus();
@@ -450,21 +443,6 @@ async function saveInquiryTestDraft(extra = {}) {
       ...extra,
     },
   });
-}
-
-async function restoreInquiryTestSession() {
-  if (authGateActive) return;
-  const draft = (await storageGet([INQUIRY_TEST_DRAFT_KEY]))[INQUIRY_TEST_DRAFT_KEY];
-  if (!draft) return;
-
-  const hasContent =
-    String(draft.question || '').trim() ||
-    String(draft.result || '').trim() ||
-    String(draft.productName || '').trim();
-  if (draft.panelMode !== 'test' && !hasContent) return;
-
-  switchTab('inquiry');
-  setInquiryPanelMode('test');
 }
 
 async function restoreInquiryTestDraft() {
@@ -1585,6 +1563,24 @@ async function onClearStorage() {
     setInquiryStatus('문의 답변 생성이 진행 중입니다. 완료 후 삭제하세요.');
     return;
   }
+
+  const ok = window.confirm(
+    [
+      '아래 저장된 작업을 모두 지울까요?',
+      '',
+      '지워지는 항목',
+      '· 가져온 리뷰·문의 목록',
+      '· 만든 답글·임시 저장',
+      '· 진행 중 작업·채우기 준비 상태',
+      '',
+      '그대로 남는 항목',
+      '· 로그인·구독',
+      '· 답변 스타일(말투)·지침',
+      '',
+      '지우면 되돌릴 수 없습니다.',
+    ].join('\n')
+  );
+  if (!ok) return;
 
   await storageRemove([
     CONFIG.STORAGE_KEY,
