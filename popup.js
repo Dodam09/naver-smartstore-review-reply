@@ -333,9 +333,19 @@ async function init() {
     }
   });
   await initAccountUi();
+  let accountFocusSyncTimer = null;
+  function scheduleAccountResync() {
+    if (!useAiProxy()) return;
+    clearTimeout(accountFocusSyncTimer);
+    accountFocusSyncTimer = setTimeout(() => {
+      syncAccountUi({ force: true }).catch(() => {});
+    }, 250);
+  }
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') flushInquiryTestDraft();
+    else scheduleAccountResync();
   });
+  window.addEventListener('focus', scheduleAccountResync);
   window.addEventListener('pagehide', flushInquiryTestDraft);
 }
 

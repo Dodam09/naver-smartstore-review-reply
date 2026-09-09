@@ -17,6 +17,14 @@ function enableSidePanelOnActionClick() {
 enableSidePanelOnActionClick();
 chrome.runtime.onInstalled.addListener(enableSidePanelOnActionClick);
 
+chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
+  if (message?.type !== 'BILLING_SUBSCRIPTION_UPDATED') return false;
+  refreshAccountUsage({ force: true })
+    .then(() => sendResponse({ ok: true }))
+    .catch((err) => sendResponse({ ok: false, error: err?.message || String(err) }));
+  return true;
+});
+
 async function notifyUsageLimit(message) {
   const summary = String(message || '이번 달 답글 생성 한도에 도달했습니다.')
     .split('\n')[0]
@@ -80,6 +88,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse({ ok: false, error: err?.message || String(err) });
       }
     })();
+    return true;
+  }
+
+  if (message.type === 'BILLING_SUBSCRIPTION_UPDATED') {
+    refreshAccountUsage({ force: true })
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ ok: false, error: err?.message || String(err) }));
     return true;
   }
 

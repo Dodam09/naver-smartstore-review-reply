@@ -241,6 +241,7 @@
     const params = new URLSearchParams(location.search);
     const token = params.get('token') || '';
     const initialPlan = params.get('plan') || 'standard';
+    const extensionId = params.get('extId') || '';
     const statusEl = document.getElementById('status');
     const plansEl = document.getElementById('plans');
     const legalAgree = document.getElementById('legalAgree');
@@ -680,7 +681,16 @@
       });
     }
 
-    async function refreshBillingView() {
+    function notifyExtensionSubscriptionUpdated() {
+      if (!extensionId || typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return;
+      try {
+        chrome.runtime.sendMessage(extensionId, { type: 'BILLING_SUBSCRIPTION_UPDATED' }, () => {
+          void chrome.runtime.lastError;
+        });
+      } catch (_) {}
+    }
+
+    async function refreshBillingView(options = {}) {
       const config = billingConfig || (await api('/api/billing/config'));
       billingConfig = config;
       renderLegalNotice(config);
@@ -700,6 +710,7 @@
       updateStatusForSub(sub, config);
       renderAccountPanel(sub, config);
       await loadPaymentHistory();
+      if (options.notifyExtension) notifyExtensionSubscriptionUpdated();
       return sub;
     }
 
@@ -711,7 +722,7 @@
         if (config.mockMode && !config.tossConfigured) {
           await api('/api/billing/mock-card-update', { method: 'POST', body: {} });
           setStatus('결제 수단이 변경되었습니다. (테스트)');
-          await refreshBillingView();
+          await refreshBillingView({ notifyExtension: true });
           return;
         }
         if (!config.tossConfigured) throw new Error('TOSS_CLIENT_KEY가 설정되지 않았습니다.');
@@ -787,9 +798,9 @@
             `다운그레이드가 예약되었습니다.\n` +
               `현재 ${sub.planName || '-'} → 만료일부터 ${sub.pendingPlanName || checkout.planName}\n` +
               `만료: ${sub.expiresAt || '-'}\n` +
-              '그전까지 현재 플랜을 그대로 이용합니다.\n\n확장프로그램 [설정] 탭을 다시 열면 반영됩니다.'
+              '그전까지 현재 플랜을 그대로 이용합니다.\n사이드 패널 계정에 바로 반영됩니다.'
           );
-          await refreshBillingView();
+          await refreshBillingView({ notifyExtension: true });
           return;
         }
         const tossPayments = TossPayments(checkout.clientKey);
@@ -862,9 +873,9 @@
               `다운그레이드가 예약되었습니다.\n` +
                 `현재 ${sub.planName || '-'} → 만료일부터 ${sub.pendingPlanName || prepared.checkout.planName}\n` +
                 `만료: ${sub.expiresAt || '-'}\n` +
-                '그전까지 현재 플랜을 그대로 이용합니다.\n\n확장프로그램 [설정] 탭을 다시 열면 반영됩니다.'
+                '그전까지 현재 플랜을 그대로 이용합니다.\n사이드 패널 계정에 바로 반영됩니다.'
             );
-            await refreshBillingView();
+            await refreshBillingView({ notifyExtension: true });
             return;
           }
           result = await api('/api/billing/mock-confirm', {
@@ -877,9 +888,9 @@
           setStatus(
             `다운그레이드가 예약되었습니다.\n` +
               `현재 ${result.user.plan.name} → 만료일부터 ${sub.pendingPlanName || '-'}\n` +
-              `만료: ${sub.expiresAt || '-'}\n\n확장프로그램 [설정] 탭을 다시 열면 반영됩니다.`
+              `만료: ${sub.expiresAt || '-'}\n사이드 패널 계정에 바로 반영됩니다.`
           );
-          await refreshBillingView();
+          await refreshBillingView({ notifyExtension: true });
           return;
         }
         const checkoutType = isSubscribe ? 'subscribe' : 'upgrade';
@@ -888,9 +899,9 @@
             ? '업그레이드 완료'
             : '구독 시작 (자동결제 등록)';
         setStatus(
-          `${typeLabel}!\n플랜: ${result.user.plan.name}\n만료: ${result.user.subscription.expiresAt || '-'}\n만료일에 같은 플랜으로 자동 갱신됩니다.\n\n확장프로그램 [설정] 탭을 다시 열면 자동 반영됩니다.`
+          `${typeLabel}!\n플랜: ${result.user.plan.name}\n만료: ${result.user.subscription.expiresAt || '-'}\n만료일에 같은 플랜으로 자동 갱신됩니다.\n사이드 패널 계정에 바로 반영됩니다.`
         );
-        await refreshBillingView();
+        await refreshBillingView({ notifyExtension: true });
       } catch (err) {
         setStatus(err.message || String(err), true);
         try { await refreshBillingView(); } catch (_) {}
@@ -917,13 +928,26 @@
       try {
         await api('/api/billing/pending-plan/clear', { method: 'POST', body: {} });
         setStatus('다운그레이드 예약을 취소했습니다. 만료일에 현재 플랜으로 자동 갱신됩니다.');
-        await refreshBillingView();
+        await refreshBillingView({ notifyExtension: true });
       } catch (err) {
         setStatus(err.message || String(err), true);
       } finally {
         checkoutBusy = false;
       }
     });
+
+    let billingFocusSyncTimer = null;
+    function scheduleBillingResync() {
+      if (!token && !sessionStorage.getItem('billingToken')) return;
+      clearTimeout(billingFocusSyncTimer);
+      billingFocusSyncTimer = setTimeout(() => {
+        refreshBillingView().catch(() => {});
+      }, 250);
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') scheduleBillingResync();
+    });
+    window.addEventListener('focus', scheduleBillingResync);
 
     async function init() {
       if (!token && !sessionStorage.getItem('billingToken')) {
