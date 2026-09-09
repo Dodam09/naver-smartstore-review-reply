@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "스마트스토어 답글 도우미",
-  "version": "1.3.66",
-  "description": "리뷰·상품문의 답글을 쉽게 만들고 판매자센터에 올립니다",
+  "name": "스마트스토어 AI 자동답글",
+  "version": "1.3.67",
+  "description": "기존 답글 자동 분석 기반 · 리뷰·문의 수집부터 AI 답글 작성까지",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -21,7 +21,7 @@
     "https://generativelanguage.googleapis.com/*"
   ],
   "action": {
-    "default_title": "리뷰 답글 도우미",
+    "default_title": "스마트스토어 AI 자동답글",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",

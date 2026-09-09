@@ -1654,7 +1654,7 @@ function applyAuthGate(loggedIn) {
   if (els.headerSub) {
     els.headerSub.textContent = authGateActive
       ? '로그인 후 답글·말투 분석을 이용할 수 있습니다.'
-      : '리뷰·상품문의 답글을 쉽게 만들고 올립니다';
+      : '기존 답글 자동 분석 기반 · 리뷰·문의 수집부터 작성까지';
   }
 
   if (els.accountCardDesc) {
