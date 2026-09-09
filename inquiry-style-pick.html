@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>상품문의 답글 스타일 선택</title>
+  <title>답글 도우미 · 상품문의 지침서</title>
+  <link rel="stylesheet" href="lib/app-shell.css" />
   <style>
     * { box-sizing: border-box; }
     body {
@@ -229,6 +230,17 @@
 <body>
   <header class="header">
     <div class="header-inner">
+      <div class="app-brand theme-inquiry">
+        <span class="app-brand-mark">
+          <span class="app-brand-dot" aria-hidden="true"></span>
+          <span class="app-brand-name">스마트스토어 답글 도우미</span>
+          <span class="app-brand-sep">·</span>
+          <span class="app-brand-page">상품문의 지침서</span>
+        </span>
+        <span class="app-brand-actions">
+          <button type="button" class="app-brand-back" data-open-side-panel>사이드 패널로</button>
+        </span>
+      </div>
       <h1>상품문의 응대 지침서</h1>
       <p class="sub">판매자센터의 기존 문의/답변을 불러와, 이 스토어가 실제로 어떻게 안내하는지를 지침서로 만듭니다. 목록을 불러오면 자동으로 시작합니다.</p>
     </div>
@@ -273,6 +285,7 @@
   </footer>
 
   <script src="config.js"></script>
+  <script src="lib/app-shell.js"></script>
   <script src="lib/ai-proxy.js"></script>
   <script src="lib/lookup-days.js"></script>
   <script src="lib/tone-presets.js"></script>

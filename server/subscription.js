@@ -50,6 +50,7 @@ export function getSubscriptionSummary(user) {
     active,
     cancelled,
     autoRenew: !!(user.auto_renew && user.billing_key),
+    billingKeyRegistered: !!user.billing_key,
     renewalGrace,
     renewalFailCount: Number(user.renewal_fail_count || 0),
     expiresAt,
@@ -119,10 +120,26 @@ export function undoCancelSubscription(userId) {
 }
 
 export function scheduleDowngrade(userId, planId) {
-  const user = findUserById(userId);
+  let user = findUserById(userId);
   if (!user) throw new Error('사용자를 찾을 수 없습니다.');
-  if (String(user.subscription_status || 'none') !== 'active' || !isSubscriptionActive(user)) {
+  if (!isSubscriptionActive(user)) {
     throw new Error('활성 구독이 있을 때만 다운그레이드를 예약할 수 있습니다.');
+  }
+
+  const status = String(user.subscription_status || 'none');
+  if (status !== 'active' && status !== 'cancelled') {
+    throw new Error('활성 구독이 있을 때만 다운그레이드를 예약할 수 있습니다.');
+  }
+  if (!user.billing_key) {
+    throw new Error(
+      '등록된 결제 수단이 없어 다운그레이드를 예약할 수 없습니다.\n' +
+        '만료 후 [구독하기]에서 원하는 플랜을 다시 시작해 주세요.'
+    );
+  }
+
+  // 취소 예약 중이면 철회(자동결제 재개) 후 전환 예약
+  if (status === 'cancelled') {
+    user = resumeUserSubscription(userId);
   }
   if (!user.auto_renew || !user.billing_key) {
     throw new Error(
@@ -187,10 +204,35 @@ export function resolveCheckoutAction(user, targetPlanId) {
 
   if (status === 'cancelled') {
     const summary = getSubscriptionSummary(user);
+    if (!active || !currentPlanId) {
+      throw new Error(
+        `구독 취소 예약 중입니다. (만료: ${summary.expiresAt || '-'})\n` +
+          '만료 후 [구독하기]에서 플랜을 선택해 주세요.\n' +
+          '취소를 되돌리려면 [취소 철회]를 눌러 주세요.'
+      );
+    }
+    if (target === currentPlanId) {
+      throw new Error(
+        `이미 ${targetPlan.name} 플랜을 이용 중입니다. (만료: ${summary.expiresAt || '-'})\n` +
+          '낮은 플랜은 아래에서 만료일 전환을 예약할 수 있습니다.'
+      );
+    }
+    const upgradePrice = getUpgradePrice(currentPlanId, target);
+    if (upgradePrice == null) {
+      const currentPlan = getPlan(currentPlanId);
+      return {
+        type: 'schedule_downgrade',
+        planId: target,
+        fromPlanId: currentPlanId,
+        amount: 0,
+        orderName: `스마트스토어 답글 ${currentPlan.name} → ${targetPlan.name} 다운그레이드 예약`,
+        resumeFromCancel: true,
+      };
+    }
     throw new Error(
       `구독 취소 예약 중입니다. (만료: ${summary.expiresAt || '-'})\n` +
-        '만료일까지 현재 플랜을 이용할 수 있으며, 플랜 변경·재구독은 만료 후에 가능합니다.\n' +
-        '취소를 되돌리려면 [취소 철회]를 눌러 주세요.'
+        '낮은 플랜은 여기서 바로 만료일 전환을 예약할 수 있습니다.\n' +
+        '업그레이드는 확장 [설정] → [취소 철회] 후 이용해 주세요.'
     );
   }
 

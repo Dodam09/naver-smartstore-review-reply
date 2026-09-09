@@ -65,6 +65,24 @@ async function notifyManualInquiryNeeded(count) {
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === 'OPEN_SIDE_PANEL') {
+    (async () => {
+      try {
+        let windowId = _sender.tab?.windowId;
+        if (windowId == null) {
+          const win = await chrome.windows.getCurrent();
+          windowId = win?.id;
+        }
+        if (windowId == null) throw new Error('창을 찾을 수 없습니다.');
+        await chrome.sidePanel.open({ windowId });
+        sendResponse({ ok: true });
+      } catch (err) {
+        sendResponse({ ok: false, error: err?.message || String(err) });
+      }
+    })();
+    return true;
+  }
+
   if (message.type === 'KAKAO_LOGIN') {
     startKakaoLoginFlow()
       .then((data) => sendResponse({ ok: true, data }))

@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>지침 관리</title>
+  <title>답글 도우미 · 지침 관리</title>
+  <link rel="stylesheet" href="lib/app-shell.css" />
   <style>
     * { box-sizing: border-box; }
     body {
@@ -81,14 +82,27 @@
 </head>
 <body>
   <div class="header">
-    <div class="header-inner">
-      <div>
-        <h1 id="pageTitle">지침 관리</h1>
-        <p class="sub" id="pageSub">의미별로 나눠 수정·삭제하거나 새 지침을 추가한 뒤 저장하세요.</p>
+    <div class="header-inner" style="flex-direction:column;align-items:stretch;">
+      <div class="app-brand theme-inquiry">
+        <span class="app-brand-mark">
+          <span class="app-brand-dot" aria-hidden="true"></span>
+          <span class="app-brand-name">스마트스토어 답글 도우미</span>
+          <span class="app-brand-sep">·</span>
+          <span class="app-brand-page">지침 관리</span>
+        </span>
+        <span class="app-brand-actions">
+          <button type="button" class="app-brand-back" data-open-side-panel>사이드 패널로</button>
+        </span>
       </div>
-      <div class="header-actions">
-        <button type="button" class="btn" id="cancelBtn">닫기</button>
-        <button type="button" class="btn btn-primary" id="saveBtn">저장</button>
+      <div style="display:flex;gap:16px;align-items:flex-start;justify-content:space-between;">
+        <div>
+          <h1 id="pageTitle">지침 관리</h1>
+          <p class="sub" id="pageSub">의미별로 나눠 수정·삭제하거나 새 지침을 추가한 뒤 저장하세요.</p>
+        </div>
+        <div class="header-actions">
+          <button type="button" class="btn" id="cancelBtn">닫기</button>
+          <button type="button" class="btn btn-primary" id="saveBtn">저장</button>
+        </div>
       </div>
     </div>
   </div>
@@ -100,6 +114,7 @@
   </div>
 
   <script src="config.js"></script>
+  <script src="lib/app-shell.js"></script>
   <script src="lib/tone-presets.js"></script>
   <script src="lib/guideline-items.js"></script>
   <script src="guideline-editor.js"></script>

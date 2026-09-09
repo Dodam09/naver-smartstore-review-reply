@@ -1,0 +1,73 @@
+/* Shared brand chrome for wide work tabs (matches side panel identity). */
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 10px;
+}
+
+.app-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #64748b;
+}
+
+.app-brand-name {
+  color: #0f172a;
+}
+
+.app-brand-sep {
+  color: #cbd5e1;
+  font-weight: 600;
+}
+
+.app-brand-page {
+  color: #64748b;
+  font-weight: 600;
+}
+
+.app-brand-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.app-brand-back {
+  padding: 6px 10px !important;
+  border-radius: 8px !important;
+  border: 1px solid #cbd5e1 !important;
+  background: #fff !important;
+  color: #334155 !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.app-brand-back:hover {
+  background: #f8fafc !important;
+  border-color: #94a3b8 !important;
+}
+
+.app-brand.theme-review .app-brand-dot {
+  background: #03c75a;
+}
+
+.app-brand.theme-inquiry .app-brand-dot {
+  background: #2563eb;
+}
+
+.app-brand-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #03c75a;
+  flex-shrink: 0;
+}

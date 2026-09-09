@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>구독 결제</title>
+  <title>답글 도우미 · 구독</title>
   <script src="https://js.tosspayments.com/v1/payment"></script>
   <style>
     * { box-sizing: border-box; }
@@ -14,6 +14,32 @@
       color: #222;
     }
     .wrap { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
+    .app-brand {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0 0 10px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #64748b;
+    }
+    .app-brand-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #03c75a;
+    }
+    .app-brand strong { color: #0f172a; }
+    .return-hint {
+      margin: 0 0 16px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      color: #047857;
+      font-size: 13px;
+      line-height: 1.45;
+    }
     h1 { margin: 0 0 8px; font-size: 24px; }
     .sub { color: #666; margin-bottom: 20px; }
     .plans { display: grid; gap: 12px; }
@@ -187,7 +213,9 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>스마트스토어 답글 구독</h1>
+    <div class="app-brand"><span class="app-brand-dot" aria-hidden="true"></span><strong>스마트스토어 답글 도우미</strong> · 구독</div>
+    <h1>플랜 선택 · 결제</h1>
+    <div class="return-hint">카드 등록·결제가 끝나면 이 탭을 닫고, 확장 <strong>사이드 패널</strong>로 돌아가 주세요.</div>
     <div class="sub">로그인하면 답글 20건·말투 분석 1회를 계정마다 한 번 무료로 써볼 수 있습니다. 신규 구독은 토스페이먼츠 카드 자동결제 등록(만료일 자동 갱신). 업그레이드는 차액만 결제(만료일 유지). 낮은 플랜은 만료일부터 전환 예약. 취소하면 자동결제가 중단되고 만료일까지 이용 가능합니다.</div>
     <div class="legal" id="legalBox">
       <strong>정기결제 안내</strong>
@@ -408,15 +436,44 @@
       if (isCancelledPendingExpiry(sub)) {
         const isCurrent = plan.id === sub.planId;
         const current = findPlan(config, sub.planId);
+        const currentRank = current?.rank || 0;
+        if (isCurrent) {
+          return {
+            enabled: false,
+            payLabel: '현재 플랜 (만료까지)',
+            mockLabel: '현재 플랜 (만료까지)',
+            note: `${current?.name || plan.name} · ${sub.expiresAt || '-'}까지 이용`,
+            priceLabel: `${plan.price.toLocaleString()}원 / 30일`,
+            current: true,
+          };
+        }
+        if (plan.rank < currentRank) {
+          if (!sub.billingKeyRegistered) {
+            return {
+              enabled: false,
+              payLabel: '만료 후 선택',
+              mockLabel: '만료 후 선택',
+              note: '등록된 결제 수단이 없어 예약할 수 없습니다. 만료 후 새로 구독해 주세요.',
+              priceLabel: `${plan.price.toLocaleString()}원 / 30일`,
+              current: false,
+            };
+          }
+          return {
+            enabled: true,
+            payLabel: `만료일부터 ${plan.name}로 예약하기`,
+            mockLabel: `만료일부터 ${plan.name}로 예약하기`,
+            note: `취소가 철회되고 만료일부터 ${plan.name}로 전환됩니다 · 그전까지 현재 플랜 유지`,
+            priceLabel: `다음 결제 ${plan.price.toLocaleString()}원`,
+            current: false,
+          };
+        }
         return {
           enabled: false,
-          payLabel: isCurrent ? '현재 플랜 (만료까지)' : '만료 후 선택',
-          mockLabel: isCurrent ? '현재 플랜 (만료까지)' : '만료 후 선택',
-          note: isCurrent
-            ? `${current?.name || plan.name} · ${sub.expiresAt || '-'}까지 이용`
-            : '만료일 이후에 선택할 수 있습니다.',
+          payLabel: '취소 철회 후 업그레이드',
+          mockLabel: '취소 철회 후 업그레이드',
+          note: '업그레이드는 확장 [설정] → [취소 철회] 후 가능합니다.',
           priceLabel: `${plan.price.toLocaleString()}원 / 30일`,
-          current: isCurrent,
+          current: false,
         };
       }
 
@@ -500,10 +557,13 @@
     function updateStatusForSub(sub, config) {
       if (isCancelledPendingExpiry(sub)) {
         const current = findPlan(config, sub.planId);
+        const canReserve = !!sub.billingKeyRegistered;
         setStatus(
           `구독 취소 예약 · ${current?.name || sub.planName || sub.planId} (만료: ${sub.expiresAt || '-'})\n` +
             '만료일까지 현재 플랜을 이용할 수 있습니다. 자동 결제는 중단되었습니다.\n' +
-            '다른 플랜(다운그레이드 포함)은 만료 후 [구독하기]에서 선택하세요.\n' +
+            (canReserve
+              ? '낮은 플랜은 [예약하기]로 만료일 전환을 다시 잡을 수 있습니다. (예약 시 취소가 철회됩니다)\n'
+              : '결제 수단이 없어 예약은 불가합니다. 만료 후 [구독하기]에서 선택하세요.\n') +
             '취소를 되돌리려면 확장 [설정] → [취소 철회]를 눌러 주세요.'
         );
         return;
@@ -674,14 +734,40 @@
       }
     }
 
+    function confirmDowngradeReserve(planId, config) {
+      const plan = findPlan(config, planId);
+      const sub = currentSub;
+      if (!sub?.active || plan?.id === sub.planId) return true;
+      const current = findPlan(config, sub.planId);
+      if (!current || !(plan?.rank < current.rank)) return true;
+
+      if (isCancelledPendingExpiry(sub)) {
+        return window.confirm(
+          `구독 취소가 철회되고, 만료일부터 ${plan.name}로 전환 예약됩니다.\n` +
+            `만료일(${sub.expiresAt || '-'})까지는 ${current.name}을(를) 그대로 이용합니다.\n계속할까요?`
+        );
+      }
+      if (sub.pendingPlanId && sub.pendingPlanId !== plan.id) {
+        return window.confirm(
+          `지금 예약(${sub.pendingPlanName || sub.pendingPlanId})을 ${plan.name}(으)로 바꿀까요?\n` +
+            `만료일부터 ${plan.name}로 전환됩니다.`
+        );
+      }
+      return window.confirm(
+        `만료일(${sub.expiresAt || '-'})부터 ${plan.name}로 전환을 예약할까요?\n` +
+          `그전까지는 ${current.name}을(를) 그대로 이용합니다.`
+      );
+    }
+
     async function startCheckout(planId, config) {
       if (checkoutBusy) return;
       try {
         if (!requireLegalConsent()) return;
+        if (!confirmDowngradeReserve(planId, config)) return;
 
         if (!config.tossConfigured) {
           if (config.mockMode) {
-            await mockCheckout(planId);
+            await mockCheckout(planId, null, { skipConfirm: true });
             return;
           }
           throw new Error('TOSS_CLIENT_KEY가 없습니다. server/.env 에 BILLING_MOCK=true 를 넣고 서버를 재시작하세요.');
@@ -737,12 +823,20 @@
       }
     }
 
-    async function mockCheckout(planId, clickedBtn) {
+    async function mockCheckout(planId, clickedBtn, options = {}) {
       if (checkoutBusy) {
         setStatus('결제 처리 중입니다. 잠시만 기다려 주세요.');
         return;
       }
       if (!requireLegalConsent()) return;
+      if (!options.skipConfirm) {
+        const config = billingConfig;
+        if (!config) {
+          setStatus('결제 설정을 먼저 불러와 주세요.', true);
+          return;
+        }
+        if (!confirmDowngradeReserve(planId, config)) return;
+      }
 
       checkoutBusy = true;
       setPayButtonsDisabled(true);
