@@ -464,10 +464,22 @@
             current: false,
           };
         }
+        // Only one pending_plan_id at a time — other lower plans replace that reservation.
+        if (sub.pendingPlanId && sub.pendingPlanId !== plan.id) {
+          const pendingName = sub.pendingPlanName || sub.pendingPlanId;
+          return {
+            enabled: true,
+            payLabel: `${plan.name}(으)로 예약 변경하기`,
+            mockLabel: `${plan.name}(으)로 예약 변경하기`,
+            note: `지금 예약(${pendingName})을 ${plan.name}로 바꿉니다 · 동시에 두 개 예약 불가`,
+            priceLabel: `다음 결제 ${plan.price.toLocaleString()}원`,
+            current: false,
+          };
+        }
         return {
           enabled: true,
-          payLabel: `만료일부터 ${plan.name}로 예약`,
-          mockLabel: `만료일부터 ${plan.name}로 예약`,
+          payLabel: `만료일부터 ${plan.name}로 예약하기`,
+          mockLabel: `만료일부터 ${plan.name}로 예약하기`,
           note: `${current?.name || '현재 플랜'} → ${plan.name} · 만료까지 현재 플랜 유지`,
           priceLabel: `다음 결제 ${plan.price.toLocaleString()}원`,
           current: false,
