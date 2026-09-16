@@ -1,16 +1,17 @@
-﻿Chrome Web Store 비공개(Unlisted) 등록 가이드
+﻿Chrome Web Store 등록·업데이트 가이드 (v1.3.72)
 ==========================================
 
 ■ 준비물
-  · 개발자 등록: https://chrome.google.com/webstore/devconsole ($5, 1회)
+  · Developer Dashboard: https://chrome.google.com/webstore/devconsole
   · 업로드 ZIP: store/dist/naver-smartstore-reply-store.zip
   · 개인정보 처리방침 URL (아래)
-  · 스크린샷 1280×800 또는 640×400, 최소 1장 (권장 3~5장)
+  · 스크린샷 1280×800 또는 640×400 (권장 3~5장)
 
 ■ 개인정보 처리방침 URL
   https://naver-smartstore-review-reply-production.up.railway.app/privacy.html
 
-  ※ Railway에 server/public/privacy.html 배포(재배포) 후 접속 확인할 것.
+  구독·결제 안내:
+  https://naver-smartstore-review-reply-production.up.railway.app/billing-terms.html
 
 ■ ZIP 만들기
   PowerShell:
@@ -18,36 +19,88 @@
     .\scripts\package-store.ps1
 
   결과: store\dist\naver-smartstore-reply-store.zip
+  현재 버전: 1.3.72
 
-■ 스토어 등록 절차
-  1. Chrome Web Store Developer Dashboard → 새 항목
-  2. ZIP 업로드
-  3. 가시성: 「비공개(Unlisted)」 — 링크 있는 사람만 설치
-  4. 개인정보: 「개인 식별 정보를 수집함」 체크
-  5. 개인정보 처리방침 URL 입력 (위 URL)
-  6. 단일 목적(Single purpose): 스마트스토어 판매자 리뷰·상품문의 답글 보조
+■ 스토어 등록/수정 절차
+  1. Developer Dashboard → 해당 항목
+  2. Package → 새 ZIP 업로드 (1.3.72)
+  3. Store listing → 아래 제목·짧은 설명·상세 설명 붙여넣기
+  4. 가시성: 「비공개(Unlisted)」 또는 공개 정책에 맞게
+  5. 개인정보: 「개인 식별 정보를 수집함」 + 정책 URL
+  6. 단일 목적: 스마트스토어 판매자 리뷰·상품문의 답글 보조
+  7. 심사 제출
 
-■ 스토어 설명 (복사용 초안)
+────────────────────────────────────────
+■ 스토어 리스팅 (대시보드 복사용)
+────────────────────────────────────────
 
-  제목: 스마트스토어 AI 자동답글
+【제목】
+스마트스토어 AI 자동답글
 
-  짧은 설명:
-  기존 답글 자동 분석 기반 · 리뷰·문의 수집부터 AI 답글 작성까지
+【짧은 설명】(132자 이내)
+기존 답글 자동 분석 기반 · 리뷰·문의 수집부터 AI 답글 작성까지
 
-  상세 설명:
-  · 네이버 스마트스토어 판매자센터(sell.smartstore.naver.com) 전용
-  · 기존 판매자 답글을 자동 분석해 내 말투로 AI 답글 작성
-  · 리뷰·상품문의 목록 자동 수집 → AI 초안 → 검토 후 입력란 채우기·등록
-  · 판매자 말투(프롬프트) 설정·분석 지원
-  · 계정 로그인 후 구독 플랜 이용 (토스페이먼츠 정기결제)
-  · AI 처리는 운영 서버를 통해 Google Gemini API 사용
-  · 구독·결제는 확장 밖 웹 페이지(토스페이먼츠)에서 처리
+【상세 설명】
+스마트스토어 AI 자동답글은 네이버 스마트스토어 판매자센터에서
+리뷰·상품문의 답글을 가져와, 내 말투로 AI 초안을 만들고,
+판매자센터 답변란에 자동으로 채울 수 있게 돕는 Chrome 확장 프로그램입니다.
 
-  결제 안내 문구:
-  구독은 토스페이먼츠 카드 자동결제(빌링)로 등록됩니다. 플랜 업그레이드는 차액 결제,
-  다운그레이드는 만료일부터 전환 예약할 수 있습니다. 구독 취소 시 만료일까지 이용 가능합니다.
+■ 이런 흐름으로 씁니다
+1) 판매자센터 리뷰·상품문의 페이지를 연 뒤 「가져오기」
+2) 기존 답글로 말투를 만들거나, 지침을 직접 작성
+3) AI로 답글 초안 생성 → 확인·수정
+4) 「답변란에 자동 채우기」를 켠 뒤, 판매자센터에서 답글 칸을 열면 자동 입력
 
+■ 주요 기능
+· 리뷰·상품문의 목록 자동 수집 (판매자센터 연동)
+· 기존 판매자 답글 분석으로 「내 말투」 만들기
+· 지침(가이드라인) 직접 작성·검색·관리
+· AI 답글 초안 생성 및 검토
+· 판매자센터 답변란 자동 채우기
+· 사이드 패널 UI + 처음 사용 튜토리얼(도움 · 튜토리얼)
+
+■ 무료로 시작
+카카오 로그인 후 계정마다 한 번
+· AI 답글 10건
+· 말투 분석 1회
+를 무료로 사용할 수 있습니다. 마음에 들면 구독으로 이어가면 됩니다.
+
+■ 구독 플랜 (30일 · 토스페이먼츠 카드 자동결제)
+· 베이직 9,900원 — 답글 150건 · 말투 분석 50회
+· 스탠다드 19,900원 — 답글 600건 · 말투 분석 120회
+· 프로 39,900원 — 답글 2,000건 · 말투 분석 300회
+
+업그레이드: 차액만 결제 (만료일 유지)
+다운그레이드: 만료일부터 전환 예약
+구독 취소: 자동결제 중단, 만료일까지 이용 가능
+
+■ 지원 범위
+· 네이버 스마트스토어 판매자센터(sell.smartstore.naver.com) 전용
+· 리뷰 답글 · 상품문의 답글
+
+■ 데이터·결제
+· AI 처리는 운영 서버를 통해 Google Gemini API 사용
+· 로그인: 카카오
+· 구독·결제: 토스페이먼츠 (확장 밖 결제 페이지)
+· 개인정보 처리방침: 위 URL 참고
+
+【카테고리 추천】
+생산성(Productivity) 또는 쇼핑
+
+【언어】
+한국어
+
+────────────────────────────────────────
+■ 결제 안내 문구 (스토어 「결제」/설명 보강용)
+────────────────────────────────────────
+구독은 토스페이먼츠 카드 자동결제(빌링)로 등록됩니다.
+플랜 업그레이드는 차액 결제, 다운그레이드는 만료일부터 전환 예약할 수 있습니다.
+구독 취소 시 만료일까지 이용 가능하며 자동결제는 중단됩니다.
+자세한 안내: billing-terms.html
+
+────────────────────────────────────────
 ■ 권한 사유 (심사·Privacy practices)
+────────────────────────────────────────
 
   storage
     로그인 세션, 답글 작업·말투 설정 저장
@@ -62,11 +115,11 @@
     답글 생성·작업 완료 알림
 
   sidePanel
-    확장 프로그램 아이콘 클릭 시 사이드 패널로 설정·답글 작업 화면을 엽니다.
+    확장 아이콘 클릭 시 사이드 패널로 설정·답글 작업 화면을 엽니다.
     판매자센터 탭을 가리지 않고 리뷰·문의 답글 초안을 확인·수정하기 위해 사용합니다.
 
   host: sell.smartstore.naver.com
-    판매자 본인 스토어 리뷰·문의 조회 및 답글 입력 보조
+    판매자 본인 스토어 리뷰·문의 조회 및 답변란 입력 보조
 
   host: naver-smartstore-review-reply-production.up.railway.app
     회원 로그인, AI 답글 API, 구독·사용량 확인
@@ -75,7 +128,7 @@
     판매자센터에서 리뷰 검색 API URL을 찾기 위해, 해당 페이지의
     fetch/XHR만 후킹합니다. 다른 사이트·타인 데이터는 접근하지 않습니다.
 
-■ Host permission justification (영문, 필요 시)
+■ Host permission justification (영문)
 
   This extension helps Naver Smart Store sellers draft and submit review
   and product inquiry replies. It only runs on sell.smartstore.naver.com
@@ -92,28 +145,23 @@
   정책 URL: (위 privacy.html)
 
 ■ 스크린샷 추천
-  1. 확장 팝업 — 리뷰 탭
-  2. 답글 만들기 화면
-  3. 스타일 설정 카드
-  4. [계정] 로그인·구독
+  1. 사이드 패널 — 리뷰 가져오기 / 답글 만들기
+  2. 말투·지침 설정
+  3. 답글 작업 화면 + 「답변란에 자동 채우기」
+  4. 상품문의 탭
+  5. [계정] 로그인·무료 체험·구독
 
 ■ 업데이트 방법 (중요)
-  로컬 코드 수정만으로 스토어에 반영되지 않습니다.
-  1. manifest.json version 올리기 (예: 1.3.20 → 1.3.21)
-  2. store/manifest.json 도 동일 버전으로 수정
-  3. .\scripts\package-store.ps1
-  4. Developer Dashboard → 새 ZIP 업로드 → 심사 제출
-  5. 승인 후 사용자 Chrome이 자동 업데이트 (수 시간~수 일)
+  로컬 코드만 고쳐서는 스토어에 반영되지 않습니다.
+  1. manifest.json / store/manifest.json 버전 확인 (현재 1.3.72)
+  2. .\scripts\package-store.ps1
+  3. Developer Dashboard → Package에 ZIP 업로드
+  4. Store listing 문구 수정 (위 복사용)
+  5. 심사 제출 → 승인 후 사용자 Chrome 자동 업데이트
 
-■ 비공개 링크
-  심사 통과 후 Store listing → 「Share」 또는 확장 Chrome Web Store URL 공유
-  (검색에는 노출되지 않음)
-
-■ 체크리스트
-  [ ] privacy.html Railway 배포 후 브라우저에서 열림
-  [ ] /health ok
-  [ ] package-store.ps1 ZIP 생성
-  [ ] 스크린샷 준비
-  [ ] Developer Dashboard $5 등록
-  [ ] Unlisted 선택
-  [ ] 심사 제출
+■ 체크리스트 (이번 업로드)
+  [ ] store/dist ZIP 버전 1.3.72
+  [ ] privacy.html / billing-terms.html 접속 확인
+  [ ] Store listing 제목·짧은 설명·상세 설명 반영
+  [ ] 스크린샷이 최신 UI와 맞는지 확인
+  [ ] Package 업로드 + 심사 제출
