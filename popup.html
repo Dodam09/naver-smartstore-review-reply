@@ -1620,6 +1620,58 @@
       font-size: 15px;
     }
 
+    .login-promo {
+      margin: 0 0 10px;
+      padding: 10px 12px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--accent-border);
+      background: var(--accent-soft);
+      color: var(--accent-text);
+    }
+
+    .login-promo[hidden] {
+      display: none !important;
+    }
+
+    .login-promo-title {
+      margin: 0 0 4px;
+      font-size: var(--font-label);
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .login-promo-desc {
+      margin: 0 0 8px;
+      font-size: var(--font-caption);
+      line-height: 1.45;
+      color: var(--text-secondary);
+    }
+
+    .login-promo-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .login-promo-actions button {
+      flex: 1;
+      min-width: 120px;
+    }
+
+    .login-promo-actions .kakao-login {
+      margin: 0;
+    }
+
+    .trial-perk {
+      margin: 8px 0 0;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      background: var(--success-bg);
+      color: var(--success-text);
+      font-size: var(--font-caption);
+      line-height: 1.45;
+    }
+
   </style>
 
 </head>
@@ -1649,6 +1701,15 @@
   <!-- 리뷰 -->
 
   <section id="panelWork" class="panel work active">
+
+    <div class="login-promo" id="reviewLoginPromo" hidden>
+      <div class="login-promo-title">둘러보기 가능 · AI 기능은 로그인 후</div>
+      <div class="login-promo-desc">가입 시 <strong>답글 10건 · 말투 분석 1회</strong> 무료 (계정당 1회). 판매자센터 계정이 아니라 사용량·구독 확인용입니다.</div>
+      <div class="login-promo-actions">
+        <button type="button" class="kakao-login login-promo-kakao" data-login-promo>카카오로 시작</button>
+        <button type="button" class="secondary login-promo-account" data-goto-account>계정 탭</button>
+      </div>
+    </div>
 
     <div class="mode-bar">
 
@@ -1949,6 +2010,15 @@
   <!-- 상품문의 -->
 
   <section id="panelInquiry" class="panel inquiry">
+
+    <div class="login-promo" id="inquiryLoginPromo" hidden>
+      <div class="login-promo-title">둘러보기 가능 · AI 기능은 로그인 후</div>
+      <div class="login-promo-desc">가입 시 <strong>답글 10건 · 말투 분석 1회</strong> 무료 (계정당 1회). 판매자센터 계정이 아니라 사용량·구독 확인용입니다.</div>
+      <div class="login-promo-actions">
+        <button type="button" class="kakao-login login-promo-kakao" data-login-promo>카카오로 시작</button>
+        <button type="button" class="secondary login-promo-account" data-goto-account>계정 탭</button>
+      </div>
+    </div>
 
     <div class="mode-bar">
 
@@ -2287,11 +2357,12 @@
 
       <div class="card-title">계정</div>
 
-      <div class="card-desc" id="accountCardDesc">카카오 로그인으로 시작하세요. 처음이면 자동 가입됩니다.</div>
+      <div class="card-desc" id="accountCardDesc">카카오로 시작하면 자동 가입됩니다. 판매자센터 계정과는 별개입니다.</div>
+      <div class="trial-perk" id="accountTrialPerk">가입 혜택: 답글 10건 · 말투 분석 1회 무료 (계정당 1회)</div>
 
       <div id="accountLoggedOut">
 
-        <button id="kakaoLoginBtn" class="kakao-login" type="button" hidden>카카오로 로그인</button>
+        <button id="kakaoLoginBtn" class="kakao-login" type="button" hidden>카카오로 시작 · 무료 체험</button>
 
         <div class="hint" id="accountStatus"></div>
 

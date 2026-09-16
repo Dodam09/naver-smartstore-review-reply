@@ -121,8 +121,12 @@ const els = {
   inquiryGoComposeBtn: document.getElementById('inquiryGoComposeBtn'),
   inquiryBackFetchBtn: document.getElementById('inquiryBackFetchBtn'),
   accountCard: document.getElementById('accountCard'),
+  accountCardDesc: document.getElementById('accountCardDesc'),
+  accountTrialPerk: document.getElementById('accountTrialPerk'),
   accountLoggedOut: document.getElementById('accountLoggedOut'),
   accountLoggedIn: document.getElementById('accountLoggedIn'),
+  reviewLoginPromo: document.getElementById('reviewLoginPromo'),
+  inquiryLoginPromo: document.getElementById('inquiryLoginPromo'),
   kakaoLoginBtn: document.getElementById('kakaoLoginBtn'),
   logoutBtn: document.getElementById('logoutBtn'),
   refreshUsageBtn: document.getElementById('refreshUsageBtn'),
@@ -274,6 +278,12 @@ async function init() {
   els.fetchDays.addEventListener('change', scheduleSaveSettings);
   els.inquiryFetchDays.addEventListener('change', scheduleSaveSettings);
   els.kakaoLoginBtn?.addEventListener('click', onKakaoLogin);
+  document.querySelectorAll('[data-login-promo]').forEach((btn) => {
+    btn.addEventListener('click', onKakaoLogin);
+  });
+  document.querySelectorAll('[data-goto-account]').forEach((btn) => {
+    btn.addEventListener('click', () => switchTab('settings'));
+  });
   els.logoutBtn?.addEventListener('click', onLogoutAccount);
   els.refreshUsageBtn?.addEventListener('click', onRefreshAccountUsage);
   els.openBillingBtn?.addEventListener('click', onOpenBillingPage);
@@ -861,8 +871,6 @@ function initTabs() {
 }
 
 function switchTab(name) {
-  if (authGateActive && name !== 'settings') return;
-
   const panels = {
     work: els.panelWork,
     inquiry: els.panelInquiry,
@@ -875,7 +883,7 @@ function switchTab(name) {
   });
 
   Object.entries(panels).forEach(([key, panel]) => {
-    panel.classList.toggle('active', key === name);
+    panel?.classList.toggle('active', key === name);
   });
 
   if (name === 'settings') {
@@ -1643,28 +1651,32 @@ function setStatus(message) {
 }
 
 function requiresAuthGate() {
-  const devBypass = !!String(CONFIG.API_DEV_SECRET || '').trim();
-  return useAiProxy() && !devBypass;
+  // Hard login wall disabled — browsing is open; AI still requires login server-side.
+  return false;
+}
+
+function updateLoginPromos(loggedIn) {
+  const show = useAiProxy() && !loggedIn && !String(CONFIG.API_DEV_SECRET || '').trim();
+  if (els.reviewLoginPromo) els.reviewLoginPromo.hidden = !show;
+  if (els.inquiryLoginPromo) els.inquiryLoginPromo.hidden = !show;
+  if (els.accountTrialPerk) els.accountTrialPerk.hidden = loggedIn;
 }
 
 function applyAuthGate(loggedIn) {
-  authGateActive = requiresAuthGate() && !loggedIn;
-  document.body.classList.toggle('auth-gate', authGateActive);
+  authGateActive = false;
+  document.body.classList.remove('auth-gate');
 
   if (els.headerSub) {
-    els.headerSub.textContent = authGateActive
-      ? '로그인 후 답글·말투 분석을 이용할 수 있습니다.'
-      : '기존 답글 자동 분석 기반 · 리뷰·문의 수집부터 작성까지';
+    els.headerSub.textContent = '기존 답글 자동 분석 기반 · 리뷰·문의 수집부터 작성까지';
   }
 
   if (els.accountCardDesc) {
-    els.accountCardDesc.textContent = '카카오 로그인으로 시작하세요. 처음이면 자동 가입됩니다.';
+    els.accountCardDesc.textContent = loggedIn
+      ? '사용량·구독·결제를 관리합니다.'
+      : '카카오로 시작하면 자동 가입됩니다. 판매자센터 계정과는 별개입니다.';
   }
 
-  if (authGateActive) {
-    switchTab('settings');
-    if (els.accountCard) els.accountCard.hidden = false;
-  }
+  updateLoginPromos(loggedIn);
 }
 
 async function syncAccountUi(options = {}) {
@@ -1736,8 +1748,11 @@ async function renderAccountUi() {
   if (els.accountLoggedIn) els.accountLoggedIn.hidden = !loggedIn;
 
   if (!loggedIn) {
+    updateLoginPromos(false);
     return;
   }
+
+  updateLoginPromos(true);
 
   if (els.accountSummary) {
     const usageText = formatUsageSummary(session.usage);

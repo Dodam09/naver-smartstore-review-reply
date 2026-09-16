@@ -56,6 +56,12 @@ export function getAdminDashboard() {
   const autoRenewCount = rows.filter(
     (row) => row.subscription.active && row.subscription.autoRenew
   ).length;
+  const trialUsers = rows.filter((row) => !row.subscription.active);
+  const trialUsersWithUsage = trialUsers.filter(
+    (row) => Number(row.usage?.replyUsed || 0) > 0 || Number(row.usage?.toneUsed || 0) > 0
+  );
+  const trialReplyUsed = trialUsers.reduce((sum, row) => sum + Number(row.usage?.replyUsed || 0), 0);
+  const trialToneUsed = trialUsers.reduce((sum, row) => sum + Number(row.usage?.toneUsed || 0), 0);
 
   return {
     period,
@@ -65,6 +71,10 @@ export function getAdminDashboard() {
       paidActiveSubscriptions: paidActiveCount,
       cancelledPending: cancelledPendingCount,
       autoRenewSubscriptions: autoRenewCount,
+      trialUsers: trialUsers.length,
+      trialUsersWithUsage: trialUsersWithUsage.length,
+      trialReplyUsed,
+      trialToneUsed,
     },
     plans: listPaidPlans().map((plan) => ({
       id: plan.id,

@@ -337,6 +337,11 @@
             <div class="stat-label">자동 갱신</div>
             <div class="stat-value" id="statAutoRenew">0</div>
           </div>
+          <div class="stat total">
+            <div class="stat-label">무료 사용</div>
+            <div class="stat-value" id="statTrialUsed">0</div>
+            <div class="stat-sub" id="statTrialUsedSub" style="font-size:12px;color:#6b7280;margin-top:4px;"></div>
+          </div>
         </div>
       </div>
 
@@ -352,6 +357,7 @@
             <button class="chip" type="button" data-filter="renew">자동 갱신</button>
             <button class="chip" type="button" data-filter="cancelled">취소 예약</button>
             <button class="chip" type="button" data-filter="inactive">만료/미구독</button>
+            <button class="chip" type="button" data-filter="trial">무료 사용 중</button>
           </div>
         </div>
         <div class="user-list" id="usersBody"></div>
@@ -396,6 +402,8 @@
     const statPaidActive = document.getElementById('statPaidActive');
     const statCancelled = document.getElementById('statCancelled');
     const statAutoRenew = document.getElementById('statAutoRenew');
+    const statTrialUsed = document.getElementById('statTrialUsed');
+    const statTrialUsedSub = document.getElementById('statTrialUsedSub');
     const searchInput = document.getElementById('searchInput');
     const toastEl = document.getElementById('toast');
 
@@ -484,11 +492,18 @@
       `;
     }
 
-    function describeSubscription(sub, billingKeyRegistered) {
+    function describeSubscription(sub, billingKeyRegistered, usage = {}) {
       if (!sub?.active) {
+        const replyUsed = Number(usage.replyUsed || 0);
+        const toneUsed = Number(usage.toneUsed || 0);
+        const replyLimit = Number(usage.replyLimit || 10);
+        const toneLimit = Number(usage.toneLimit || 1);
         return {
-          badge: `<span class="badge inactive">만료 / 미구독</span>`,
-          lines: ['유료 플랜 없음', '결제 또는 관리자 활성화 필요'],
+          badge: `<span class="badge inactive">무료 체험</span>`,
+          lines: [
+            `체험 사용 ${replyUsed}/${replyLimit} 답글 · ${toneUsed}/${toneLimit} 말투`,
+            replyUsed > 0 || toneUsed > 0 ? '구독 전 · 실제 사용량 집계 중' : '아직 미사용 · 로그인만 한 계정',
+          ],
         };
       }
       if (sub.status === 'cancelled' || sub.cancelled) {
@@ -524,6 +539,9 @@
         return !!(sub?.active && (sub.cancelled || sub.status === 'cancelled'));
       }
       if (activeFilter === 'inactive') return !sub?.active;
+      if (activeFilter === 'trial') {
+        return !sub?.active && (Number(user.usage?.replyUsed || 0) > 0 || Number(user.usage?.toneUsed || 0) > 0);
+      }
       return true;
     }
 
@@ -656,11 +674,13 @@
           const provider = user.authProvider === 'kakao' ? '카카오' : '이메일';
           const sub = user.subscription || {};
           const usage = user.usage || {};
-          const subInfo = describeSubscription(sub, user.billingKeyRegistered);
+          const subInfo = describeSubscription(sub, user.billingKeyRegistered, usage);
           const usageHtml = sub.active
             ? renderUsage('답글', usage.replyUsed, usage.replyLimit) +
               renderUsage('말투', usage.toneUsed, usage.toneLimit)
-            : '<div class="sub-line">구독 없음</div>';
+            : `<div class="sub-line">무료 체험 · ${escapeHtml(usage.periodLabel || '체험')}</div>` +
+              renderUsage('답글(실제)', usage.replyUsed || 0, usage.replyLimit || 10) +
+              renderUsage('말투(실제)', usage.toneUsed || 0, usage.toneLimit || 1);
 
           return `
             <article class="user-card" data-user-id="${user.id}">
@@ -748,6 +768,15 @@
       statPaidActive.textContent = String(data.stats?.paidActiveSubscriptions ?? 0);
       statCancelled.textContent = String(data.stats?.cancelledPending ?? 0);
       statAutoRenew.textContent = String(data.stats?.autoRenewSubscriptions ?? 0);
+      if (statTrialUsed) {
+        statTrialUsed.textContent = String(data.stats?.trialUsersWithUsage ?? 0);
+      }
+      if (statTrialUsedSub) {
+        const reply = data.stats?.trialReplyUsed ?? 0;
+        const tone = data.stats?.trialToneUsed ?? 0;
+        const trialUsers = data.stats?.trialUsers ?? 0;
+        statTrialUsedSub.textContent = `미구독 ${trialUsers}명 · 답글 ${reply} · 말투 ${tone}`;
+      }
       renderUsers();
       bindUserActions();
       renderRecentOrders();

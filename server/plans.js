@@ -1,5 +1,5 @@
 export const FREE_TRIAL = {
-  replyLimit: 20,
+  replyLimit: 10,
   toneLimit: 1,
   lifetime: true,
 };
