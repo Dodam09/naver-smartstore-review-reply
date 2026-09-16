@@ -153,7 +153,18 @@ function isReqSubscriptionActive(req) {
   return !!req.auth.user?.subscription?.active;
 }
 
-app.use(express.static(path.join(__dirname, 'public')));
+const publicDir = path.join(__dirname, 'public');
+
+function sendPrivacyPolicy(req, res) {
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.type('html');
+  res.sendFile(path.join(publicDir, 'privacy.html'));
+}
+
+app.get(['/privacy', '/privacy/', '/privacy.html', '/legal/privacy'], sendPrivacyPolicy);
+
+app.use(express.static(publicDir));
 
 app.get('/health', (_req, res) => {
   res.json({
