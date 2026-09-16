@@ -109,6 +109,44 @@
 
     h1 { margin: 0 0 2px; font-size: 16px; }
 
+    .header-top {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .header-top-text {
+      min-width: 0;
+      width: 100%;
+    }
+
+    .header-top-text h1,
+    .header-top-text .sub {
+      overflow-wrap: anywhere;
+      word-break: keep-all;
+    }
+
+    .header-help-btn {
+      align-self: flex-start;
+      padding: 6px 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      background: #fff;
+      color: #334155;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      line-height: 1.2;
+    }
+
+    .header-help-btn:hover {
+      background: #f8fafc;
+      border-color: #94a3b8;
+    }
+
     .sub {
 
       margin: 0 0 12px;
@@ -1680,17 +1718,21 @@
 
   <header class="header">
 
-    <h1>스마트스토어 AI 자동답글</h1>
+    <div class="header-top">
+      <div class="header-top-text">
+        <h1>스마트스토어 AI 자동답글</h1>
+        <p class="sub" id="headerSub">기존 답글 자동 분석 기반 · 리뷰·문의 수집부터 작성까지</p>
+      </div>
+      <button type="button" class="header-help-btn" id="headerTourBtn" title="사용 방법 안내">도움 · 튜토리얼</button>
+    </div>
 
-    <p class="sub" id="headerSub">기존 답글 자동 분석 기반 · 리뷰·문의 수집부터 작성까지</p>
-
-    <nav class="tabs">
+    <nav class="tabs" data-tour="tabs">
 
       <button type="button" class="tab active" data-tab="work">리뷰</button>
 
-      <button type="button" class="tab inquiry" data-tab="inquiry">상품문의</button>
+      <button type="button" class="tab inquiry" data-tab="inquiry" data-tour="inquiry-tab">상품문의</button>
 
-      <button type="button" class="tab settings" data-tab="settings">계정</button>
+      <button type="button" class="tab settings" data-tab="settings" data-tour="account-tab">계정</button>
 
     </nav>
 
@@ -1702,12 +1744,12 @@
 
   <section id="panelWork" class="panel work active">
 
-    <div class="login-promo" id="reviewLoginPromo" hidden>
-      <div class="login-promo-title">둘러보기 가능 · AI 기능은 로그인 후</div>
-      <div class="login-promo-desc">가입 시 <strong>답글 10건 · 말투 분석 1회</strong> 무료 (계정당 1회). 판매자센터 계정이 아니라 사용량·구독 확인용입니다.</div>
+    <div class="login-promo" id="reviewLoginPromo" data-tour="login-promo" hidden>
+      <div class="login-promo-title">가입하면 답글 10건 무료</div>
+      <div class="login-promo-desc">말투 분석 1회 포함 · 카카오로 바로 시작하세요. 마음에 들면 구독으로 이어갈 수 있어요.</div>
       <div class="login-promo-actions">
         <button type="button" class="kakao-login login-promo-kakao" data-login-promo>카카오로 시작</button>
-        <button type="button" class="secondary login-promo-account" data-goto-account>계정 탭</button>
+        <button type="button" class="secondary login-promo-dismiss" data-dismiss-promo>나중에</button>
       </div>
     </div>
 
@@ -1715,7 +1757,7 @@
 
       <button type="button" class="mode-btn active" id="reviewModeWork">답변할 댓글 가져오기</button>
 
-      <button type="button" class="mode-btn style-tab" id="reviewModeStyle">답변 스타일 설정</button>
+      <button type="button" class="mode-btn style-tab" id="reviewModeStyle" data-tour="review-style">답변 스타일 설정</button>
 
     </div>
 
@@ -1771,7 +1813,7 @@
 
           <select id="fetchDays"></select>
 
-          <button id="fetchBtn" class="fetch" type="button">가져오기</button>
+          <button id="fetchBtn" class="fetch" type="button" data-tour="review-fetch">가져오기</button>
 
         </div>
 
@@ -1803,7 +1845,7 @@
 
     <div id="reviewStepCompose" class="panel-step">
 
-      <button id="selectBtn" class="select compose-cta" type="button" disabled>답글 만들기 시작 →</button>
+      <button id="selectBtn" class="select compose-cta" type="button" disabled data-tour="review-compose">답글 만들기 시작 →</button>
 
       <button type="button" class="step-back" id="reviewBackFetchBtn">← 가져오기로 돌아가기</button>
 
@@ -2012,11 +2054,11 @@
   <section id="panelInquiry" class="panel inquiry">
 
     <div class="login-promo" id="inquiryLoginPromo" hidden>
-      <div class="login-promo-title">둘러보기 가능 · AI 기능은 로그인 후</div>
-      <div class="login-promo-desc">가입 시 <strong>답글 10건 · 말투 분석 1회</strong> 무료 (계정당 1회). 판매자센터 계정이 아니라 사용량·구독 확인용입니다.</div>
+      <div class="login-promo-title">가입하면 답글 10건 무료</div>
+      <div class="login-promo-desc">말투 분석 1회 포함 · 카카오로 바로 시작하세요. 마음에 들면 구독으로 이어갈 수 있어요.</div>
       <div class="login-promo-actions">
         <button type="button" class="kakao-login login-promo-kakao" data-login-promo>카카오로 시작</button>
-        <button type="button" class="secondary login-promo-account" data-goto-account>계정 탭</button>
+        <button type="button" class="secondary login-promo-dismiss" data-dismiss-promo>나중에</button>
       </div>
     </div>
 
@@ -2098,7 +2140,7 @@
 
       <button id="inquirySelectBtn" class="select compose-cta" type="button" disabled>답글 만들기 시작 →</button>
 
-      <div class="hint" id="inquiryApplyHint">답글을 만든 뒤, 작업 화면에서 「판매자센터에 넣기 준비」를 누르면 [답글] 클릭 시 자동으로 채워집니다.</div>
+      <div class="hint" id="inquiryApplyHint">답글을 만든 뒤, 작업 화면에서 「답변란에 자동 채우기」를 누르면 [답글] 클릭 시 답변란에 자동으로 채워집니다.</div>
 
       <button type="button" class="step-back" id="inquiryBackFetchBtn">← 가져오기로 돌아가기</button>
 
@@ -2357,8 +2399,8 @@
 
       <div class="card-title">계정</div>
 
-      <div class="card-desc" id="accountCardDesc">카카오로 시작하면 자동 가입됩니다. 판매자센터 계정과는 별개입니다.</div>
-      <div class="trial-perk" id="accountTrialPerk">가입 혜택: 답글 10건 · 말투 분석 1회 무료 (계정당 1회)</div>
+      <div class="card-desc" id="accountCardDesc">카카오로 시작하면 무료 체험이 바로 열려요.</div>
+      <div class="trial-perk" id="accountTrialPerk">가입 혜택: 답글 10건 · 말투 분석 1회 무료</div>
 
       <div id="accountLoggedOut">
 
@@ -2454,6 +2496,8 @@
   <script src="lib/sample-replies.js"></script>
 
   <script src="lib/style-channel.js"></script>
+
+  <script src="lib/onboarding-tour.js"></script>
 
   <script src="lib/xlsx.full.min.js"></script>
 

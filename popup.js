@@ -57,6 +57,7 @@ const els = {
   xlsxFile: document.getElementById('xlsxFile'),
   selectBtn: document.getElementById('selectBtn'),
   clearBtn: document.getElementById('clearBtn'),
+  headerTourBtn: document.getElementById('headerTourBtn'),
   status: document.getElementById('status'),
   fileSummary: document.getElementById('fileSummary'),
   inquiryFetchDays: document.getElementById('inquiryFetchDays'),
@@ -272,6 +273,13 @@ async function init() {
   els.inquirySelectBtn.addEventListener('click', openInquiryWorkPage);
   els.selectBtn.addEventListener('click', openWorkPage);
   els.clearBtn.addEventListener('click', onClearStorage);
+  els.headerTourBtn?.addEventListener('click', async () => {
+    try {
+      await startOnboardingTour({ force: true });
+    } catch (err) {
+      console.warn('튜토리얼 열기 실패:', err);
+    }
+  });
   els.openStylePickBtn.addEventListener('click', openStylePickPage);
   els.openInquiryStylePickBtn.addEventListener('click', openInquiryStylePickPage);
   els.apiKey.addEventListener('input', scheduleSaveSettings);
@@ -281,8 +289,11 @@ async function init() {
   document.querySelectorAll('[data-login-promo]').forEach((btn) => {
     btn.addEventListener('click', onKakaoLogin);
   });
-  document.querySelectorAll('[data-goto-account]').forEach((btn) => {
-    btn.addEventListener('click', () => switchTab('settings'));
+  document.querySelectorAll('[data-dismiss-promo]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (els.reviewLoginPromo) els.reviewLoginPromo.hidden = true;
+      if (els.inquiryLoginPromo) els.inquiryLoginPromo.hidden = true;
+    });
   });
   els.logoutBtn?.addEventListener('click', onLogoutAccount);
   els.refreshUsageBtn?.addEventListener('click', onRefreshAccountUsage);
@@ -343,6 +354,9 @@ async function init() {
     }
   });
   await initAccountUi();
+  setTimeout(() => {
+    startOnboardingTourIfNeeded().catch(() => {});
+  }, 400);
   let accountFocusSyncTimer = null;
   function scheduleAccountResync() {
     if (!useAiProxy()) return;
@@ -1264,13 +1278,13 @@ function updateInquiryApplyHint(applyEnabled, draftCount = 0) {
   if (!els.inquiryApplyHint) return;
   if (applyEnabled && draftCount > 0) {
     els.inquiryApplyHint.textContent =
-      '✓ 판매자센터에 넣기 준비됨 — 상품문의에서 [답글]만 누르면 자동으로 채워집니다.';
+      '✓ 답변란 자동 채우기 켜짐 — 상품문의에서 [답글]만 누르면 답변란에 자동으로 채워집니다.';
     els.inquiryApplyHint.style.color = '#0a7a3f';
     els.inquiryApplyHint.style.fontWeight = '600';
     return;
   }
   els.inquiryApplyHint.textContent =
-    '답글을 만든 뒤, 작업 화면에서 「판매자센터에 넣기 준비」를 누르면 [답글] 클릭 시 자동으로 채워집니다.';
+    '답글을 만든 뒤, 작업 화면에서 「답변란에 자동 채우기」를 누르면 [답글] 클릭 시 답변란에 자동으로 채워집니다.';
   els.inquiryApplyHint.style.color = '';
   els.inquiryApplyHint.style.fontWeight = '';
 }
@@ -1590,7 +1604,7 @@ async function onClearStorage() {
       '지워지는 항목',
       '· 가져온 리뷰·문의 목록',
       '· 만든 답글·임시 저장',
-      '· 진행 중 작업·채우기 준비 상태',
+      '· 진행 중 작업·답변란 자동 채우기 상태',
       '',
       '그대로 남는 항목',
       '· 로그인·구독',
@@ -1673,7 +1687,7 @@ function applyAuthGate(loggedIn) {
   if (els.accountCardDesc) {
     els.accountCardDesc.textContent = loggedIn
       ? '사용량·구독·결제를 관리합니다.'
-      : '카카오로 시작하면 자동 가입됩니다. 판매자센터 계정과는 별개입니다.';
+      : '카카오로 시작하면 무료 체험이 바로 열려요.';
   }
 
   updateLoginPromos(loggedIn);

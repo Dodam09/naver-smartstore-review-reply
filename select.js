@@ -445,12 +445,12 @@ function updateConfirmButton(filled, total) {
   if (!els.confirmBtn) return;
   if (applyEnabled) {
     els.confirmBtn.disabled = true;
-    els.confirmBtn.textContent = '✓ 채우기 준비됨';
+    els.confirmBtn.textContent = '✓ 답변란 자동 채우기 켜짐';
     return;
   }
   const ready = total > 0 && filled === total;
   els.confirmBtn.disabled = !ready;
-  els.confirmBtn.textContent = '판매자센터에 채우기 준비';
+  els.confirmBtn.textContent = '답변란에 자동 채우기';
 }
 
 function updateReviewStatsFromUi() {
@@ -486,7 +486,7 @@ async function saveDraft(showMessage = false) {
     updates[CONFIG.APPLY_ENABLED_KEY] = false;
     applyEnabled = false;
     if (!showMessage) {
-      showBanner('답글을 고쳤어요. 다시 「판매자센터에 채우기 준비」를 눌러 주세요.', 'warn');
+      showBanner('답글을 고쳤어요. 다시 「답변란에 자동 채우기」를 눌러 주세요.', 'warn');
     }
   }
 

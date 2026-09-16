@@ -433,9 +433,9 @@ function updateReviewStats() {
   } else if (confirmPending > 0) {
     els.reviewSummary.textContent = `확인 필요 ${confirmPending}건이 있어요. 노란 카드의 반품·배송 초안을 검토해 주세요.`;
   } else if (filled === total && total > 0) {
-    els.reviewSummary.textContent = '답글 확인이 끝났어요. 아래 「판매자센터에 넣기 준비」를 누르세요.';
+    els.reviewSummary.textContent = '답글 확인이 끝났어요. 아래 「답변란에 자동 채우기」를 누르세요.';
   } else {
-    els.reviewSummary.textContent = '답글을 읽고 필요하면 고친 뒤, 넣기 준비를 하세요.';
+    els.reviewSummary.textContent = '답글을 읽고 필요하면 고친 뒤, 답변란에 자동 채우기를 켜 주세요.';
   }
 
   updateConfirmButton(filled, total);
@@ -445,14 +445,14 @@ function updateConfirmButton(filled, total) {
   if (!els.confirmBtn) return;
   if (applyEnabled) {
     els.confirmBtn.disabled = true;
-    els.confirmBtn.textContent = '✓ 넣기 준비됨';
+    els.confirmBtn.textContent = '✓ 답변란 자동 채우기 켜짐';
     els.confirmBtn.classList.add('is-ready');
     return;
   }
   els.confirmBtn.classList.remove('is-ready');
   const ready = total > 0 && filled === total;
   els.confirmBtn.disabled = !ready;
-  els.confirmBtn.textContent = '판매자센터에 넣기 준비';
+  els.confirmBtn.textContent = '답변란에 자동 채우기';
 }
 
 function updateReviewStatsFromUi() {
@@ -510,7 +510,7 @@ async function saveDraft(showMessage = false) {
     updates[APPLY_KEY] = false;
     applyEnabled = false;
     if (!showMessage) {
-      showBanner('답글을 고쳤어요. 다시 「판매자센터에 넣기 준비」를 눌러 주세요.', 'warn');
+      showBanner('답글을 고쳤어요. 다시 「답변란에 자동 채우기」를 눌러 주세요.', 'warn');
     }
   }
 
@@ -597,7 +597,7 @@ function updateReviewBanner() {
       'warn'
     );
   } else if (draftItems.length) {
-    showBanner('답글 확인 후 「판매자센터에 넣기 준비」를 누르세요.', 'info');
+    showBanner('답글 확인 후 「답변란에 자동 채우기」를 누르세요.', 'info');
   }
 }
 
