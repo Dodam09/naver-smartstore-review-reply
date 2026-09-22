@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   ensureAdminUser,
+  ensurePasswordUser,
   getAuthFromToken,
   loginUser,
   loginWithKakao,
@@ -82,6 +83,19 @@ if (adminEmail && adminPassword) {
   const admin = ensureAdminUser(adminEmail, adminPassword, 'pro');
   if (admin) {
     console.log(`Admin ready: ${admin.email} (${admin.planId})`);
+  }
+}
+
+const reviewEmail = String(process.env.TOSS_REVIEW_EMAIL || '').trim();
+const reviewPassword = String(process.env.TOSS_REVIEW_PASSWORD || '').trim();
+if (reviewEmail && reviewPassword) {
+  try {
+    const reviewUser = ensurePasswordUser(reviewEmail, reviewPassword, 'none');
+    if (reviewUser) {
+      console.log(`Toss review login ready: ${reviewUser.email}`);
+    }
+  } catch (err) {
+    console.warn('Toss review user setup failed:', err.message || err);
   }
 }
 

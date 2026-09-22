@@ -164,6 +164,26 @@ export function ensureAdminUser(email, password, planId = 'pro') {
   return sanitizeUser(findUserById(user.id));
 }
 
+/** 심사용 등 이메일/비밀번호 계정 보장 (구독은 건드리지 않음) */
+export function ensurePasswordUser(email, password, planId = DEFAULT_PLAN_ID) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const plainPassword = String(password || '');
+  if (!normalizedEmail || !normalizedEmail.includes('@')) return null;
+  if (plainPassword.length < PASSWORD_MIN_LENGTH) return null;
+
+  const existing = findUserByEmail(normalizedEmail);
+  if (existing) {
+    if (isOAuthOnlyUser(existing)) {
+      console.warn(`[auth] skip ensurePasswordUser: ${normalizedEmail} is OAuth-only`);
+      return null;
+    }
+    return sanitizeUser(existing);
+  }
+
+  const user = createUser(normalizedEmail, hashPassword(plainPassword), normalizePlanId(planId));
+  return sanitizeUser(user);
+}
+
 export function parseBearerToken(headerValue) {
   const auth = String(headerValue || '');
   return auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
