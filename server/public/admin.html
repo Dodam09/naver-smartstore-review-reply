@@ -508,6 +508,24 @@
       return data;
     }
 
+    function formatKst(value) {
+      const raw = String(value || '').trim();
+      if (!raw || raw === '-') return '-';
+      const iso = /[zZ]|[+-]\d{2}:?\d{2}$/.test(raw) ? raw : `${raw.replace(' ', 'T')}Z`;
+      const date = new Date(iso);
+      if (Number.isNaN(date.getTime())) return raw;
+      return new Intl.DateTimeFormat('sv-SE', {
+        timeZone: 'Asia/Seoul',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).format(date);
+    }
+
     function escapeHtml(value) {
       return String(value ?? '')
         .replace(/&/g, '&amp;')
@@ -664,7 +682,7 @@
         .map(
           (row) => `
             <tr>
-              <td class="mono">${escapeHtml(row.paidAt || '-')}</td>
+              <td class="mono">${escapeHtml(formatKst(row.paidAt))}</td>
               <td>
                 <div>${escapeHtml(row.displayName || row.email || `#${row.userId}`)}</div>
                 <div class="mono" style="color:#6b7280;font-size:12px;">${escapeHtml(row.email || '')}</div>
@@ -747,7 +765,7 @@
                 <div>
                   <div class="user-title">${escapeHtml(accountLabel)} <span class="mono" style="color:#9ca3af;">#${user.id}</span></div>
                   <div class="user-email">${escapeHtml(user.email)}</div>
-                  <div class="user-meta">${provider}${user.kakaoId ? ` · kakao ${escapeHtml(user.kakaoId)}` : ''} · 가입 ${escapeHtml(user.createdAt || '-')}</div>
+                  <div class="user-meta">${provider}${user.kakaoId ? ` · kakao ${escapeHtml(user.kakaoId)}` : ''} · 가입 ${escapeHtml(formatKst(user.createdAt))}</div>
                 </div>
                 <div>${subInfo.badge}</div>
               </div>
@@ -847,7 +865,7 @@
             <tr>
               <td>${who}</td>
               <td>${escapeHtml(stageLabel(row.stage))}</td>
-              <td>${escapeHtml(row.lastSeenAt || '-')}</td>
+              <td>${escapeHtml(formatKst(row.lastSeenAt))}</td>
             </tr>
           `;
         })
