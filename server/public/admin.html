@@ -297,7 +297,7 @@
     <section id="loginSection" class="card login-card">
       <label for="adminSecret">관리자 비밀키</label>
       <div class="row">
-        <input id="adminSecret" type="password" placeholder="ADMIN_SECRET" autocomplete="current-password" />
+        <input id="adminSecret" type="password" placeholder="ADMIN_SECRET" autocomplete="off" name="admin-secret" />
         <button id="loginBtn" type="button">입장</button>
       </div>
       <div class="status" id="loginStatus">Railway Variables에 ADMIN_SECRET을 설정해야 합니다.</div>
@@ -347,10 +347,76 @@
 
       <div class="card">
         <div class="panel-head">
+          <h2>설치 퍼널 (익명 설치 기준)</h2>
+        </div>
+        <div class="stats" id="funnelStats">
+          <div class="stat total">
+            <div class="stat-label">설치 ID</div>
+            <div class="stat-value" id="funnelInstalls">0</div>
+          </div>
+          <div class="stat active">
+            <div class="stat-label">앱 열기</div>
+            <div class="stat-value" id="funnelOpen">0</div>
+          </div>
+          <div class="stat paid">
+            <div class="stat-label">로그인 클릭</div>
+            <div class="stat-value" id="funnelLoginClick">0</div>
+          </div>
+          <div class="stat renew">
+            <div class="stat-label">로그인 성공</div>
+            <div class="stat-value" id="funnelLoginOk">0</div>
+          </div>
+          <div class="stat cancelled">
+            <div class="stat-label">가져오기 성공</div>
+            <div class="stat-value" id="funnelFetch">0</div>
+          </div>
+          <div class="stat total">
+            <div class="stat-label">답글 생성</div>
+            <div class="stat-value" id="funnelGenerate">0</div>
+          </div>
+        </div>
+        <div class="status" id="funnelNote" style="margin-top:10px;">확장 1.3.73+ 부터 집계됩니다. 스토어 설치 수와는 다를 수 있습니다.</div>
+      </div>
+
+      <div class="card">
+        <div class="panel-head">
+          <h2>답글 사용량 · 리뷰 / 문의</h2>
+        </div>
+        <div class="stats">
+          <div class="stat total">
+            <div class="stat-label">이번 달 리뷰</div>
+            <div class="stat-value" id="statReplyReviewMonth">0</div>
+          </div>
+          <div class="stat paid">
+            <div class="stat-label">이번 달 문의</div>
+            <div class="stat-value" id="statReplyInquiryMonth">0</div>
+          </div>
+          <div class="stat active">
+            <div class="stat-label">누적 리뷰</div>
+            <div class="stat-value" id="statReplyReviewAll">0</div>
+          </div>
+          <div class="stat renew">
+            <div class="stat-label">누적 문의</div>
+            <div class="stat-value" id="statReplyInquiryAll">0</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="panel-head">
           <h2>유저 목록</h2>
           <div class="filters">
             <div class="search-wrap">
-              <input id="searchInput" type="search" placeholder="이름 · 이메일 · ID 검색" />
+              <input
+                id="searchInput"
+                type="search"
+                name="admin-user-search"
+                placeholder="이름 · 이메일 · ID 검색"
+                autocomplete="off"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
+              />
             </div>
             <button class="chip active" type="button" data-filter="all">전체</button>
             <button class="chip" type="button" data-filter="paid">구독 중</button>
@@ -675,11 +741,14 @@
           const sub = user.subscription || {};
           const usage = user.usage || {};
           const subInfo = describeSubscription(sub, user.billingKeyRegistered, usage);
+          const replyCh = usage.replyByChannel || {};
           const usageHtml = sub.active
             ? renderUsage('답글', usage.replyUsed, usage.replyLimit) +
+              `<div class="sub-line">리뷰 ${Number(replyCh.review || 0)} · 문의 ${Number(replyCh.inquiry || 0)}</div>` +
               renderUsage('말투', usage.toneUsed, usage.toneLimit)
             : `<div class="sub-line">무료 체험 · ${escapeHtml(usage.periodLabel || '체험')}</div>` +
               renderUsage('답글(실제)', usage.replyUsed || 0, usage.replyLimit || 10) +
+              `<div class="sub-line">리뷰 ${Number(replyCh.review || 0)} · 문의 ${Number(replyCh.inquiry || 0)}</div>` +
               renderUsage('말투(실제)', usage.toneUsed || 0, usage.toneLimit || 1);
 
           return `
@@ -777,6 +846,24 @@
         const trialUsers = data.stats?.trialUsers ?? 0;
         statTrialUsedSub.textContent = `미구독 ${trialUsers}명 · 답글 ${reply} · 말투 ${tone}`;
       }
+
+      const funnel = data.funnel || {};
+      const setText = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = String(value ?? 0);
+      };
+      setText('funnelInstalls', funnel.totalInstalls);
+      setText('funnelOpen', funnel.opened);
+      setText('funnelLoginClick', funnel.loginClick);
+      setText('funnelLoginOk', funnel.loginSuccess);
+      setText('funnelFetch', funnel.fetchSuccess);
+      setText('funnelGenerate', funnel.generateSuccess);
+
+      setText('statReplyReviewMonth', data.stats?.replyByChannelMonth?.review);
+      setText('statReplyInquiryMonth', data.stats?.replyByChannelMonth?.inquiry);
+      setText('statReplyReviewAll', data.stats?.replyByChannelAll?.review);
+      setText('statReplyInquiryAll', data.stats?.replyByChannelAll?.inquiry);
+
       renderUsers();
       bindUserActions();
       renderRecentOrders();
@@ -800,9 +887,26 @@
       }
     }
 
+    function clearSearchInput() {
+      if (!searchInput) return;
+      searchInput.value = '';
+      // Chrome이 비밀키 autofill을 검색창에 넣는 경우가 있어 잠시 뒤에도 한 번 더 비움
+      requestAnimationFrame(() => {
+        searchInput.value = '';
+      });
+      setTimeout(() => {
+        if (searchInput.value && searchInput.value.length <= 4) {
+          searchInput.value = '';
+          renderUsers();
+          bindUserActions();
+        }
+      }, 150);
+    }
+
     function showDashboard(show) {
       loginSection.classList.toggle('hidden', show);
       dashboardSection.classList.toggle('hidden', !show);
+      if (show) clearSearchInput();
     }
 
     async function tryEnter() {

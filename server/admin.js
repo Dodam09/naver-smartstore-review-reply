@@ -3,10 +3,12 @@ import {
   currentPeriod,
   deactivateUserSubscription,
   findUserById,
+  getUsageChannelTotals,
   listAllUsers,
   listRecentBillingOrders,
   upgradeUserSubscription,
 } from './db.js';
+import { getFunnelSummary } from './analytics.js';
 import { getPlan, listPaidPlans, normalizePaidPlanId } from './plans.js';
 import {
   cancelUserSubscriptionAtPeriodEnd,
@@ -62,6 +64,9 @@ export function getAdminDashboard() {
   );
   const trialReplyUsed = trialUsers.reduce((sum, row) => sum + Number(row.usage?.replyUsed || 0), 0);
   const trialToneUsed = trialUsers.reduce((sum, row) => sum + Number(row.usage?.toneUsed || 0), 0);
+  const channelMonth = getUsageChannelTotals(period);
+  const channelAll = getUsageChannelTotals(null);
+  const funnel = getFunnelSummary();
 
   return {
     period,
@@ -75,7 +80,12 @@ export function getAdminDashboard() {
       trialUsersWithUsage: trialUsersWithUsage.length,
       trialReplyUsed,
       trialToneUsed,
+      replyByChannelMonth: channelMonth.reply,
+      replyByChannelAll: channelAll.reply,
+      toneByChannelMonth: channelMonth.tone,
+      toneByChannelAll: channelAll.tone,
     },
+    funnel,
     plans: listPaidPlans().map((plan) => ({
       id: plan.id,
       name: plan.name,

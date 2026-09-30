@@ -173,6 +173,9 @@ let inquiryTestSaveTimer = null;
 init();
 
 async function init() {
+  if (typeof trackAnalyticsOpen === 'function') {
+    trackAnalyticsOpen();
+  }
   initTabs();
   initWorkPanelSteps();
 
@@ -1167,8 +1170,14 @@ async function onFetchFromSeller() {
     }
 
     await applyImportedRows(response, response.sourceLabel || `판매자센터 (${formatLookupDaysLabel(days)})`);
+    if (typeof trackAnalyticsEvent === 'function') {
+      trackAnalyticsEvent('fetch_success', { channel: 'review', count: Number(response?.rows?.length || response?.count || 0) });
+    }
   } catch (err) {
     const msg = err.message || String(err);
+    if (typeof trackAnalyticsEvent === 'function') {
+      trackAnalyticsEvent('fetch_fail', { channel: 'review', error: String(msg).slice(0, 120) });
+    }
     if (/Receiving end does not exist|Could not establish connection/i.test(msg)) {
       setStatus(
         '판매자센터 페이지와 연결되지 않았습니다.\n\n' +
@@ -1354,8 +1363,14 @@ async function onFetchInquiries() {
     updateInquirySummary();
     setInquiryPanelStep('compose');
     await saveInquiryCache(statusMessage, {}, sourceLabel);
+    if (typeof trackAnalyticsEvent === 'function') {
+      trackAnalyticsEvent('fetch_success', { channel: 'inquiry', count: inquiryRows.length });
+    }
   } catch (err) {
     const msg = err.message || String(err);
+    if (typeof trackAnalyticsEvent === 'function') {
+      trackAnalyticsEvent('fetch_fail', { channel: 'inquiry', error: String(msg).slice(0, 120) });
+    }
     if (/Receiving end does not exist|Could not establish connection/i.test(msg)) {
       setInquiryStatus(
         '판매자센터 페이지와 연결되지 않았습니다.\n\n' +

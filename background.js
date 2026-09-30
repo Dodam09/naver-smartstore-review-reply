@@ -1,4 +1,4 @@
-importScripts('config.js', 'lib/lookup-days.js', 'lib/tone-presets.js', 'lib/inquiry-reference.js', 'lib/inquiry-search.js', 'lib/ai-proxy.js');
+importScripts('config.js', 'lib/lookup-days.js', 'lib/tone-presets.js', 'lib/inquiry-reference.js', 'lib/inquiry-search.js', 'lib/ai-proxy.js', 'lib/analytics.js');
 
 let isRunning = false;
 let isInquiryRunning = false;
@@ -15,7 +15,16 @@ function enableSidePanelOnActionClick() {
 }
 
 enableSidePanelOnActionClick();
-chrome.runtime.onInstalled.addListener(enableSidePanelOnActionClick);
+chrome.runtime.onInstalled.addListener((details) => {
+  enableSidePanelOnActionClick();
+  if (details.reason === 'install') {
+    trackAnalyticsEvent('install', { reason: 'install' });
+  }
+  trackAnalyticsOpen();
+});
+chrome.runtime.onStartup?.addListener(() => {
+  trackAnalyticsOpen();
+});
 
 chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
   if (message?.type !== 'BILLING_SUBSCRIPTION_UPDATED') return false;
@@ -99,9 +108,25 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === 'KAKAO_LOGIN') {
+    trackAnalyticsEvent('login_click', { provider: 'kakao' });
     startKakaoLoginFlow()
-      .then((data) => sendResponse({ ok: true, data }))
-      .catch((err) => sendResponse({ ok: false, error: err.message || String(err) }));
+      .then((data) => {
+        trackAnalyticsEvent('login_success', { provider: 'kakao' });
+        sendResponse({ ok: true, data });
+      })
+      .catch((err) => {
+        trackAnalyticsEvent('login_fail', { provider: 'kakao', error: String(err?.message || err).slice(0, 120) });
+        sendResponse({ ok: false, error: err.message || String(err) });
+      });
+    return true;
+  }
+
+  if (message.type === 'TRACK_ANALYTICS') {
+    const event = message.payload?.event;
+    const meta = message.payload?.meta;
+    trackAnalyticsEvent(event, meta)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
     return true;
   }
 
@@ -1055,6 +1080,7 @@ async function generateReply(apiKey, systemPrompt, row, model, signal) {
       },
       signal
     );
+    trackAnalyticsEvent('generate_success', { channel: 'review' });
     return data.text;
   }
 
@@ -1199,6 +1225,7 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
       },
       signal
     );
+    trackAnalyticsEvent('generate_success', { channel: 'inquiry' });
     return data.text;
   }
 

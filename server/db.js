@@ -78,6 +78,30 @@ function initSchema(database) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_billing_orders_user_id ON billing_orders(user_id);
+
+    CREATE TABLE IF NOT EXISTS analytics_installs (
+      install_id TEXT PRIMARY KEY,
+      user_id INTEGER,
+      extension_version TEXT,
+      first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS analytics_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      install_id TEXT NOT NULL,
+      user_id INTEGER,
+      event TEXT NOT NULL,
+      meta TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (install_id) REFERENCES analytics_installs(install_id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_analytics_events_install ON analytics_events(install_id);
+    CREATE INDEX IF NOT EXISTS idx_analytics_events_event ON analytics_events(event);
+    CREATE INDEX IF NOT EXISTS idx_analytics_events_created ON analytics_events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_usage_logs_user_period_kind ON usage_logs(user_id, period, kind);
   `);
 
   migrateBillingOrdersTable(database);
@@ -465,6 +489,147 @@ export function incrementUsage(userId, kind, channel, period = currentPeriod()) 
     .run(userId, period, kind, channel || null);
 
   return getUsageRow(userId, period);
+}
+
+/** channel별 사용량 (구 로그 channel NULL → review로 취급) */
+export function getUsageChannelBreakdown(userId, period = currentPeriod()) {
+  const rows = getDb()
+    .prepare(
+      `SELECT kind,
+              CASE
+                WHEN channel IS NULL OR TRIM(channel) = '' THEN 'review'
+                ELSE channel
+              END AS channel,
+              COUNT(*) AS cnt
+       FROM usage_logs
+       WHERE user_id = ? AND period = ?
+       GROUP BY kind, channel`
+    )
+    .all(userId, period);
+
+  const reply = { review: 0, inquiry: 0 };
+  const tone = { review: 0, inquiry: 0 };
+  for (const row of rows) {
+    const ch = row.channel === 'inquiry' ? 'inquiry' : 'review';
+    const n = Number(row.cnt) || 0;
+    if (row.kind === 'tone') tone[ch] += n;
+    else reply[ch] += n;
+  }
+  return { reply, tone };
+}
+
+export function getUsageChannelTotals(period = null) {
+  const rows = period
+    ? getDb()
+        .prepare(
+          `SELECT kind,
+                  CASE
+                    WHEN channel IS NULL OR TRIM(channel) = '' THEN 'review'
+                    ELSE channel
+                  END AS channel,
+                  COUNT(*) AS cnt
+           FROM usage_logs
+           WHERE period = ?
+           GROUP BY kind, channel`
+        )
+        .all(period)
+    : getDb()
+        .prepare(
+          `SELECT kind,
+                  CASE
+                    WHEN channel IS NULL OR TRIM(channel) = '' THEN 'review'
+                    ELSE channel
+                  END AS channel,
+                  COUNT(*) AS cnt
+           FROM usage_logs
+           GROUP BY kind, channel`
+        )
+        .all();
+
+  const reply = { review: 0, inquiry: 0 };
+  const tone = { review: 0, inquiry: 0 };
+  for (const row of rows) {
+    const ch = row.channel === 'inquiry' ? 'inquiry' : 'review';
+    const n = Number(row.cnt) || 0;
+    if (row.kind === 'tone') tone[ch] += n;
+    else reply[ch] += n;
+  }
+  return { reply, tone };
+}
+
+export function upsertAnalyticsInstall(installId, { userId = null, extensionVersion = null } = {}) {
+  const id = String(installId || '').trim();
+  if (!id || id.length < 8 || id.length > 80) return null;
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO analytics_installs (install_id, user_id, extension_version, first_seen_at, last_seen_at)
+     VALUES (?, ?, ?, datetime('now'), datetime('now'))
+     ON CONFLICT(install_id) DO UPDATE SET
+       last_seen_at = datetime('now'),
+       extension_version = COALESCE(excluded.extension_version, analytics_installs.extension_version),
+       user_id = COALESCE(excluded.user_id, analytics_installs.user_id)`
+  ).run(id, userId || null, extensionVersion || null);
+  return db.prepare('SELECT * FROM analytics_installs WHERE install_id = ?').get(id);
+}
+
+export function linkAnalyticsInstallUser(installId, userId) {
+  const id = String(installId || '').trim();
+  if (!id || !userId) return;
+  getDb()
+    .prepare(
+      `UPDATE analytics_installs
+       SET user_id = ?, last_seen_at = datetime('now')
+       WHERE install_id = ?`
+    )
+    .run(userId, id);
+}
+
+export function insertAnalyticsEvent(installId, event, { userId = null, meta = null } = {}) {
+  const id = String(installId || '').trim();
+  const ev = String(event || '').trim().slice(0, 64);
+  if (!id || !ev) return null;
+  const metaJson = meta == null ? null : JSON.stringify(meta).slice(0, 2000);
+  const info = getDb()
+    .prepare(
+      `INSERT INTO analytics_events (install_id, user_id, event, meta)
+       VALUES (?, ?, ?, ?)`
+    )
+    .run(id, userId || null, ev, metaJson);
+  return info.lastInsertRowid;
+}
+
+export function getAnalyticsFunnel() {
+  const db = getDb();
+  const totalInstalls = db.prepare('SELECT COUNT(*) AS n FROM analytics_installs').get()?.n || 0;
+  const linkedUsers = db
+    .prepare('SELECT COUNT(DISTINCT user_id) AS n FROM analytics_installs WHERE user_id IS NOT NULL')
+    .get()?.n || 0;
+
+  const eventRows = db
+    .prepare(
+      `SELECT event, COUNT(DISTINCT install_id) AS installs
+       FROM analytics_events
+       GROUP BY event`
+    )
+    .all();
+
+  const byEvent = {};
+  for (const row of eventRows) {
+    byEvent[row.event] = Number(row.installs) || 0;
+  }
+
+  return {
+    totalInstalls: Number(totalInstalls) || 0,
+    linkedUsers: Number(linkedUsers) || 0,
+    opened: byEvent.open || 0,
+    loginClick: byEvent.login_click || 0,
+    loginSuccess: byEvent.login_success || 0,
+    loginFail: byEvent.login_fail || 0,
+    fetchSuccess: byEvent.fetch_success || 0,
+    fetchFail: byEvent.fetch_fail || 0,
+    generateSuccess: byEvent.generate_success || 0,
+    byEvent,
+  };
 }
 
 export function getOrCreateCustomerKey(userId) {

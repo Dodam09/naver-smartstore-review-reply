@@ -1,4 +1,4 @@
-import { currentPeriod, ensureUsageRow, getUsageRow, incrementUsage } from './db.js';
+import { currentPeriod, ensureUsageRow, getUsageChannelBreakdown, getUsageRow, incrementUsage } from './db.js';
 import { getPlan } from './plans.js';
 
 export const FREE_USAGE_PERIOD = 'lifetime';
@@ -14,6 +14,7 @@ export function getUsageSummary(userId, planId, period = currentPeriod(), subscr
   const row = ensureUsageRow(userId, resolvedPeriod);
   const replyUsed = row.reply_count || 0;
   const toneUsed = row.tone_count || 0;
+  const byChannel = getUsageChannelBreakdown(userId, resolvedPeriod);
 
   return {
     period: resolvedPeriod,
@@ -26,6 +27,8 @@ export function getUsageSummary(userId, planId, period = currentPeriod(), subscr
     toneUsed,
     toneLimit: plan.toneLimit,
     toneRemaining: Math.max(0, plan.toneLimit - toneUsed),
+    replyByChannel: byChannel.reply,
+    toneByChannel: byChannel.tone,
     trial: !subscriptionActive,
     locked: false,
   };

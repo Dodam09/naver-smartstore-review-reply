@@ -27,6 +27,7 @@ import {
   prepareCheckout,
   refundBillingOrder,
 } from './billing.js';
+import { recordAnalyticsEvent } from './analytics.js';
 import {
   adminActivateSubscription,
   adminCancelSubscription,
@@ -184,7 +185,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'naver-smartstore-reply-api',
-    version: '1.3.72',
+    version: '1.3.73',
     geminiConfigured: !!String(process.env.GEMINI_API_KEY || '').trim(),
     authEnabled: true,
     registrationOpen: ALLOW_REGISTRATION,
@@ -646,6 +647,28 @@ app.get('/api/admin/status', (_req, res) => {
     configured: !!ADMIN_SECRET,
     adminPage: '/admin.html',
   });
+});
+
+app.post('/api/analytics/event', (req, res) => {
+  try {
+    let userId = null;
+    const token = parseBearerToken(req.headers.authorization);
+    if (token && !(DEV_SECRET && token === DEV_SECRET)) {
+      const auth = getAuthFromToken(token);
+      if (auth?.user?.id) userId = auth.user.id;
+    }
+
+    const result = recordAnalyticsEvent({
+      installId: req.body?.installId,
+      event: req.body?.event,
+      userId,
+      extensionVersion: req.body?.version || req.body?.extensionVersion || null,
+      meta: req.body?.meta && typeof req.body.meta === 'object' ? req.body.meta : null,
+    });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
 });
 
 app.get('/api/admin/users', requireAdmin, (_req, res) => {
