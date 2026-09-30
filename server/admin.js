@@ -3,7 +3,9 @@ import {
   currentPeriod,
   deactivateUserSubscription,
   findUserById,
+  getUsageChannelByUser,
   getUsageChannelTotals,
+  listAnalyticsInstalls,
   listAllUsers,
   listRecentBillingOrders,
   upgradeUserSubscription,
@@ -44,7 +46,16 @@ function formatAdminUser(user, period = currentPeriod()) {
 export function getAdminDashboard() {
   const period = currentPeriod();
   const users = listAllUsers();
-  const rows = users.map((user) => formatAdminUser(user, period));
+  const lifetimeByUser = getUsageChannelByUser();
+  const rows = users.map((user) => {
+    const row = formatAdminUser(user, period);
+    const lifetime = lifetimeByUser.get(user.id) || {
+      reply: { review: 0, inquiry: 0 },
+      tone: { review: 0, inquiry: 0 },
+    };
+    row.usageLifetime = lifetime;
+    return row;
+  });
   const activeCount = rows.filter((row) => row.subscription.active).length;
   const cancelledPendingCount = rows.filter(
     (row) => row.subscription.active && (row.subscription.cancelled || row.subscription.status === 'cancelled')
@@ -86,6 +97,7 @@ export function getAdminDashboard() {
       toneByChannelAll: channelAll.tone,
     },
     funnel,
+    installs: listAnalyticsInstalls(200),
     plans: listPaidPlans().map((plan) => ({
       id: plan.id,
       name: plan.name,

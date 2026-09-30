@@ -598,6 +598,94 @@ export function insertAnalyticsEvent(installId, event, { userId = null, meta = n
   return info.lastInsertRowid;
 }
 
+const FUNNEL_STAGE_RANK = {
+  install: 1,
+  open: 2,
+  login_click: 3,
+  login_fail: 4,
+  login_success: 5,
+  fetch_fail: 6,
+  fetch_success: 7,
+  generate_success: 8,
+};
+
+export function listAnalyticsInstalls(limit = 200) {
+  const installs = getDb()
+    .prepare(
+      `SELECT i.install_id, i.user_id, i.extension_version, i.first_seen_at, i.last_seen_at,
+              u.email, u.display_name
+       FROM analytics_installs i
+       LEFT JOIN users u ON u.id = i.user_id
+       ORDER BY i.last_seen_at DESC
+       LIMIT ?`
+    )
+    .all(limit);
+
+  const events = getDb()
+    .prepare(`SELECT install_id, event, created_at FROM analytics_events ORDER BY id ASC`)
+    .all();
+
+  const byInstall = new Map();
+  for (const row of events) {
+    const list = byInstall.get(row.install_id) || [];
+    list.push(row);
+    byInstall.set(row.install_id, list);
+  }
+
+  return installs.map((install) => {
+    const rows = byInstall.get(install.install_id) || [];
+    let furthest = null;
+    let furthestRank = 0;
+    for (const row of rows) {
+      const rank = FUNNEL_STAGE_RANK[row.event] || 0;
+      if (rank >= furthestRank) {
+        furthestRank = rank;
+        furthest = row.event;
+      }
+    }
+    return {
+      installId: install.install_id,
+      userId: install.user_id || null,
+      email: install.email || null,
+      displayName: install.display_name || null,
+      version: install.extension_version || null,
+      firstSeenAt: install.first_seen_at,
+      lastSeenAt: install.last_seen_at,
+      stage: furthest || 'install',
+      loggedIn: !!install.user_id,
+    };
+  });
+}
+
+export function getUsageChannelByUser() {
+  const rows = getDb()
+    .prepare(
+      `SELECT user_id, kind,
+              CASE
+                WHEN channel IS NULL OR TRIM(channel) = '' THEN 'review'
+                ELSE channel
+              END AS channel,
+              COUNT(*) AS cnt
+       FROM usage_logs
+       GROUP BY user_id, kind, channel`
+    )
+    .all();
+
+  const map = new Map();
+  for (const row of rows) {
+    const current = map.get(row.user_id) || {
+      reply: { review: 0, inquiry: 0 },
+      tone: { review: 0, inquiry: 0 },
+    };
+    const ch = row.channel === 'inquiry' ? 'inquiry' : 'review';
+    const n = Number(row.cnt) || 0;
+    if (row.kind === 'tone') current.tone[ch] += n;
+    else current.reply[ch] += n;
+    map.set(row.user_id, current);
+  }
+  return map;
+}
+
 export function getAnalyticsFunnel() {
   const db = getDb();
   const totalInstalls = db.prepare('SELECT COUNT(*) AS n FROM analytics_installs').get()?.n || 0;
