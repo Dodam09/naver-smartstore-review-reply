@@ -388,6 +388,22 @@
             <tbody id="installsBody"></tbody>
           </table>
         </div>
+        <div class="panel-head" style="margin-top:18px;">
+          <h2>답글 생성 기록</h2>
+        </div>
+        <div class="status" style="margin-top:6px;">답글을 만들 때마다 한 줄씩 남습니다. 최근 200건.</div>
+        <div class="table-wrap" style="margin-top:12px;">
+          <table>
+            <thead>
+              <tr>
+                <th>시각</th>
+                <th>계정</th>
+                <th>구분</th>
+              </tr>
+            </thead>
+            <tbody id="replyLogsBody"></tbody>
+          </table>
+        </div>
       </div>
 
       <div class="card">
@@ -849,6 +865,28 @@
       return map[stage] || stage || '-';
     }
 
+    function renderReplyLogs(logs) {
+      const body = document.getElementById('replyLogsBody');
+      if (!body) return;
+      if (!logs.length) {
+        body.innerHTML = '<tr><td colspan="3">아직 생성된 답글이 없습니다.</td></tr>';
+        return;
+      }
+      body.innerHTML = logs
+        .map((row) => {
+          const who = row.email ? escapeHtml(row.displayName || row.email) : '알 수 없음';
+          const channel = row.channel === 'inquiry' ? '문의' : '리뷰';
+          return `
+            <tr>
+              <td>${escapeHtml(formatKst(row.createdAt))}</td>
+              <td>${who}</td>
+              <td>${channel}</td>
+            </tr>
+          `;
+        })
+        .join('');
+    }
+
     function renderInstalls(installs) {
       const body = document.getElementById('installsBody');
       if (!body) return;
@@ -905,6 +943,7 @@
       setText('funnelFetch', funnel.fetchSuccess);
       setText('funnelGenerate', funnel.generateSuccess);
       renderInstalls(data.installs || []);
+      renderReplyLogs(data.replyLogs || []);
 
       renderUsers();
       bindUserActions();
