@@ -518,15 +518,23 @@ export function getUsageChannelBreakdown(userId, period = currentPeriod()) {
   return { reply, tone };
 }
 
-export function listRecentReplyLogs(limit = 200) {
+export function listReplyLogDaily(limit = 60) {
   return getDb()
     .prepare(
-      `SELECT l.id, l.user_id, l.period, l.channel, l.created_at,
-              u.email, u.display_name
+      `SELECT date(datetime(l.created_at, '+9 hours')) AS day,
+              l.user_id,
+              CASE WHEN l.channel = 'inquiry' THEN 'inquiry' ELSE 'review' END AS channel,
+              COUNT(*) AS cnt,
+              MAX(l.created_at) AS last_at,
+              u.email,
+              u.display_name
        FROM usage_logs l
        LEFT JOIN users u ON u.id = l.user_id
        WHERE l.kind = 'reply'
-       ORDER BY l.id DESC
+       GROUP BY date(datetime(l.created_at, '+9 hours')),
+                l.user_id,
+                CASE WHEN l.channel = 'inquiry' THEN 'inquiry' ELSE 'review' END
+       ORDER BY day DESC, last_at DESC
        LIMIT ?`
     )
     .all(limit);

@@ -6,7 +6,7 @@ import {
   getUsageChannelByUser,
   getUsageChannelTotals,
   listAnalyticsInstalls,
-  listRecentReplyLogs,
+  listReplyLogDaily,
   syncGenerateStagesFromUsage,
   listAllUsers,
   listRecentBillingOrders,
@@ -101,14 +101,14 @@ export function getAdminDashboard() {
     },
     funnel,
     installs: listAnalyticsInstalls(200),
-    replyLogs: listRecentReplyLogs(200).map((row) => ({
-      id: row.id,
+    replyLogs: listReplyLogDaily(60).map((row) => ({
+      day: row.day,
       userId: row.user_id,
       email: row.email || null,
       displayName: row.display_name || null,
       channel: row.channel === 'inquiry' ? 'inquiry' : 'review',
-      period: row.period,
-      createdAt: row.created_at,
+      count: Number(row.cnt) || 0,
+      lastAt: row.last_at,
     })),
     plans: listPaidPlans().map((plan) => ({
       id: plan.id,
