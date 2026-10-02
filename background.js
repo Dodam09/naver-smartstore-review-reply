@@ -20,10 +20,6 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   if (details.reason === 'install') {
     await trackAnalyticsEvent('install', { reason: 'install' });
   }
-  await trackAnalyticsOpen();
-});
-chrome.runtime.onStartup?.addListener(async () => {
-  await trackAnalyticsOpen();
 });
 
 chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
