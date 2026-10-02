@@ -101,7 +101,7 @@ export function getAdminDashboard() {
     },
     funnel,
     installs: listAnalyticsInstalls(200),
-    replyLogs: listReplyLogDaily(60).map((row) => ({
+    replyLogs: listReplyLogDaily(200).map((row) => ({
       day: row.day,
       userId: row.user_id,
       email: row.email || null,
