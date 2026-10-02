@@ -858,9 +858,10 @@
       }
       body.innerHTML = installs
         .map((row) => {
+          const installLabel = String(row.installId || '').slice(0, 8);
           const who = row.email
             ? escapeHtml(row.displayName || row.email)
-            : '미로그인';
+            : `미로그인 ${escapeHtml(installLabel)}`;
           return `
             <tr>
               <td>${who}</td>

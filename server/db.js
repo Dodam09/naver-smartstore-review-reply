@@ -584,6 +584,51 @@ export function linkAnalyticsInstallUser(installId, userId) {
     .run(userId, id);
 }
 
+export function markUserInstallGenerated(userId, { channel = null, touchLastSeen = false } = {}) {
+  const uid = Number(userId);
+  if (!uid) return false;
+  const db = getDb();
+  const install = db
+    .prepare(
+      `SELECT install_id FROM analytics_installs
+       WHERE user_id = ?
+       ORDER BY last_seen_at DESC
+       LIMIT 1`
+    )
+    .get(uid);
+  if (!install) return false;
+
+  const existing = db
+    .prepare(
+      `SELECT 1 AS ok FROM analytics_events
+       WHERE install_id = ? AND event = 'generate_success'
+       LIMIT 1`
+    )
+    .get(install.install_id);
+
+  if (!existing) {
+    insertAnalyticsEvent(install.install_id, 'generate_success', {
+      userId: uid,
+      meta: { source: 'server', ...(channel ? { channel } : {}) },
+    });
+  }
+  if (touchLastSeen) {
+    db.prepare(`UPDATE analytics_installs SET last_seen_at = datetime('now') WHERE install_id = ?`).run(
+      install.install_id
+    );
+  }
+  return !existing;
+}
+
+export function syncGenerateStagesFromUsage() {
+  const rows = getDb()
+    .prepare(`SELECT DISTINCT user_id FROM usage_logs WHERE kind = 'reply' AND user_id IS NOT NULL`)
+    .all();
+  for (const row of rows) {
+    markUserInstallGenerated(row.user_id, { touchLastSeen: false });
+  }
+}
+
 export function insertAnalyticsEvent(installId, event, { userId = null, meta = null } = {}) {
   const id = String(installId || '').trim();
   const ev = String(event || '').trim().slice(0, 64);

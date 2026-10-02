@@ -6,6 +6,7 @@ import {
   getUsageChannelByUser,
   getUsageChannelTotals,
   listAnalyticsInstalls,
+  syncGenerateStagesFromUsage,
   listAllUsers,
   listRecentBillingOrders,
   upgradeUserSubscription,
@@ -77,6 +78,7 @@ export function getAdminDashboard() {
   const trialToneUsed = trialUsers.reduce((sum, row) => sum + Number(row.usage?.toneUsed || 0), 0);
   const channelMonth = getUsageChannelTotals(period);
   const channelAll = getUsageChannelTotals(null);
+  syncGenerateStagesFromUsage();
   const funnel = getFunnelSummary();
 
   return {

@@ -15,15 +15,15 @@ function enableSidePanelOnActionClick() {
 }
 
 enableSidePanelOnActionClick();
-chrome.runtime.onInstalled.addListener((details) => {
+chrome.runtime.onInstalled.addListener(async (details) => {
   enableSidePanelOnActionClick();
   if (details.reason === 'install') {
-    trackAnalyticsEvent('install', { reason: 'install' });
+    await trackAnalyticsEvent('install', { reason: 'install' });
   }
-  trackAnalyticsOpen();
+  await trackAnalyticsOpen();
 });
-chrome.runtime.onStartup?.addListener(() => {
-  trackAnalyticsOpen();
+chrome.runtime.onStartup?.addListener(async () => {
+  await trackAnalyticsOpen();
 });
 
 chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
@@ -110,12 +110,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'KAKAO_LOGIN') {
     trackAnalyticsEvent('login_click', { provider: 'kakao' });
     startKakaoLoginFlow()
-      .then((data) => {
-        trackAnalyticsEvent('login_success', { provider: 'kakao' });
+      .then(async (data) => {
+        await trackAnalyticsEvent('login_success', { provider: 'kakao' });
         sendResponse({ ok: true, data });
       })
-      .catch((err) => {
-        trackAnalyticsEvent('login_fail', { provider: 'kakao', error: String(err?.message || err).slice(0, 120) });
+      .catch(async (err) => {
+        await trackAnalyticsEvent('login_fail', { provider: 'kakao', error: String(err?.message || err).slice(0, 120) });
         sendResponse({ ok: false, error: err.message || String(err) });
       });
     return true;
@@ -1080,7 +1080,7 @@ async function generateReply(apiKey, systemPrompt, row, model, signal) {
       },
       signal
     );
-    trackAnalyticsEvent('generate_success', { channel: 'review' });
+    await trackAnalyticsEvent('generate_success', { channel: 'review' });
     return data.text;
   }
 
@@ -1225,7 +1225,7 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
       },
       signal
     );
-    trackAnalyticsEvent('generate_success', { channel: 'inquiry' });
+    await trackAnalyticsEvent('generate_success', { channel: 'inquiry' });
     return data.text;
   }
 

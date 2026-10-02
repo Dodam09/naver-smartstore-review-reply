@@ -37,7 +37,7 @@ import {
   adminUndoCancelSubscription,
   getAdminDashboard,
 } from './admin.js';
-import { getDb, findUserById, updateUserPlan } from './db.js';
+import { getDb, findUserById, markUserInstallGenerated, updateUserPlan } from './db.js';
 import { generateText, generateWithSystem } from './gemini.js';
 import { FREE_TRIAL, getPlan, normalizePlanId } from './plans.js';
 import {
@@ -919,6 +919,7 @@ app.post('/api/generate-reply', authenticate, async (req, res) => {
     let usage;
     if (req.auth.mode === 'user') {
       recordUsage(req.auth.user.id, 'reply', channel, undefined, isReqSubscriptionActive(req));
+      markUserInstallGenerated(req.auth.user.id, { channel, touchLastSeen: true });
       usage = getUsageSummary(
         req.auth.user.id,
         req.auth.user.planId,
