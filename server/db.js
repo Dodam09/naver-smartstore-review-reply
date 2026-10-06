@@ -665,17 +665,6 @@ export function insertAnalyticsEvent(installId, event, { userId = null, meta = n
   return info.lastInsertRowid;
 }
 
-const FUNNEL_STAGE_RANK = {
-  install: 1,
-  open: 2,
-  login_click: 3,
-  login_fail: 4,
-  login_success: 5,
-  fetch_fail: 6,
-  fetch_success: 7,
-  generate_success: 8,
-};
-
 export function listAnalyticsInstalls(limit = 200) {
   const installs = getDb()
     .prepare(
@@ -701,14 +690,9 @@ export function listAnalyticsInstalls(limit = 200) {
 
   return installs.map((install) => {
     const rows = byInstall.get(install.install_id) || [];
-    let furthest = null;
-    let furthestRank = 0;
+    let latest = null;
     for (const row of rows) {
-      const rank = FUNNEL_STAGE_RANK[row.event] || 0;
-      if (rank >= furthestRank) {
-        furthestRank = rank;
-        furthest = row.event;
-      }
+      if (!latest || String(row.created_at) >= String(latest.created_at)) latest = row;
     }
     return {
       installId: install.install_id,
@@ -717,8 +701,8 @@ export function listAnalyticsInstalls(limit = 200) {
       displayName: install.display_name || null,
       version: install.extension_version || null,
       firstSeenAt: install.first_seen_at,
-      lastSeenAt: install.last_seen_at,
-      stage: furthest || 'install',
+      lastSeenAt: latest?.created_at || install.last_seen_at,
+      stage: latest?.event || 'install',
       loggedIn: !!install.user_id,
     };
   });
