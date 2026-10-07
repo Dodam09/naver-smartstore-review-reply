@@ -39,7 +39,6 @@ const els = {
   searchInput: document.getElementById('searchInput'),
   selectAllBtn: document.getElementById('selectAllBtn'),
   selectNoneBtn: document.getElementById('selectNoneBtn'),
-  selectVisibleBtn: document.getElementById('selectVisibleBtn'),
   inquiryStyleLabel: document.getElementById('inquiryStyleLabel'),
   inquiryStyleHint: document.getElementById('inquiryStyleHint'),
   inquiryStyleRow: document.getElementById('inquiryStyleRow'),
@@ -69,11 +68,6 @@ async function init() {
   });
   els.selectNoneBtn.addEventListener('click', () => {
     selectedIds.clear();
-    renderSelect();
-    saveSelection();
-  });
-  els.selectVisibleBtn.addEventListener('click', () => {
-    getFilteredRows().forEach((row) => selectedIds.add(row.id));
     renderSelect();
     saveSelection();
   });
@@ -253,6 +247,7 @@ function renderReview() {
           ${needsManual ? '<span class="badge manual">직접 작성</span>' : ''}
           ${needsConfirm ? '<span class="badge confirm">확인 필요</span>' : ''}
           ${item.secret ? '<span class="badge secret">비밀</span>' : ''}
+          ${item.writer ? `<span class="badge">${escapeHtml(item.writer)}</span>` : ''}
         </div>
       </div>
       ${item.product ? `<div class="card-product">${escapeHtml(item.product)}</div>` : ''}
@@ -340,13 +335,13 @@ function updateUsageNotice(selected = selectedIds.size) {
     return;
   }
 
-  const notice = buildReplyUsageNotice(replyUsageCache, selected, {
+  const notice = renderUsageMeterHtml(replyUsageCache, selected, {
     loading: replyUsageLoading,
     noLogin: replyUsageNoLogin,
   });
   el.hidden = false;
   el.className = `usage-notice ${notice.level}`;
-  el.textContent = notice.text;
+  el.innerHTML = notice.html;
 }
 
 async function syncReplyUsageFromStorage() {
@@ -596,8 +591,8 @@ function updateReviewBanner() {
       `확인 필요 ${confirmPending}건이 있어요. 노란 「확인 필요」 초안을 검토한 뒤 올려 주세요.`,
       'warn'
     );
-  } else if (draftItems.length) {
-    showBanner('답글 확인 후 「답변란에 자동 채우기」를 누르세요.', 'info');
+  } else {
+    els.banner.hidden = true;
   }
 }
 

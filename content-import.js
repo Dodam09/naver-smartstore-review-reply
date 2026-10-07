@@ -22,6 +22,13 @@
       return true;
     }
 
+    if (message.type === 'CHECK_REVIEW_STATUS') {
+      checkReviewStatus(message.payload || {})
+        .then((result) => sendResponse({ ok: true, ...result }))
+        .catch((err) => sendResponse({ ok: false, error: err.message || String(err) }));
+      return true;
+    }
+
     if (message.type === 'FETCH_SELLER_REPLY_SAMPLES') {
       fetchSellerReplySamples(message.payload || {})
         .then((result) => sendResponse({ ok: true, ...result }))
@@ -71,6 +78,21 @@
     }
 
     return allItems;
+  }
+
+  async function checkReviewStatus(options) {
+    const days = clampLookupDays(options.days, { min: 0, max: 90, fallback: 7 });
+    const wanted = new Set((options.ids || []).map((id) => String(id).trim()).filter(Boolean));
+    if (!wanted.size) return { replied: [] };
+
+    const allItems = await fetchAllReviewItems(days, { onlyReplied: true });
+    const replied = [];
+    for (const item of allItems) {
+      const id = String(item.id ?? '').trim();
+      if (!wanted.has(id) || !itemHasSellerComment(item)) continue;
+      replied.push(id);
+    }
+    return { replied };
   }
 
   async function fetchReviews(options) {

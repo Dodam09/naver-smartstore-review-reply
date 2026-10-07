@@ -1680,7 +1680,7 @@ async function getSellerTab() {
   const tabs = await chrome.tabs.query({ url: SELLER_TAB_URL });
   if (!tabs.length) {
     throw new Error(
-      '판매자센터 탭이 없습니다.\n[sell.smartstore.naver.com] 리뷰 관리 페이지를 연 뒤 다시 시도하세요.'
+      'NO_SELLER_TAB\n판매자센터 리뷰·문의 페이지가 열려 있지 않습니다. 그 페이지를 연 뒤 다시 가져오기를 누르세요.'
     );
   }
   return tabs.slice().sort((a, b) => scoreSellerTab(b) - scoreSellerTab(a))[0];

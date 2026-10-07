@@ -20,23 +20,38 @@
       color: #1a1a1a;
       background: #eef1f5;
     }
-    .page-body {
+    .workspace {
       flex: 1 1 auto;
       min-height: 0;
-      overflow: auto;
+      display: flex;
+      align-items: stretch;
+    }
+    .side {
+      width: 340px;
+      flex: 0 0 340px;
+      min-height: 0;
+      overflow: hidden;
+      background: #fff;
+      border-left: 1px solid #dde2e8;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .side:has(#reviewToolbar:not([hidden])) .gen-progress.success,
+    .side:has(#reviewToolbar:not([hidden])) .gen-progress.stopped {
+      display: none;
     }
     .header {
-      position: sticky;
-      top: 0;
+      flex-shrink: 0;
       z-index: 20;
       background: #fff;
       border-bottom: 1px solid #dde2e8;
       box-shadow: 0 2px 12px rgba(0,0,0,.06);
     }
     .header-inner {
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 20px 24px 0;
+      margin: 0;
+      padding: 14px 20px 0;
     }
     .header h1 {
       margin: 0 0 6px;
@@ -95,32 +110,35 @@
       color: #fff;
     }
     .panel-toolbar {
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 16px 24px;
-      background: #fff;
-      border-bottom: 1px solid #eef1f5;
-    }
-    .stats {
+      margin: 0;
+      padding: 0;
+      background: transparent;
       display: flex;
-      gap: 12px;
-      margin-bottom: 16px;
-      flex-wrap: wrap;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .panel-toolbar[hidden] { display: none !important; }
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin: 0;
     }
     .stat-box {
       background: #f8faf9;
       border: 1px solid #d8ebe0;
       border-radius: 12px;
-      padding: 12px 18px;
-      min-width: 120px;
+      padding: 12px 14px;
+      min-width: 0;
     }
+    .stats .stat-box:last-child { grid-column: 1 / -1; }
     .stat-box .label {
       font-size: 12px;
       color: #666;
       margin-bottom: 4px;
     }
     .stat-box .value {
-      font-size: 22px;
+      font-size: 18px;
       font-weight: 800;
       color: #0a7a3f;
     }
@@ -128,13 +146,13 @@
     .stat-box.warn .value { color: #b45309; }
     .toolbar {
       display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      align-items: center;
+      flex-direction: column;
+      gap: 12px;
+      align-items: stretch;
     }
     .search {
-      flex: 1;
-      min-width: 220px;
+      width: 100%;
+      min-width: 0;
       padding: 12px 16px;
       border: 1px solid #ccc;
       border-radius: 10px;
@@ -195,17 +213,22 @@
     }
     .usage-notice {
       width: 100%;
-      margin-bottom: 10px;
-      padding: 10px 14px;
-      border-radius: 10px;
+      margin: 0 0 12px;
+      padding: 0 0 12px;
+      border: none;
+      border-bottom: 1px solid #eef1f4;
+      border-radius: 0;
+      background: transparent;
       font-size: 13px;
       line-height: 1.55;
+      color: #334155;
     }
     .usage-notice.hidden { display: none; }
     .usage-notice.ok {
-      background: #f0f9ff;
-      border: 1px solid #b3d9f2;
-      color: #0c4a6e;
+      background: transparent;
+      border: none;
+      border-bottom: 1px solid #eef1f4;
+      color: #334155;
     }
     .usage-notice.warn {
       background: #fff4e5;
@@ -218,9 +241,8 @@
       color: #b91c1c;
     }
     .banner {
-      max-width: 1100px;
-      margin: 16px auto 0;
-      padding: 12px 16px;
+      margin: 0;
+      padding: 12px 14px;
       border-radius: 12px;
       font-size: 14px;
       line-height: 1.5;
@@ -240,26 +262,9 @@
       border: 1px solid #f0d9a8;
       color: #9a6700;
     }
-    .footer-bar {
-      position: relative;
-      flex-shrink: 0;
-      z-index: 30;
-      background: #fff;
-      border-top: 1px solid #dde2e8;
-      box-shadow: 0 -4px 16px rgba(0,0,0,.08);
-    }
-    .footer-inner {
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 16px 24px;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
     .gen-progress {
       width: 100%;
-      margin-bottom: 12px;
+      margin: 0;
       padding: 14px 16px;
       background: #f0f9ff;
       border: 1px solid #b3d9f2;
@@ -308,9 +313,12 @@
       border-color: #fde047;
     }
     .main {
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 20px 24px 32px;
+      flex: 1 1 auto;
+      min-width: 0;
+      min-height: 0;
+      margin: 0;
+      overflow: auto;
+      padding: 16px 20px 28px;
     }
     .panel { display: none; }
     .panel.active { display: block; }
@@ -434,7 +442,20 @@
       background: #dbeafe;
       color: #1d4ed8;
     }
+    .badge.unanswered {
+      background: #fff4e5;
+      color: #9a6700;
+    }
+    .badge.wait {
+      background: #f3f4f6;
+      color: #64748b;
+    }
     .char-count {
+      text-align: right;
+      font-size: 12px;
+      color: #888;
+      margin-top: 6px;
+    }
     .empty {
       text-align: center;
       padding: 80px 24px;
@@ -445,20 +466,69 @@
     .footer-inner .summary {
       flex: 1;
       font-size: 15px;
-      min-width: 200px;
+      min-width: 0;
+      line-height: 1.5;
     }
     .footer-inner .summary strong {
       color: #2563eb;
       font-size: 20px;
     }
-    .footer-review { display: none; width: 100%; }
-    .footer-review.active { display: contents; }
-    .footer-select { display: contents; }
+    .footer-select {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+      width: 100%;
+      margin-top: auto;
+    }
     .footer-select.hidden { display: none; }
+    .footer-review {
+      display: none;
+      width: 100%;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+    }
+    .footer-review.active { display: flex; margin-top: auto; }
+    .footer-review .summary {
+      flex: none;
+      width: 100%;
+      padding: 8px 10px;
+      background: #f4fbf7;
+      border: 1px solid #d8ebe0;
+      border-radius: 10px;
+      font-size: 13px;
+    }
+    .footer-actions {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+    }
+    .side button.primary,
+    .side button.secondary,
+    .side button.submit-bulk,
+    .side button.stop {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 14px;
+    }
+    @media (max-width: 860px) {
+      .workspace { flex-direction: column; }
+      .main { order: 1; }
+      .side {
+        order: 2;
+        width: auto;
+        flex: 0 0 auto;
+        max-height: 46vh;
+        overflow: auto;
+        border-left: none;
+        border-top: 1px solid #dde2e8;
+      }
+    }
   </style>
 </head>
 <body>
-  <div class="page-body">
   <header class="header">
     <div class="header-inner">
       <div class="app-brand theme-review">
@@ -474,6 +544,7 @@
       </div>
       <h1>리뷰 답글 만들기</h1>
       <p class="sub">골라서 답 만들기 → 확인하고 판매자센터에 올리기</p>
+      <div class="usage-notice hidden" id="usageNotice"></div>
       <nav class="tabs" role="tablist">
         <button type="button" class="tab active" id="tabSelect" role="tab" aria-selected="true">① 골라 답 만들기</button>
         <button type="button" class="tab" id="tabReview" role="tab" aria-selected="false">
@@ -483,6 +554,17 @@
     </div>
   </header>
 
+  <div class="workspace">
+  <main class="main">
+    <section class="panel active" id="panelSelect" role="tabpanel">
+      <div id="selectList"></div>
+    </section>
+    <section class="panel" id="panelReview" role="tabpanel">
+      <div id="reviewList"></div>
+    </section>
+  </main>
+
+  <aside class="side">
   <div class="panel-toolbar" id="selectToolbar">
     <div class="stats">
       <div class="stat-box">
@@ -502,7 +584,6 @@
       <input type="search" class="search" id="searchInput" placeholder="글번호, 상품명, 리뷰 내용 검색..." />
       <button type="button" class="secondary" id="selectAllBtn">전체 선택</button>
       <button type="button" class="secondary" id="selectNoneBtn">전체 해제</button>
-      <button type="button" class="secondary" id="selectVisibleBtn">보이는 항목만 선택</button>
     </div>
   </div>
 
@@ -517,7 +598,7 @@
         <div class="value" id="draftFilled">0</div>
       </div>
       <div class="stat-box warn" id="applyStatBox">
-        <div class="label">올린 개수</div>
+        <div class="label">답변 완료</div>
         <div class="value" id="applyStatus" style="font-size:14px;color:#333;">미확인</div>
       </div>
     </div>
@@ -525,19 +606,6 @@
 
   <div id="banner" class="banner info" hidden></div>
 
-  <main class="main">
-    <section class="panel active" id="panelSelect" role="tabpanel">
-      <div id="selectList"></div>
-    </section>
-    <section class="panel" id="panelReview" role="tabpanel">
-      <div id="reviewList"></div>
-    </section>
-  </main>
-  </div>
-
-  <footer class="footer-bar">
-    <div class="footer-inner">
-      <div class="usage-notice hidden" id="usageNotice"></div>
       <div class="gen-progress hidden" id="genProgress">
         <div class="gen-progress-top">
           <span id="genStatusText">답글 만드는 중</span>
@@ -557,12 +625,14 @@
 
       <div class="footer-review" id="footerReview">
         <div class="summary" id="reviewSummary">답글을 읽고 필요하면 고친 뒤, 판매자센터에 올리세요.</div>
-        <button type="button" class="secondary" id="saveDraftBtn">잠깐 저장</button>
-        <button type="button" class="secondary" id="confirmBtn" disabled>답변란에 자동 채우기</button>
-        <button type="button" class="submit-bulk" id="bulkSubmitBtn" disabled>한 번에 올리기</button>
+        <div class="footer-actions">
+          <button type="button" class="secondary" id="saveDraftBtn">잠깐 저장</button>
+          <button type="button" class="secondary" id="confirmBtn" disabled>답변란에 자동 채우기</button>
+          <button type="button" class="submit-bulk" id="bulkSubmitBtn" disabled>한 번에 올리기</button>
+        </div>
       </div>
-    </div>
-  </footer>
+  </aside>
+  </div>
 
   <script src="config.js"></script>
   <script src="lib/app-shell.js"></script>

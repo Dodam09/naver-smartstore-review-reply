@@ -34,7 +34,6 @@ const els = {
   searchInput: document.getElementById('searchInput'),
   selectAllBtn: document.getElementById('selectAllBtn'),
   selectNoneBtn: document.getElementById('selectNoneBtn'),
-  selectVisibleBtn: document.getElementById('selectVisibleBtn'),
 };
 
 let parsedRows = [];
@@ -46,6 +45,10 @@ let lastHandledFinishedAt = null;
 
 let draftItems = [];
 let applyEnabled = false;
+let liveRepliedIds = new Set();
+let statusKnown = false;
+let statusCheckRunning = false;
+const recentSubmitAt = new Map();
 let saveTimer = null;
 let activeTab = 'select';
 let isBulkSubmitting = false;
@@ -67,11 +70,6 @@ async function init() {
     renderSelect();
     saveSelection();
   });
-  els.selectVisibleBtn.addEventListener('click', () => {
-    getFilteredRows().forEach((row) => selectedIds.add(row.id));
-    renderSelect();
-    saveSelection();
-  });
   els.searchInput.addEventListener('input', () => {
     filterText = els.searchInput.value.trim().toLowerCase();
     renderSelect();
@@ -89,6 +87,11 @@ async function init() {
   await loadReplyUsageCache();
   refreshJobStatus();
   setInterval(refreshJobStatus, 2000);
+  refreshReplyStatus();
+  setInterval(refreshReplyStatus, 20000);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refreshReplyStatus();
+  });
 
   if (location.hash === '#review' && draftItems.length) {
     switchTab('review');
@@ -154,6 +157,7 @@ async function loadData() {
   parseMeta = {
     fileName: cache.fileName || '',
     skippedReplied: cache.skippedReplied || 0,
+    lookupDays: cache.lookupDays,
   };
   selectedIds = new Set(cache.selectedIds || []);
   renderSelect();
@@ -205,6 +209,7 @@ function renderSelect() {
             <div class="card-top">
               <div class="card-id">#${escapeHtml(row.id)}</div>
               <div class="card-badges">
+                ${replyStatusBadge(row.id)}
                 ${row.rating ? `<span class="badge rating">★ ${escapeHtml(row.rating)}</span>` : ''}
                 ${row.reviewType ? `<span class="badge">${escapeHtml(row.reviewType)}</span>` : ''}
                 ${row.writer ? `<span class="badge">${escapeHtml(row.writer)}</span>` : ''}
@@ -244,15 +249,16 @@ function renderReview() {
 
   els.reviewList.innerHTML = draftItems
     .map((item) => {
-      const isSubmitted = submittedIds.has(String(item.id));
+      const isSubmitted = isAnswered(item.id);
       return `
     <article class="card review-card ${isSubmitted ? 'submitted' : ''}" data-id="${escapeHtml(item.id)}">
       <div class="card-top">
         <div class="card-id">#${escapeHtml(item.id)}</div>
         <div class="card-badges">
-          ${isSubmitted ? '<span class="badge done">등록됨</span>' : ''}
+          ${replyStatusBadge(item.id)}
           ${item.rating ? `<span class="badge rating">★ ${escapeHtml(item.rating)}</span>` : ''}
           ${item.reviewType ? `<span class="badge">${escapeHtml(item.reviewType)}</span>` : ''}
+          ${item.writer ? `<span class="badge">${escapeHtml(item.writer)}</span>` : ''}
         </div>
       </div>
       ${item.product ? `<div class="card-product">${escapeHtml(item.product)}</div>` : ''}
@@ -277,13 +283,95 @@ function renderReview() {
   updateReviewBanner();
 }
 
+function resolveLookupDays() {
+  const stored = Number(parseMeta.lookupDays);
+  if (Number.isFinite(stored)) return stored;
+  const name = parseMeta.fileName || '';
+  const presets = [
+    ['3개월', 90],
+    ['1개월', 30],
+    ['2주일', 14],
+    ['1주일', 7],
+    ['3일', 2],
+    ['2일', 1],
+    ['당일', 0],
+  ];
+  for (const [label, days] of presets) {
+    if (name.includes(label)) return days;
+  }
+  const matched = name.match(/최근\s*(\d+)일/);
+  if (matched) return Number(matched[1]);
+  return 7;
+}
+
+function isAnswered(id) {
+  const key = String(id);
+  if (liveRepliedIds.has(key)) return true;
+  const submittedAt = recentSubmitAt.get(key);
+  if (submittedAt && Date.now() - submittedAt < 60000) return true;
+  if (!statusKnown && submittedIds.has(key)) return true;
+  return false;
+}
+
+function replyStatusBadge(id) {
+  const key = escapeHtml(String(id));
+  if (isAnswered(id)) {
+    return `<span class="badge done" data-reply-status="${key}">답변 완료</span>`;
+  }
+  return `<span class="badge unanswered" data-reply-status="${key}">미답변</span>`;
+}
+
+function paintReplyBadges() {
+  document.querySelectorAll('[data-reply-status]').forEach((el) => {
+    const id = el.dataset.replyStatus;
+    if (isAnswered(id)) {
+      el.textContent = '답변 완료';
+      el.className = 'badge done';
+    } else {
+      el.textContent = '미답변';
+      el.className = 'badge unanswered';
+    }
+    const card = el.closest('.review-card');
+    if (card) {
+      const answered = isAnswered(id);
+      card.classList.toggle('submitted', answered);
+      const input = card.querySelector('.reply-input');
+      if (input) input.disabled = answered;
+    }
+  });
+  if (activeTab === 'review') updateReviewStats();
+}
+
+async function refreshReplyStatus() {
+  if (statusCheckRunning || document.hidden) return;
+  const ids = [
+    ...new Set(
+      [...parsedRows.map((row) => String(row.id)), ...draftItems.map((item) => String(item.id))].filter(Boolean)
+    ),
+  ];
+  if (!ids.length) return;
+
+  statusCheckRunning = true;
+  try {
+    const response = await sendTabMessage(null, {
+      type: 'CHECK_REVIEW_STATUS',
+      payload: { days: resolveLookupDays(), ids },
+    });
+    liveRepliedIds = new Set((response.replied || []).map(String));
+    statusKnown = true;
+    paintReplyBadges();
+  } catch (_) {
+    paintReplyBadges();
+  } finally {
+    statusCheckRunning = false;
+  }
+}
+
 function getPendingSubmitItems() {
   const items = els.reviewList.querySelectorAll('.reply-input').length
     ? collectItemsFromUi()
     : draftItems;
-  return items.filter(
-    (item) => item.reply?.trim() && !submittedIds.has(String(item.id))
-  );
+  return items.filter((item) => item.reply?.trim() && !isAnswered(item.id));
 }
 
 function toggleId(id, forceChecked) {
@@ -339,13 +427,13 @@ function updateUsageNotice(selected = selectedIds.size) {
     return;
   }
 
-  const notice = buildReplyUsageNotice(replyUsageCache, selected, {
+  const notice = renderUsageMeterHtml(replyUsageCache, selected, {
     loading: replyUsageLoading,
     noLogin: replyUsageNoLogin,
   });
   el.hidden = false;
   el.className = `usage-notice ${notice.level}`;
-  el.textContent = notice.text;
+  el.innerHTML = notice.html;
 }
 
 async function syncReplyUsageFromStorage() {
@@ -415,12 +503,12 @@ function updateReviewBadge() {
 function updateReviewStats() {
   const total = draftItems.length;
   const filled = draftItems.filter((i) => i.reply?.trim()).length;
-  const registered = submittedIds.size;
+  const registered = draftItems.filter((item) => isAnswered(item.id)).length;
   const pending = getPendingSubmitItems().length;
 
   els.draftTotal.textContent = String(total);
   els.draftFilled.textContent = String(filled);
-  els.applyStatus.textContent = registered ? `${registered}건 등록` : '0건';
+  els.applyStatus.textContent = `${registered}건`;
   els.applyStatus.style.color = registered ? '#0a7a3f' : '#333';
   els.applyStatBox.classList.toggle('selected', registered > 0);
 
@@ -582,7 +670,10 @@ async function onBulkSubmit() {
 
     for (const id of response.success || []) {
       submittedIds.add(String(id));
+      recentSubmitAt.set(String(id), Date.now());
     }
+    paintReplyBadges();
+    setTimeout(refreshReplyStatus, 3000);
 
     await storageSet({
       [CONFIG.DRAFT_KEY]: {
@@ -662,11 +753,8 @@ function updateReviewBanner() {
     showBanner('모든 답글을 판매자센터에 올렸어요.', 'success');
   } else if (applyEnabled) {
     showBanner('답글 칸을 열면 자동으로 채워집니다.', 'info');
-  } else if (draftItems.length) {
-    showBanner(
-      '답글을 확인한 뒤 「한 번에 올리기」를 누르면 판매자센터에 바로 올라갑니다.\n(처음 한 번은 판매자센터에서 답글 1건을 직접 올려야 할 수 있어요)',
-      'info'
-    );
+  } else {
+    els.banner.hidden = true;
   }
 }
 

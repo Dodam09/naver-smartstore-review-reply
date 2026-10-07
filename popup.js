@@ -62,6 +62,10 @@ const els = {
   fileSummary: document.getElementById('fileSummary'),
   inquiryFetchDays: document.getElementById('inquiryFetchDays'),
   inquiryFetchBtn: document.getElementById('inquiryFetchBtn'),
+  reviewFetchNotice: document.getElementById('reviewFetchNotice'),
+  inquiryFetchNotice: document.getElementById('inquiryFetchNotice'),
+  openReviewCenterBtn: document.getElementById('openReviewCenterBtn'),
+  openInquiryCenterBtn: document.getElementById('openInquiryCenterBtn'),
   inquirySelectBtn: document.getElementById('inquirySelectBtn'),
   inquiryApplyHint: document.getElementById('inquiryApplyHint'),
   inquiryStatus: document.getElementById('inquiryStatus'),
@@ -273,6 +277,8 @@ async function init() {
   els.xlsxFile.addEventListener('change', onFileSelected);
   els.fetchBtn.addEventListener('click', onFetchFromSeller);
   els.inquiryFetchBtn.addEventListener('click', onFetchInquiries);
+  els.openReviewCenterBtn?.addEventListener('click', () => openSellerCenter('review'));
+  els.openInquiryCenterBtn?.addEventListener('click', () => openSellerCenter('inquiry'));
   els.inquirySelectBtn.addEventListener('click', openInquiryWorkPage);
   els.selectBtn.addEventListener('click', openWorkPage);
   els.clearBtn.addEventListener('click', onClearStorage);
@@ -1012,6 +1018,7 @@ async function saveParseCache(statusMessage) {
       headers: parseMeta?.headers || [],
       skippedReplied: parseMeta?.skippedReplied || 0,
       fileName: parseMeta?.fileName || '',
+      lookupDays: parseMeta?.lookupDays ?? 7,
       selectedIds: [...selectedIds],
       statusMessage: statusMessage || '',
       savedAt: Date.now(),
@@ -1157,6 +1164,7 @@ function readWorkbookSilently(data, options) {
 async function onFetchFromSeller() {
   const days = clampLookupDays(els.fetchDays.value, { min: 0, max: 90, fallback: 7 });
   els.fetchBtn.disabled = true;
+  hideSellerPageNotice('review');
   setStatus(`판매자센터에서 ${formatLookupDaysLabel(days)} 리뷰를 가져오는 중...`);
 
   try {
@@ -1169,7 +1177,11 @@ async function onFetchFromSeller() {
       throw new Error(response?.error || '가져오기 실패');
     }
 
-    await applyImportedRows(response, response.sourceLabel || `판매자센터 (${formatLookupDaysLabel(days)})`);
+    await applyImportedRows(
+      response,
+      response.sourceLabel || `판매자센터 (${formatLookupDaysLabel(days)})`,
+      days
+    );
     if (typeof trackAnalyticsEvent === 'function') {
       trackAnalyticsEvent('fetch_success', { channel: 'review', count: Number(response?.rows?.length || response?.count || 0) });
     }
@@ -1178,16 +1190,21 @@ async function onFetchFromSeller() {
     if (typeof trackAnalyticsEvent === 'function') {
       trackAnalyticsEvent('fetch_fail', { channel: 'review', error: String(msg).slice(0, 120) });
     }
-    if (/Receiving end does not exist|Could not establish connection/i.test(msg)) {
-      setStatus(
-        '판매자센터 페이지와 연결되지 않았습니다.\n\n' +
-          '1. [리뷰 관리] 페이지(sell.smartstore.naver.com)에서 F5\n' +
-          '2. chrome://extensions 에서 확장 프로그램 [새로고침]\n' +
-          '3. 다시 시도'
-      );
+    if (isMissingSellerTab(msg)) {
+      showSellerPageNotice('review');
+    } else if (/Receiving end does not exist|Could not establish connection/i.test(msg)) {
+      showFetchNotice('review', {
+        title: '판매자센터와 연결되지 않았어요',
+        body: '리뷰 관리 페이지에서 새로고침(F5)한 뒤, 확장 프로그램을 새로고침하고 다시 가져오기를 누르세요.',
+        showOpen: true,
+      });
     } else {
-      setStatus(`오류: ${msg}`);
+      showFetchNotice('review', {
+        title: '가져올 리뷰가 없어요',
+        body: msg,
+      });
     }
+    setStatus('리뷰를 가져온 다음 「다음」으로 이동하세요.');
   } finally {
     els.fetchBtn.disabled = false;
   }
@@ -1218,7 +1235,7 @@ function sendTabMessage(_tabId, message) {
   });
 }
 
-async function applyImportedRows(result, sourceLabel) {
+async function applyImportedRows(result, sourceLabel, lookupDays) {
   parsedRows = result.parsedRows;
   columnMap = {
     id: 0,
@@ -1232,6 +1249,7 @@ async function applyImportedRows(result, sourceLabel) {
     headers: ['리뷰글번호', '리뷰상세내용', '구매자평점', '상품명', '리뷰구분', '답글여부'],
     skippedReplied: result.skippedReplied || 0,
     fileName: sourceLabel,
+    lookupDays: Number.isFinite(Number(lookupDays)) ? Number(lookupDays) : 7,
   };
   selectedIds = new Set();
 
@@ -1344,6 +1362,7 @@ async function saveInquiryCache(statusMessage, replies, sourceLabel) {
 async function onFetchInquiries() {
   const days = clampLookupDays(els.inquiryFetchDays.value, { min: 0, max: 365, fallback: 7 });
   els.inquiryFetchBtn.disabled = true;
+  hideSellerPageNotice('inquiry');
   setInquiryStatus(`판매자센터에서 ${formatLookupDaysLabel(days)} 미답변 상품문의를 가져오는 중...`);
 
   try {
@@ -1371,16 +1390,21 @@ async function onFetchInquiries() {
     if (typeof trackAnalyticsEvent === 'function') {
       trackAnalyticsEvent('fetch_fail', { channel: 'inquiry', error: String(msg).slice(0, 120) });
     }
-    if (/Receiving end does not exist|Could not establish connection/i.test(msg)) {
-      setInquiryStatus(
-        '판매자센터 페이지와 연결되지 않았습니다.\n\n' +
-          '1. [상품문의] 페이지(sell.smartstore.naver.com)에서 F5\n' +
-          '2. chrome://extensions 에서 확장 프로그램 [새로고침]\n' +
-          '3. 다시 시도'
-      );
+    if (isMissingSellerTab(msg)) {
+      showSellerPageNotice('inquiry');
+    } else if (/Receiving end does not exist|Could not establish connection/i.test(msg)) {
+      showFetchNotice('inquiry', {
+        title: '판매자센터와 연결되지 않았어요',
+        body: '상품문의 페이지에서 새로고침(F5)한 뒤, 확장 프로그램을 새로고침하고 다시 가져오기를 누르세요.',
+        showOpen: true,
+      });
     } else {
-      setInquiryStatus(`오류: ${msg}`);
+      showFetchNotice('inquiry', {
+        title: '가져올 문의가 없어요',
+        body: msg,
+      });
     }
+    setInquiryStatus('문의를 가져온 다음 「다음」으로 이동하세요.');
   } finally {
     els.inquiryFetchBtn.disabled = false;
   }
@@ -1444,6 +1468,52 @@ async function applyInquiryJobUi(job, running) {
 
 function setInquiryStatus(message) {
   els.inquiryStatus.textContent = message;
+}
+
+function isMissingSellerTab(message) {
+  return /NO_SELLER_TAB|판매자센터 탭이 없습니다/.test(String(message || ''));
+}
+
+function showSellerPageNotice(channel) {
+  if (channel === 'inquiry') {
+    showFetchNotice('inquiry', {
+      title: '상품문의 페이지가 안 열려 있어요',
+      body: '가져오기는 판매자센터의 상품문의 화면이 열려 있어야 합니다. 아래 버튼으로 연 다음, 다시 가져오기를 누르세요.',
+      showOpen: true,
+    });
+    return;
+  }
+  showFetchNotice('review', {
+    title: '리뷰 관리 페이지가 안 열려 있어요',
+    body: '가져오기는 판매자센터의 리뷰 관리 화면이 열려 있어야 합니다. 아래 버튼으로 연 다음, 다시 가져오기를 누르세요.',
+    showOpen: true,
+  });
+}
+
+function showFetchNotice(channel, { title, body, showOpen = false }) {
+  const notice = channel === 'inquiry' ? els.inquiryFetchNotice : els.reviewFetchNotice;
+  if (!notice) return;
+  const titleEl = notice.querySelector('strong');
+  const bodyEl = notice.querySelector('p');
+  const button = channel === 'inquiry' ? els.openInquiryCenterBtn : els.openReviewCenterBtn;
+  if (titleEl) titleEl.textContent = title;
+  if (bodyEl) bodyEl.textContent = body;
+  if (button) button.hidden = !showOpen;
+  notice.hidden = false;
+  notice.scrollIntoView({ block: 'nearest' });
+}
+
+function hideSellerPageNotice(channel) {
+  const notice = channel === 'inquiry' ? els.inquiryFetchNotice : els.reviewFetchNotice;
+  if (notice) notice.hidden = true;
+}
+
+function openSellerCenter(channel) {
+  const url =
+    channel === 'inquiry'
+      ? 'https://sell.smartstore.naver.com/#/comment'
+      : 'https://sell.smartstore.naver.com/#/review/search';
+  chrome.tabs.create({ url });
 }
 
 
@@ -1784,7 +1854,9 @@ async function renderAccountUi() {
   updateLoginPromos(true);
 
   if (els.accountSummary) {
-    const usageText = formatUsageSummary(session.usage);
+    const usageHtml = session.usage
+      ? renderUsageMeterHtml(session.usage, 0, { compact: true }).html
+      : '사용량 정보 없음';
     const subText = formatSubscriptionSummary(session.subscription);
     const planLabel = session.subscription?.active
       ? session.planName || session.planId || '플랜'
@@ -1795,7 +1867,7 @@ async function renderAccountUi() {
       <div><strong>${accountLabel}</strong> <span style="color:#6b7280;font-size:12px;">(${providerLabel})</span></div>
       <div>${planLabel}</div>
       <div>${subText || '구독 정보 없음'}</div>
-      <div>${usageText || '사용량 정보 없음'}</div>
+      <div>${usageHtml}</div>
     `;
   }
 
