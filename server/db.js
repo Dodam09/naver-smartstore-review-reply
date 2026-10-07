@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
+import { makeKoreanNickname } from './nicknames.js';
 import { DEFAULT_PLAN_ID, normalizePaidPlanId, normalizePlanId } from './plans.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -201,6 +202,28 @@ export function findUserByKakaoId(kakaoId) {
   return getDb().prepare('SELECT * FROM users WHERE kakao_id = ?').get(String(kakaoId || ''));
 }
 
+function allocateDisplayName(preferred) {
+  const given = String(preferred || '').trim();
+  if (given && !/^\d+$/.test(given)) return given;
+
+  const database = getDb();
+  const taken = database.prepare('SELECT 1 FROM users WHERE display_name = ?');
+  for (let i = 0; i < 8; i += 1) {
+    const name = makeKoreanNickname();
+    if (!taken.get(name)) return name;
+  }
+  return makeKoreanNickname();
+}
+
+export function ensureUserDisplayName(user) {
+  if (!user || String(user.display_name || '').trim()) return user;
+  const name = allocateDisplayName();
+  getDb()
+    .prepare(`UPDATE users SET display_name = ?, updated_at = datetime('now') WHERE id = ?`)
+    .run(name, user.id);
+  return findUserById(user.id);
+}
+
 export function createKakaoUser({ kakaoId, email, displayName, planId = DEFAULT_PLAN_ID }) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const normalizedPlan = normalizePlanId(planId);
@@ -209,7 +232,7 @@ export function createKakaoUser({ kakaoId, email, displayName, planId = DEFAULT_
       `INSERT INTO users (email, password_hash, plan_id, kakao_id, auth_provider, display_name)
        VALUES (?, 'oauth:kakao', ?, ?, 'kakao', ?)`
     )
-    .run(normalizedEmail, normalizedPlan, String(kakaoId), displayName || null);
+    .run(normalizedEmail, normalizedPlan, String(kakaoId), allocateDisplayName(displayName));
   return findUserById(result.lastInsertRowid);
 }
 
@@ -218,10 +241,10 @@ export function createUser(email, passwordHash, planId = DEFAULT_PLAN_ID) {
   const normalizedPlan = normalizePlanId(planId);
   const result = getDb()
     .prepare(
-      `INSERT INTO users (email, password_hash, plan_id)
-       VALUES (?, ?, ?)`
+      `INSERT INTO users (email, password_hash, plan_id, display_name)
+       VALUES (?, ?, ?, ?)`
     )
-    .run(normalizedEmail, passwordHash, normalizedPlan);
+    .run(normalizedEmail, passwordHash, normalizedPlan, allocateDisplayName());
   return findUserById(result.lastInsertRowid);
 }
 

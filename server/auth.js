@@ -4,6 +4,7 @@ import {
   createSession,
   createUser,
   deleteSession,
+  ensureUserDisplayName,
   findSession,
   findUserByEmail,
   findUserById,
@@ -56,13 +57,14 @@ function sanitizeUser(user) {
 }
 
 function buildLoginResult(user) {
+  const named = ensureUserDisplayName(user);
   const token = createToken();
-  createSession(user.id, token, sessionExpiryIso());
+  createSession(named.id, token, sessionExpiryIso());
   return {
     token,
-    user: sanitizeUser(user),
-    usage: getUsageSummary(user.id, user.plan_id, undefined, isSubscriptionActive(user)),
-    subscription: getSubscriptionSummary(user),
+    user: sanitizeUser(named),
+    usage: getUsageSummary(named.id, named.plan_id, undefined, isSubscriptionActive(named)),
+    subscription: getSubscriptionSummary(named),
   };
 }
 
@@ -103,7 +105,7 @@ export function loginUser({ email, password }) {
   return buildLoginResult(user);
 }
 
-export function loginWithKakao({ kakaoId, email, nickname }) {
+export function loginWithKakao({ kakaoId, email }) {
   const normalizedKakaoId = String(kakaoId || '').trim();
   if (!normalizedKakaoId) {
     throw new Error('카카오 계정 정보가 올바르지 않습니다.');
@@ -124,7 +126,7 @@ export function loginWithKakao({ kakaoId, email, nickname }) {
     user = createKakaoUser({
       kakaoId: normalizedKakaoId,
       email: resolvedEmail,
-      displayName: nickname || null,
+      displayName: null,
     });
   }
 
@@ -138,7 +140,7 @@ export function logoutUser(token) {
 export function getAuthFromToken(token) {
   const session = findSession(token);
   if (!session) return null;
-  const user = findUserById(session.user_id);
+  const user = ensureUserDisplayName(findUserById(session.user_id));
   if (!user) return null;
   return {
     token,
