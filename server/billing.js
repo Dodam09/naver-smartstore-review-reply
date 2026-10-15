@@ -15,6 +15,7 @@ import {
 import {
   FREE_TRIAL,
   REVIEW_ONETIME_AMOUNTS,
+  REVIEW_ONETIME_PRODUCTS,
   getPlan,
   getPlanRank,
   listPaidPlans,
@@ -256,7 +257,7 @@ export async function chargeWithBillingKey({ billingKey, customerKey, amount, or
  * - billing: 베이직·스탠다드·프로 정가 → 카드 등록(빌링) 창
  * - onetime: 베이직 9,900 / 스탠다드 10,000 / 프로 30,000 → 일반 결제 창
  */
-export function prepareReviewCheckout(userId, { mode, planId, legalConsent } = {}) {
+export function prepareReviewCheckout(userId, { mode, planId, productKey, legalConsent } = {}) {
   assertLegalConsent(legalConsent);
   const user = findUserById(userId);
   if (!user) throw new Error('사용자를 찾을 수 없습니다.');
@@ -296,8 +297,12 @@ export function prepareReviewCheckout(userId, { mode, planId, legalConsent } = {
     };
   }
 
-  const amount = Number(REVIEW_ONETIME_AMOUNTS[plan.id] || plan.price);
-  const orderName = `스마트스토어 답글 ${plan.name} 업그레이드(단건)`;
+  const key = String(productKey || plan.id);
+  const catalog =
+    REVIEW_ONETIME_PRODUCTS.find((item) => (item.productKey || item.id) === key) ||
+    REVIEW_ONETIME_PRODUCTS.find((item) => item.id === plan.id);
+  const amount = Number(catalog?.amount || REVIEW_ONETIME_AMOUNTS[key] || REVIEW_ONETIME_AMOUNTS[plan.id] || plan.price);
+  const orderName = `스마트스토어 답글 ${catalog?.label || `${plan.name} 업그레이드`}(단건)`;
   createBillingOrder({
     userId,
     orderId,
@@ -317,6 +322,7 @@ export function prepareReviewCheckout(userId, { mode, planId, legalConsent } = {
     planName: plan.name,
     checkoutType: 'upgrade',
     reviewMode: 'onetime',
+    productKey: key,
     useBillingAuth: false,
     clientKey: TOSS_CLIENT_KEY || null,
     successUrl: `${APP_BASE_URL}/billing-success.html`,

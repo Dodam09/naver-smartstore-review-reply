@@ -419,6 +419,7 @@ app.post('/api/billing/prepare-review', authenticate, (req, res) => {
     const checkout = prepareReviewCheckout(req.auth.user.id, {
       mode: req.body?.mode,
       planId: req.body?.planId,
+      productKey: req.body?.productKey,
       legalConsent: req.body?.legalConsent,
     });
     res.json({ ok: true, checkout });

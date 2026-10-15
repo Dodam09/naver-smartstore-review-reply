@@ -274,12 +274,16 @@
     </section>
 
     <section class="product-section" id="onetimeProductsSection">
-      <h2>2. 일반 결제(단건) 상품 · 3개</h2>
-      <p class="section-sub">더 높은 플랜으로 올릴 때 쓰는 단건 결제입니다. 각 상품을 누르면 <strong>일반 결제(단건) 창</strong>이 열립니다.</p>
+      <h2>2. 일반 결제(단건) 상품</h2>
+      <p class="section-sub">플랜 업그레이드 차액 결제입니다. 베이직→스탠다드 10,000원 · 베이직→프로 30,000원 · 스탠다드→프로 20,000원. 각 상품을 누르면 <strong>일반 결제(단건) 창</strong>이 열립니다.</p>
       <div class="product-grid" id="onetimeProducts"></div>
     </section>
 
-    <div class="plans" id="plans" hidden></div>
+    <section class="product-section" id="myPlanSection">
+      <h2>3. 내 구독 기준 플랜 변경</h2>
+      <p class="section-sub">지금 이용 중인 플랜에 맞춰 결제합니다. 예: 스탠다드 → 프로는 차액 <strong>20,000원</strong> 단건 결제입니다.</p>
+      <div class="plans" id="plans"></div>
+    </section>
     <div class="panel" id="accountPanel" hidden>
       <h3>내 구독 관리</h3>
       <div id="accountPanelBody"></div>
@@ -301,7 +305,7 @@
           <li>리뷰·상품문의 수집 → 기존 답글 분석 기반 AI 초안 → 판매자센터 답변란 입력 지원</li>
           <li>실물 배송 없음 · 디지털(SaaS) 정기결제 · <strong>1회 결제 제공기간 30일</strong></li>
           <li>빌링(정기결제): 베이직 9,900원 / 스탠다드 19,900원 / 프로 39,900원 (최고가 39,900원)</li>
-          <li>일반 결제(단건·업그레이드): 베이직 9,900원 / 스탠다드 10,000원 / 프로 30,000원</li>
+          <li>일반 결제(단건·업그레이드): 베이직 9,900 · 스탠다드 10,000 · 프로 30,000 · 스탠다드→프로 20,000원</li>
           <li>환불·해지: <a href="/billing-terms.html" target="_blank" rel="noopener">구독·결제 안내</a> · <a href="/privacy.html" target="_blank" rel="noopener">개인정보 처리방침</a></li>
         </ul>
       </div>
@@ -735,11 +739,7 @@
         replyLimit: p.replyLimit,
         toneLimit: p.toneLimit,
       }));
-      const onetimeList = config.reviewProducts?.onetime || [
-        { id: 'basic', name: '베이직', label: '베이직 업그레이드', amount: 9900, mode: 'onetime', replyLimit: 150, toneLimit: 50 },
-        { id: 'standard', name: '스탠다드', label: '스탠다드 업그레이드', amount: 10000, mode: 'onetime', replyLimit: 600, toneLimit: 120 },
-        { id: 'pro', name: '프로', label: '프로 업그레이드', amount: 30000, mode: 'onetime', replyLimit: 2000, toneLimit: 300 },
-      ];
+      const onetimeList = config.reviewProducts?.onetime || [];
 
       function fill(host, list, mode) {
         if (!host) return;
@@ -747,11 +747,12 @@
         list.forEach((item) => {
           const card = document.createElement('div');
           card.className = `product-card ${mode}`;
+          const note = item.note ? `<br />${item.note}` : '';
           card.innerHTML = `
             <span class="badge">${mode === 'billing' ? '빌링 · 정기결제' : '일반 결제 · 단건'}</span>
             <h3>${item.label || item.name}</h3>
             <div class="amount">${Number(item.amount).toLocaleString()}원</div>
-            <div class="meta">답글 ${item.replyLimit}건 · 말투 ${item.toneLimit}회${mode === 'billing' ? ' / 30일 자동갱신' : ' / 업그레이드 차액'}</div>
+            <div class="meta">답글 ${item.replyLimit}건 · 말투 ${item.toneLimit}회${mode === 'billing' ? ' / 30일 자동갱신' : ' / 업그레이드 차액'}${note}</div>
           `;
           const btn = document.createElement('button');
           btn.type = 'button';
@@ -759,7 +760,9 @@
           btn.dataset.reviewPay = '1';
           if (tossReady) {
             btn.textContent = mode === 'billing' ? '빌링 결제창 열기' : '단건 결제창 열기';
-            btn.addEventListener('click', () => startReviewCheckout(mode, item.id, config));
+            btn.addEventListener('click', () =>
+              startReviewCheckout(mode, item.id, config, item.productKey || item.id)
+            );
           } else {
             btn.disabled = true;
             btn.textContent = '결제 설정 필요';
@@ -776,7 +779,50 @@
     function renderPlans(config, sub) {
       if (!plansEl) return;
       plansEl.innerHTML = '';
-      plansEl.hidden = true;
+      const section = document.getElementById('myPlanSection');
+      if (section) section.hidden = !isLoggedIn();
+      if (!isLoggedIn()) return;
+
+      const tossReady = !!config.tossConfigured && !!config.productionReady;
+      const mockReady = !!config.mockMode;
+
+      (config.plans || []).forEach((plan) => {
+        const ui = resolvePlanUi(plan, sub, config);
+        const card = document.createElement('div');
+        card.className = ui.current ? 'plan current' : 'plan';
+        card.innerHTML = `
+          <h2>${plan.name}${ui.current ? ' · 이용 중' : ''}</h2>
+          <div class="price">${ui.priceLabel}</div>
+          <div class="meta">답글 ${plan.replyLimit}건 · 말투 분석 ${plan.toneLimit}회 / 월${ui.note ? `<br />${ui.note}` : ''}</div>
+        `;
+
+        if (tossReady) {
+          const payBtn = document.createElement('button');
+          payBtn.type = 'button';
+          payBtn.dataset.pay = '1';
+          payBtn.dataset.enabled = ui.enabled ? '1' : '0';
+          payBtn.disabled = !ui.enabled;
+          payBtn.textContent = ui.payLabel;
+          if (ui.enabled) payBtn.addEventListener('click', () => startCheckout(plan.id, config));
+          card.appendChild(payBtn);
+        }
+
+        if (mockReady) {
+          const mockBtn = document.createElement('button');
+          mockBtn.type = 'button';
+          mockBtn.dataset.pay = '1';
+          mockBtn.dataset.enabled = ui.enabled ? '1' : '0';
+          mockBtn.disabled = !ui.enabled;
+          mockBtn.className = tossReady ? 'secondary' : '';
+          mockBtn.textContent = ui.mockLabel;
+          if (ui.enabled) {
+            mockBtn.addEventListener('click', () => mockCheckout(plan.id, mockBtn));
+          }
+          card.appendChild(mockBtn);
+        }
+
+        plansEl.appendChild(card);
+      });
     }
 
     function notifyExtensionSubscriptionUpdated() {
@@ -912,7 +958,7 @@
       });
     }
 
-    async function startReviewCheckout(mode, planId, config) {
+    async function startReviewCheckout(mode, planId, config, productKey) {
       if (checkoutBusy) return;
       try {
         if (!isLoggedIn()) {
@@ -933,7 +979,7 @@
         );
         const data = await api('/api/billing/prepare-review', {
           method: 'POST',
-          body: { mode, planId, legalConsent: true },
+          body: { mode, planId, productKey, legalConsent: true },
         });
         await openTossCheckout(data.checkout);
       } catch (err) {

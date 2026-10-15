@@ -71,11 +71,56 @@ export function getUpgradePrice(fromPlanId, toPlanId) {
   return to.price - from.price;
 }
 
-/** 카드사 심사용 단건(업그레이드) 금액 — 베이직 차액 기준 */
+/** 카드사 심사용 단건(업그레이드) 금액 */
+export const REVIEW_ONETIME_PRODUCTS = [
+  {
+    id: 'basic',
+    name: '베이직',
+    label: '베이직 업그레이드',
+    amount: 9900,
+    mode: 'onetime',
+    replyLimit: 150,
+    toneLimit: 50,
+  },
+  {
+    id: 'standard',
+    name: '스탠다드',
+    label: '스탠다드 업그레이드',
+    amount: 10000,
+    mode: 'onetime',
+    note: '베이직 → 스탠다드 차액',
+    replyLimit: 600,
+    toneLimit: 120,
+  },
+  {
+    id: 'pro',
+    name: '프로',
+    label: '프로 업그레이드',
+    amount: 30000,
+    mode: 'onetime',
+    note: '베이직 → 프로 차액',
+    replyLimit: 2000,
+    toneLimit: 300,
+  },
+  {
+    id: 'pro',
+    productKey: 'pro_from_standard',
+    name: '프로',
+    label: '스탠다드 → 프로 업그레이드',
+    amount: 20000,
+    mode: 'onetime',
+    note: '스탠다드 → 프로 차액',
+    replyLimit: 2000,
+    toneLimit: 300,
+  },
+];
+
+/** @deprecated use REVIEW_ONETIME_PRODUCTS */
 export const REVIEW_ONETIME_AMOUNTS = {
   basic: 9900,
   standard: 10000,
   pro: 30000,
+  pro_from_standard: 20000,
 };
 
 export function listReviewBillingProducts() {
@@ -91,13 +136,5 @@ export function listReviewBillingProducts() {
 }
 
 export function listReviewOnetimeProducts() {
-  return listPaidPlans().map((plan) => ({
-    id: plan.id,
-    name: plan.name,
-    label: `${plan.name} 업그레이드`,
-    amount: REVIEW_ONETIME_AMOUNTS[plan.id],
-    mode: 'onetime',
-    replyLimit: plan.replyLimit,
-    toneLimit: plan.toneLimit,
-  }));
+  return REVIEW_ONETIME_PRODUCTS.map((item) => ({ ...item }));
 }
