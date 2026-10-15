@@ -209,6 +209,48 @@
       position: relative;
       z-index: 1;
     }
+    .product-section {
+      margin: 20px 0 8px;
+      padding: 16px;
+      border-radius: 12px;
+      background: #fff;
+      border: 1px solid #e5e7ef;
+    }
+    .product-section h2 {
+      margin: 0 0 6px;
+      font-size: 17px;
+    }
+    .product-section .section-sub {
+      margin: 0 0 14px;
+      color: #64748b;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .product-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    }
+    .product-card {
+      border: 1px solid #e5e7ef;
+      border-radius: 12px;
+      padding: 14px;
+      background: #f8fafc;
+    }
+    .product-card.billing { border-color: #bbf7d0; background: #f0fdf4; }
+    .product-card.onetime { border-color: #bfdbfe; background: #eff6ff; }
+    .product-card h3 { margin: 0 0 6px; font-size: 16px; }
+    .product-card .amount { font-size: 22px; font-weight: 800; margin: 8px 0; }
+    .product-card .badge {
+      display: inline-block;
+      margin-bottom: 8px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .product-card.billing .badge { background: #dcfce7; color: #047857; }
+    .product-card.onetime .badge { background: #dbeafe; color: #1d4ed8; }
   </style>
 </head>
 <body>
@@ -224,7 +266,20 @@
       <label><input id="legalAgree" type="checkbox" /> 위 정기결제 조건에 동의합니다. (<a href="/billing-terms.html" target="_blank" rel="noopener">자세히</a>)</label>
     </div>
     <div class="status" id="status">불러오는 중…</div>
-    <div class="plans" id="plans"></div>
+
+    <section class="product-section" id="billingProductsSection">
+      <h2>1. 빌링(정기결제) 상품 · 3개</h2>
+      <p class="section-sub">신규 가입·30일 자동 갱신용입니다. 각 상품을 누르면 <strong>빌링 결제창(카드 등록)</strong>이 열립니다.</p>
+      <div class="product-grid" id="billingProducts"></div>
+    </section>
+
+    <section class="product-section" id="onetimeProductsSection">
+      <h2>2. 일반 결제(단건) 상품 · 3개</h2>
+      <p class="section-sub">더 높은 플랜으로 올릴 때 쓰는 단건 결제입니다. 각 상품을 누르면 <strong>일반 결제(단건) 창</strong>이 열립니다.</p>
+      <div class="product-grid" id="onetimeProducts"></div>
+    </section>
+
+    <div class="plans" id="plans" hidden></div>
     <div class="panel" id="accountPanel" hidden>
       <h3>내 구독 관리</h3>
       <div id="accountPanelBody"></div>
@@ -245,7 +300,8 @@
         <ul style="margin:0;padding-left:18px;line-height:1.6;">
           <li>리뷰·상품문의 수집 → 기존 답글 분석 기반 AI 초안 → 판매자센터 답변란 입력 지원</li>
           <li>실물 배송 없음 · 디지털(SaaS) 정기결제 · <strong>1회 결제 제공기간 30일</strong></li>
-          <li>플랜: 베이직 9,900원 / 스탠다드 19,900원 / 프로 39,900원 (최고가 39,900원)</li>
+          <li>빌링(정기결제): 베이직 9,900원 / 스탠다드 19,900원 / 프로 39,900원 (최고가 39,900원)</li>
+          <li>일반 결제(단건·업그레이드): 베이직 9,900원 / 스탠다드 10,000원 / 프로 30,000원</li>
           <li>환불·해지: <a href="/billing-terms.html" target="_blank" rel="noopener">구독·결제 안내</a> · <a href="/privacy.html" target="_blank" rel="noopener">개인정보 처리방침</a></li>
         </ul>
       </div>
@@ -272,6 +328,8 @@
     const extensionId = params.get('extId') || '';
     const statusEl = document.getElementById('status');
     const plansEl = document.getElementById('plans');
+    const billingProductsEl = document.getElementById('billingProducts');
+    const onetimeProductsEl = document.getElementById('onetimeProducts');
     const legalAgree = document.getElementById('legalAgree');
     const legalText = document.getElementById('legalText');
     const accountPanel = document.getElementById('accountPanel');
@@ -444,8 +502,16 @@
     }
 
     function setPayButtonsDisabled(disabled) {
-      plansEl.querySelectorAll('button[data-pay]').forEach((btn) => {
-        btn.disabled = disabled ? true : btn.dataset.enabled !== '1';
+      document.querySelectorAll('button[data-pay], button[data-review-pay]').forEach((btn) => {
+        if (disabled) {
+          btn.disabled = true;
+          return;
+        }
+        if (btn.dataset.reviewPay === '1') {
+          btn.disabled = !isLoggedIn();
+          return;
+        }
+        btn.disabled = btn.dataset.enabled !== '1';
       });
     }
 
@@ -658,55 +724,59 @@
       return data;
     }
 
-    function renderPlans(config, sub) {
-      plansEl.innerHTML = '';
+    function renderReviewProducts(config) {
       const tossReady = !!config.tossConfigured && !!config.productionReady;
-      const mockReady = !!config.mockMode;
+      const billingList = config.reviewProducts?.billing || (config.plans || []).map((p) => ({
+        id: p.id,
+        name: p.name,
+        label: `${p.name} 정기결제`,
+        amount: p.price,
+        mode: 'billing',
+        replyLimit: p.replyLimit,
+        toneLimit: p.toneLimit,
+      }));
+      const onetimeList = config.reviewProducts?.onetime || [
+        { id: 'basic', name: '베이직', label: '베이직 업그레이드', amount: 9900, mode: 'onetime', replyLimit: 150, toneLimit: 50 },
+        { id: 'standard', name: '스탠다드', label: '스탠다드 업그레이드', amount: 10000, mode: 'onetime', replyLimit: 600, toneLimit: 120 },
+        { id: 'pro', name: '프로', label: '프로 업그레이드', amount: 30000, mode: 'onetime', replyLimit: 2000, toneLimit: 300 },
+      ];
 
-      (config.plans || []).forEach((plan) => {
-        const ui = resolvePlanUi(plan, sub, config);
-        const card = document.createElement('div');
-        card.className = ui.current ? 'plan current' : 'plan';
-        card.innerHTML = `
-          <h2>${plan.name}${ui.current ? ' · 이용 중' : ''}</h2>
-          <div class="price">${ui.priceLabel}</div>
-          <div class="meta">답글 ${plan.replyLimit}건 · 말투 분석 ${plan.toneLimit}회 / 월${ui.note ? `<br />${ui.note}` : ''}</div>
-        `;
-
-        if (tossReady) {
-          const payBtn = document.createElement('button');
-          payBtn.type = 'button';
-          payBtn.dataset.pay = '1';
-          payBtn.dataset.enabled = ui.enabled ? '1' : '0';
-          payBtn.disabled = !ui.enabled;
-          payBtn.textContent = ui.payLabel;
-          if (ui.enabled) payBtn.addEventListener('click', () => startCheckout(plan.id, config));
-          card.appendChild(payBtn);
-        }
-
-        if (mockReady) {
-          const mockBtn = document.createElement('button');
-          mockBtn.type = 'button';
-          mockBtn.dataset.pay = '1';
-          mockBtn.dataset.enabled = ui.enabled ? '1' : '0';
-          mockBtn.disabled = !ui.enabled;
-          mockBtn.className = tossReady ? 'secondary' : '';
-          mockBtn.textContent = ui.mockLabel;
-          if (ui.enabled) {
-            mockBtn.addEventListener('click', () => mockCheckout(plan.id, mockBtn));
+      function fill(host, list, mode) {
+        if (!host) return;
+        host.innerHTML = '';
+        list.forEach((item) => {
+          const card = document.createElement('div');
+          card.className = `product-card ${mode}`;
+          card.innerHTML = `
+            <span class="badge">${mode === 'billing' ? '빌링 · 정기결제' : '일반 결제 · 단건'}</span>
+            <h3>${item.label || item.name}</h3>
+            <div class="amount">${Number(item.amount).toLocaleString()}원</div>
+            <div class="meta">답글 ${item.replyLimit}건 · 말투 ${item.toneLimit}회${mode === 'billing' ? ' / 30일 자동갱신' : ' / 업그레이드 차액'}</div>
+          `;
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.dataset.pay = '1';
+          btn.dataset.reviewPay = '1';
+          if (tossReady) {
+            btn.textContent = mode === 'billing' ? '빌링 결제창 열기' : '단건 결제창 열기';
+            btn.addEventListener('click', () => startReviewCheckout(mode, item.id, config));
+          } else {
+            btn.disabled = true;
+            btn.textContent = '결제 설정 필요';
           }
-          card.appendChild(mockBtn);
-        }
+          card.appendChild(btn);
+          host.appendChild(card);
+        });
+      }
 
-        if (!tossReady && !mockReady) {
-          const hint = document.createElement('div');
-          hint.className = 'meta';
-          hint.textContent = '결제 설정이 없습니다. server/.env 에 BILLING_MOCK=true 또는 TOSS_CLIENT_KEY 를 설정하세요.';
-          card.appendChild(hint);
-        }
+      fill(billingProductsEl, billingList, 'billing');
+      fill(onetimeProductsEl, onetimeList, 'onetime');
+    }
 
-        plansEl.appendChild(card);
-      });
+    function renderPlans(config, sub) {
+      if (!plansEl) return;
+      plansEl.innerHTML = '';
+      plansEl.hidden = true;
     }
 
     function notifyExtensionSubscriptionUpdated() {
@@ -740,20 +810,27 @@
         }
       }
       currentSub = sub;
+      renderReviewProducts(config);
       renderPlans(config, sub);
       if (!isLoggedIn()) {
         setPayButtonsDisabled(true);
-        plansEl.querySelectorAll('button[data-pay]').forEach((btn) => {
+        document.querySelectorAll('button[data-review-pay]').forEach((btn) => {
           btn.disabled = true;
           btn.textContent = '로그인 후 결제';
         });
         setStatus(
-          '플랜·가격을 확인할 수 있습니다.\n실제 결제는 확장 [설정]에서 로그인 후 [구독하기]로 열어 주세요.'
+          '빌링 3개·단건 3개 상품을 확인할 수 있습니다.\n결제창을 열려면 review-login.html 에서 로그인해 주세요.'
         );
       } else {
         updateStatusForSub(sub, config);
         renderAccountPanel(sub, config);
         await loadPaymentHistory();
+        setStatus(
+          '위 6개 상품을 각각 누르면 토스 결제창이 열립니다.\n' +
+            '1) 빌링 3개 → 카드 등록(정기결제) 창\n' +
+            '2) 단건 3개 → 일반 결제 창\n' +
+            '화면 확인만 하시면 되고, 결제 완료는 하지 않아도 됩니다.'
+        );
       }
       if (options.notifyExtension) notifyExtensionSubscriptionUpdated();
       return sub;
@@ -815,6 +892,64 @@
       );
     }
 
+    async function openTossCheckout(checkout) {
+      const tossPayments = TossPayments(checkout.clientKey);
+      if (checkout.useBillingAuth) {
+        await tossPayments.requestBillingAuth('카드', {
+          customerKey: checkout.customerKey,
+          successUrl: checkout.billingAuthSuccessUrl,
+          failUrl: checkout.failUrl,
+        });
+        return;
+      }
+      await tossPayments.requestPayment('카드', {
+        amount: checkout.amount,
+        orderId: checkout.orderId,
+        orderName: checkout.orderName,
+        customerKey: checkout.customerKey,
+        successUrl: checkout.successUrl,
+        failUrl: checkout.failUrl,
+      });
+    }
+
+    async function startReviewCheckout(mode, planId, config) {
+      if (checkoutBusy) return;
+      try {
+        if (!isLoggedIn()) {
+          setStatus('로그인이 필요합니다. review-login.html 에서 로그인해 주세요.', true);
+          return;
+        }
+        if (!requireLegalConsent()) return;
+        if (!config.tossConfigured) {
+          throw new Error('TOSS_CLIENT_KEY가 없습니다.');
+        }
+
+        checkoutBusy = true;
+        setPayButtonsDisabled(true);
+        setStatus(
+          mode === 'billing'
+            ? '빌링(카드 등록) 창을 여는 중…'
+            : '일반 결제(단건) 창을 여는 중…'
+        );
+        const data = await api('/api/billing/prepare-review', {
+          method: 'POST',
+          body: { mode, planId, legalConsent: true },
+        });
+        await openTossCheckout(data.checkout);
+      } catch (err) {
+        if (err?.code === 'USER_CANCEL') {
+          setStatus('결제가 취소되었습니다. 화면 확인만 하시면 됩니다.');
+          await refreshBillingView();
+          return;
+        }
+        setStatus(err.message || String(err), true);
+        try { await refreshBillingView(); } catch (_) {}
+      } finally {
+        checkoutBusy = false;
+        setPayButtonsDisabled(false);
+      }
+    }
+
     async function startCheckout(planId, config) {
       if (checkoutBusy) return;
       try {
@@ -855,23 +990,7 @@
           await refreshBillingView({ notifyExtension: true });
           return;
         }
-        const tossPayments = TossPayments(checkout.clientKey);
-        if (checkout.checkoutType === 'subscribe' && checkout.useBillingAuth) {
-          await tossPayments.requestBillingAuth('카드', {
-            customerKey: checkout.customerKey,
-            successUrl: checkout.billingAuthSuccessUrl,
-            failUrl: checkout.failUrl,
-          });
-        } else {
-          await tossPayments.requestPayment('카드', {
-            amount: checkout.amount,
-            orderId: checkout.orderId,
-            orderName: checkout.orderName,
-            customerKey: checkout.customerKey,
-            successUrl: checkout.successUrl,
-            failUrl: checkout.failUrl,
-          });
-        }
+        await openTossCheckout(checkout);
       } catch (err) {
         if (err?.code === 'USER_CANCEL') {
           setStatus('결제가 취소되었습니다.');

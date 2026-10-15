@@ -12,7 +12,16 @@ import {
   setUserBillingKey,
   upgradeUserSubscription,
 } from './db.js';
-import { FREE_TRIAL, getPlan, getPlanRank, listPaidPlans, normalizePaidPlanId } from './plans.js';
+import {
+  FREE_TRIAL,
+  REVIEW_ONETIME_AMOUNTS,
+  getPlan,
+  getPlanRank,
+  listPaidPlans,
+  listReviewBillingProducts,
+  listReviewOnetimeProducts,
+  normalizePaidPlanId,
+} from './plans.js';
 import { formatCardLabel, resolveCardCompanyName } from './card-codes.js';
 import {
   getSubscriptionSummary,
@@ -86,6 +95,10 @@ export function getBillingConfig() {
       toneLimit: plan.toneLimit,
       rank: getPlanRank(plan.id),
     })),
+    reviewProducts: {
+      billing: listReviewBillingProducts(),
+      onetime: listReviewOnetimeProducts(),
+    },
   };
 }
 
@@ -238,6 +251,81 @@ export async function chargeWithBillingKey({ billingKey, customerKey, amount, or
   };
 }
 
+/**
+ * 카드사 심사용: 구독 상태와 무관하게 빌링/단건 창을 연다.
+ * - billing: 베이직·스탠다드·프로 정가 → 카드 등록(빌링) 창
+ * - onetime: 베이직 9,900 / 스탠다드 10,000 / 프로 30,000 → 일반 결제 창
+ */
+export function prepareReviewCheckout(userId, { mode, planId, legalConsent } = {}) {
+  assertLegalConsent(legalConsent);
+  const user = findUserById(userId);
+  if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+
+  const plan = getPlan(normalizePaidPlanId(planId));
+  const checkoutMode = String(mode || '').trim() === 'onetime' ? 'onetime' : 'billing';
+  const orderId = createOrderId(userId);
+  const customerKey = getOrCreateCustomerKey(userId);
+
+  if (checkoutMode === 'billing') {
+    const orderName = `스마트스토어 답글 ${plan.name} 정기결제(빌링)`;
+    createBillingOrder({
+      userId,
+      orderId,
+      planId: plan.id,
+      amount: plan.price,
+      orderName,
+      customerKey,
+      orderKind: 'review_billing',
+      legalConsentAt: new Date().toISOString(),
+    });
+    return {
+      orderId,
+      amount: plan.price,
+      orderName,
+      customerKey,
+      planId: plan.id,
+      planName: plan.name,
+      checkoutType: 'subscribe',
+      reviewMode: 'billing',
+      useBillingAuth: true,
+      clientKey: TOSS_CLIENT_KEY || null,
+      successUrl: `${APP_BASE_URL}/billing-success.html`,
+      billingAuthSuccessUrl: `${APP_BASE_URL}/billing-auth-success.html?orderId=${encodeURIComponent(orderId)}`,
+      failUrl: `${APP_BASE_URL}/billing-fail.html`,
+      mockMode: BILLING_MOCK,
+    };
+  }
+
+  const amount = Number(REVIEW_ONETIME_AMOUNTS[plan.id] || plan.price);
+  const orderName = `스마트스토어 답글 ${plan.name} 업그레이드(단건)`;
+  createBillingOrder({
+    userId,
+    orderId,
+    planId: plan.id,
+    amount,
+    orderName,
+    customerKey,
+    orderKind: 'review_onetime',
+    legalConsentAt: new Date().toISOString(),
+  });
+  return {
+    orderId,
+    amount,
+    orderName,
+    customerKey,
+    planId: plan.id,
+    planName: plan.name,
+    checkoutType: 'upgrade',
+    reviewMode: 'onetime',
+    useBillingAuth: false,
+    clientKey: TOSS_CLIENT_KEY || null,
+    successUrl: `${APP_BASE_URL}/billing-success.html`,
+    billingAuthSuccessUrl: `${APP_BASE_URL}/billing-auth-success.html?orderId=${encodeURIComponent(orderId)}`,
+    failUrl: `${APP_BASE_URL}/billing-fail.html`,
+    mockMode: BILLING_MOCK,
+  };
+}
+
 export function prepareCheckout(userId, planId, { legalConsent } = {}) {
   assertLegalConsent(legalConsent);
   const user = findUserById(userId);
@@ -333,15 +421,31 @@ export async function confirmCheckout(userId, { paymentKey, orderId, amount }) {
   }
 
   const userBeforeActivate = findUserById(userId);
-  const action = resolveCheckoutAction(userBeforeActivate, order.plan_id);
-
+  const orderKind = String(order.order_kind || '');
   let user;
-  if (action.type === 'upgrade') {
-    user = upgradeUserSubscription(userId, action.planId);
+  if (orderKind === 'review_onetime') {
+    if (isSubscriptionActive(userBeforeActivate)) {
+      try {
+        user = upgradeUserSubscription(userId, order.plan_id);
+      } catch (_) {
+        user = activateUserSubscription(userId, order.plan_id, SUBSCRIPTION_DAYS, {
+          autoRenew: false,
+        });
+      }
+    } else {
+      user = activateUserSubscription(userId, order.plan_id, SUBSCRIPTION_DAYS, {
+        autoRenew: false,
+      });
+    }
   } else {
-    user = activateUserSubscription(userId, order.plan_id, SUBSCRIPTION_DAYS, {
-      autoRenew: false,
-    });
+    const action = resolveCheckoutAction(userBeforeActivate, order.plan_id);
+    if (action.type === 'upgrade') {
+      user = upgradeUserSubscription(userId, action.planId);
+    } else {
+      user = activateUserSubscription(userId, order.plan_id, SUBSCRIPTION_DAYS, {
+        autoRenew: false,
+      });
+    }
   }
 
   return {
@@ -370,9 +474,13 @@ export async function confirmBillingAuthCheckout(userId, { authKey, customerKey,
   }
 
   const userBeforeActivate = findUserById(userId);
-  const action = resolveCheckoutAction(userBeforeActivate, order.plan_id);
-  if (action.type !== 'subscribe') {
-    throw new Error('자동결제 등록은 신규 구독 결제에서만 사용할 수 있습니다.');
+  const orderKind = String(order.order_kind || '');
+  const isReviewBilling = orderKind === 'review_billing';
+  if (!isReviewBilling) {
+    const action = resolveCheckoutAction(userBeforeActivate, order.plan_id);
+    if (action.type !== 'subscribe') {
+      throw new Error('자동결제 등록은 신규 구독 결제에서만 사용할 수 있습니다.');
+    }
   }
 
   let billingKey;

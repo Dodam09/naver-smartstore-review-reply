@@ -25,6 +25,7 @@ import {
   mockSubscribe,
   prepareCardUpdate,
   prepareCheckout,
+  prepareReviewCheckout,
   refundBillingOrder,
 } from './billing.js';
 import { recordAnalyticsEvent } from './analytics.js';
@@ -400,6 +401,24 @@ app.post('/api/billing/prepare', authenticate, (req, res) => {
 
   try {
     const checkout = prepareCheckout(req.auth.user.id, req.body?.planId, {
+      legalConsent: req.body?.legalConsent,
+    });
+    res.json({ ok: true, checkout });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.post('/api/billing/prepare-review', authenticate, (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(400).json({ ok: false, error: '로그인 계정으로만 결제할 수 있습니다.' });
+    return;
+  }
+
+  try {
+    const checkout = prepareReviewCheckout(req.auth.user.id, {
+      mode: req.body?.mode,
+      planId: req.body?.planId,
       legalConsent: req.body?.legalConsent,
     });
     res.json({ ok: true, checkout });
