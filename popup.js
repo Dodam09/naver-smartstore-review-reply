@@ -279,8 +279,16 @@ async function init() {
   els.inquiryFetchBtn.addEventListener('click', onFetchInquiries);
   els.openReviewCenterBtn?.addEventListener('click', () => openSellerCenter('review'));
   els.openInquiryCenterBtn?.addEventListener('click', () => openSellerCenter('inquiry'));
-  els.inquirySelectBtn.addEventListener('click', openInquiryWorkPage);
-  els.selectBtn.addEventListener('click', openWorkPage);
+  els.inquirySelectBtn.addEventListener('click', () => {
+    ensureStyleOrFocus('inquiry').then((ok) => {
+      if (ok) openInquiryWorkPage();
+    });
+  });
+  els.selectBtn.addEventListener('click', () => {
+    ensureStyleOrFocus('review').then((ok) => {
+      if (ok) openWorkPage();
+    });
+  });
   els.clearBtn.addEventListener('click', onClearStorage);
   els.headerTourBtn?.addEventListener('click', async () => {
     try {
@@ -363,6 +371,7 @@ async function init() {
     }
   });
   await initAccountUi();
+  await consumeUxFlags();
   setTimeout(() => {
     startOnboardingTourIfNeeded().catch(() => {});
   }, 400);
@@ -745,11 +754,7 @@ async function onInquiryTestGenerate() {
 
   const systemPrompt = String(settings.inquirySystemPrompt || '').trim();
   if (!systemPrompt || (typeof isLegacyBuiltinPrompt === 'function' && isLegacyBuiltinPrompt(systemPrompt))) {
-    setInquiryTestFeedback(
-      'error',
-      '응대 지침이 없습니다',
-      '「답변 스타일 설정」에서 기존 답글로 지침서를 먼저 만들어 주세요.'
-    );
+    promptMissingStyle('inquiry');
     return;
   }
 
@@ -817,6 +822,19 @@ async function onInquiryTestGenerate() {
           '1건 차감됨 · 미리보기 초안입니다.',
           meta
         );
+        if (typeof showUxToast === 'function') {
+          showUxToast({
+            title: '테스트 답글이 완성됐어요',
+            body: '아래 초안을 확인하세요. 실제 문의는 작업 화면에서 이 지침으로 만들 수 있어요.',
+            actionLabel: '문의 답글 만들러 가기',
+            onAction: () => {
+              setInquiryPanelMode('work');
+              setInquiryPanelStep(canEnterInquiryCompose() ? 'compose' : 'fetch');
+              openInquiryWorkPage();
+            },
+            ms: 8000,
+          });
+        }
       }
 
       await refreshInquiryTestUsageHint();
@@ -917,6 +935,101 @@ function switchTab(name) {
 
 function openStylePickPage() {
   chrome.tabs.create({ url: chrome.runtime.getURL('style-pick.html') });
+}
+
+function isStyleConfigured(settings, channel) {
+  const snapshot = getConfiguredStyleSnapshot(settings || {}, channel === 'inquiry' ? 'inquiry' : 'review');
+  return !!snapshot.configured;
+}
+
+function focusStyleSetup(channel) {
+  const isInquiry = channel === 'inquiry';
+  if (isInquiry) {
+    switchTab('inquiry');
+    setInquiryPanelMode('style');
+    inquiryStyle?.selectStyleMode?.('pick', false);
+  } else {
+    switchTab('work');
+    setReviewPanelMode('style');
+    reviewStyle?.selectStyleMode?.('pick', false);
+  }
+  const btn = isInquiry ? els.openInquiryStylePickBtn : els.openStylePickBtn;
+  const tab = isInquiry ? els.inquiryModeStyle : els.reviewModeStyle;
+  requestAnimationFrame(() => {
+    tab?.classList.add('style-hero-pulse');
+    btn?.classList.add('style-hero-pulse');
+    btn?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    btn?.focus();
+    setTimeout(() => {
+      btn?.classList.remove('style-hero-pulse');
+      tab?.classList.remove('style-hero-pulse');
+    }, 3600);
+  });
+}
+
+function promptMissingStyle(channel) {
+  const isInquiry = channel === 'inquiry';
+  focusStyleSetup(channel);
+  if (typeof showUxToast === 'function') {
+    showUxToast({
+      title: '먼저 답변 스타일을 만들어 주세요',
+      body: isInquiry
+        ? '문의 답글을 만들려면 응대 지침이 필요해요. 이 버튼을 누르면 기존 답변을 고를 수 있어요.'
+        : '리뷰 답글을 만들려면 내 말투 지침이 필요해요. 이 버튼을 누르면 기존 답글을 고를 수 있어요.',
+      actionLabel: isInquiry ? '기존 답변으로 만들기' : '기존 답글로 만들기',
+      onAction: () => (isInquiry ? openInquiryStylePickPage() : openStylePickPage()),
+      ms: 12000,
+    });
+  }
+}
+
+async function ensureStyleOrFocus(channel) {
+  const data = await storageGet(CONFIG.SETTINGS_KEY);
+  const settings = data[CONFIG.SETTINGS_KEY] || {};
+  if (isStyleConfigured(settings, channel)) return true;
+  promptMissingStyle(channel);
+  return false;
+}
+
+function goWorkAfterStyle(channel) {
+  const isInquiry = channel === 'inquiry';
+  if (isInquiry) {
+    switchTab('inquiry');
+    setInquiryPanelMode('work');
+    setInquiryPanelStep(canEnterInquiryCompose() ? 'compose' : 'fetch');
+    openInquiryWorkPage();
+  } else {
+    switchTab('work');
+    setReviewPanelMode('work');
+    setReviewPanelStep(parsedRows.length ? 'compose' : 'fetch');
+    openWorkPage();
+  }
+  if (typeof showUxToast === 'function') {
+    showUxToast({
+      title: '이 지침으로 답글을 만들 수 있어요',
+      body: isInquiry
+        ? '작업 화면에서 문의를 고르고 초안을 만드세요.'
+        : '작업 화면에서 리뷰를 고르고 초안을 만드세요.',
+      ms: 7000,
+    });
+  }
+}
+
+async function consumeUxFlags() {
+  const data = await storageGet(['uxFocusStyle', 'uxAfterStyle']);
+  const focus = data.uxFocusStyle;
+  const after = data.uxAfterStyle;
+  const now = Date.now();
+  const fresh = (flag) => flag?.at && now - Number(flag.at) < 120000;
+  if (fresh(focus)) {
+    await storageRemove(['uxFocusStyle']);
+    promptMissingStyle(focus.channel === 'inquiry' ? 'inquiry' : 'review');
+    return;
+  }
+  if (fresh(after)) {
+    await storageRemove(['uxAfterStyle']);
+    goWorkAfterStyle(after.channel === 'inquiry' ? 'inquiry' : 'review');
+  }
 }
 
 function openInquiryStylePickPage() {
@@ -1305,13 +1418,13 @@ function updateInquiryApplyHint(applyEnabled, draftCount = 0) {
   if (!els.inquiryApplyHint) return;
   if (applyEnabled && draftCount > 0) {
     els.inquiryApplyHint.textContent =
-      '✓ 답변란 자동 채우기 켜짐 — 상품문의에서 [답글]만 누르면 답변란에 자동으로 채워집니다.';
+      '✓ 판매자센터에서 직접 올리기 준비됨 — 상품문의에서 [답글]만 누르면 답변란에 자동으로 채워집니다.';
     els.inquiryApplyHint.style.color = '#0a7a3f';
     els.inquiryApplyHint.style.fontWeight = '600';
     return;
   }
   els.inquiryApplyHint.textContent =
-    '답글을 만든 뒤, 작업 화면에서 「답변란에 자동 채우기」를 누르면 [답글] 클릭 시 답변란에 자동으로 채워집니다.';
+    '답글을 만든 뒤, 작업 화면에서 「판매자센터에서 직접 올리기」를 누르면 [답글] 클릭 시 답변란에 자동으로 채워집니다.';
   els.inquiryApplyHint.style.color = '';
   els.inquiryApplyHint.style.fontWeight = '';
 }
@@ -1463,6 +1576,17 @@ async function applyInquiryJobUi(job, running) {
     refreshInquiryApplyHint();
     updateInquirySummary(replyCount);
     await saveInquiryCache(job.message, data[INQUIRY_STORAGE_KEY] || {});
+    const justFinished = job.status === 'done' && job.finishedAt && Date.now() - Number(job.finishedAt) < 20000;
+    if (justFinished && typeof showUxToast === 'function' && job.finishedAt !== applyInquiryJobUi._toastAt) {
+      applyInquiryJobUi._toastAt = job.finishedAt;
+      showUxToast({
+        title: `답글 ${job.success || 0}건 완성`,
+        body: '작업 화면에서 확인한 뒤 「판매자센터에서 직접 올리기」를 누르면 올리는 방법을 보여 드려요.',
+        actionLabel: '작업 화면 열기',
+        onAction: openInquiryWorkPage,
+        ms: 7000,
+      });
+    }
   }
 }
 
@@ -1605,6 +1729,9 @@ function onStorageChanged(changes, area) {
   if (changes[INQUIRY_PARSE_CACHE_KEY]) {
     restoreInquiryCache(changes[INQUIRY_PARSE_CACHE_KEY].newValue);
   }
+  if (changes.uxFocusStyle || changes.uxAfterStyle) {
+    consumeUxFlags().catch(() => {});
+  }
 }
 
 function refreshJobStatus() {
@@ -1659,6 +1786,17 @@ function applyJobUi(job, activelyRunning) {
 
   if (job.status === 'done') {
     setStatus(`${job.message}\n\n작업 화면 「확인하고 올리기」에서 답글을 확인하세요.`);
+    const justFinished = job.finishedAt && Date.now() - Number(job.finishedAt) < 20000;
+    if (justFinished && typeof showUxToast === 'function' && job.finishedAt !== applyJobUi._toastAt) {
+      applyJobUi._toastAt = job.finishedAt;
+      showUxToast({
+        title: `답글 ${job.success || 0}건 완성`,
+        body: '작업 화면에서 확인한 뒤 「판매자센터에서 직접 올리기」를 누르면 올리는 방법을 보여 드려요. 「한 번에 올리기」는 확인한 뒤에만 쓰세요.',
+        actionLabel: '작업 화면 열기',
+        onAction: openWorkPage,
+        ms: 7000,
+      });
+    }
   } else if (job.status === 'stopped') {
     setStatus(`${job.message}\n\n작업 화면 「확인하고 올리기」에서 이어서 확인하세요.`);
   }

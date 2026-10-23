@@ -517,7 +517,7 @@ function updateReviewStats() {
   } else if (registered === total && total > 0) {
     els.reviewSummary.textContent = '모든 답글을 올렸어요.';
   } else if (pending > 0) {
-    els.reviewSummary.textContent = `${pending}건을 한 번에 올릴 수 있어요. 판매자센터 탭이 열려 있어야 합니다.`;
+    els.reviewSummary.textContent = `${pending}건을 한 번에 올릴 수 있어요. 각 답글을 확인한 뒤에만 올리세요.`;
   } else {
     els.reviewSummary.textContent = '답글을 읽고 필요하면 고친 뒤, 아래 버튼으로 올리세요.';
   }
@@ -531,14 +531,9 @@ function updateReviewStats() {
 
 function updateConfirmButton(filled, total) {
   if (!els.confirmBtn) return;
-  if (applyEnabled) {
-    els.confirmBtn.disabled = true;
-    els.confirmBtn.textContent = '✓ 답변란 자동 채우기 켜짐';
-    return;
-  }
   const ready = total > 0 && filled === total;
-  els.confirmBtn.disabled = !ready;
-  els.confirmBtn.textContent = '답변란에 자동 채우기';
+  els.confirmBtn.disabled = applyEnabled ? false : !ready;
+  els.confirmBtn.textContent = '판매자센터에서 직접 올리기';
 }
 
 function updateReviewStatsFromUi() {
@@ -574,7 +569,7 @@ async function saveDraft(showMessage = false) {
     updates[CONFIG.APPLY_ENABLED_KEY] = false;
     applyEnabled = false;
     if (!showMessage) {
-      showBanner('답글을 고쳤어요. 다시 「답변란에 자동 채우기」를 눌러 주세요.', 'warn');
+      showBanner('답글을 고쳤어요. 다시 「판매자센터에서 직접 올리기」를 눌러 주세요.', 'warn');
     }
   }
 
@@ -632,9 +627,43 @@ async function onConfirmAll() {
   applyEnabled = true;
   updateReviewStats();
   showBanner(
-    `${draftItems.length}건 준비됐어요. 판매자센터에서 답글 칸을 열면 자동으로 채워집니다.\n(한 번에 올리려면 「한 번에 올리기」를 사용하세요)`,
+    `${draftItems.length}건 준비됐어요. 판매자센터에서 파란 「리뷰내용」을 눌러 창을 연 뒤 [확인]을 눌러 등록하세요.\n한 번에 올리기는 확인한 뒤에만 쓰세요.`,
     'info'
   );
+  if (typeof ssShowFillHowto === 'function') {
+    ssShowFillHowto({
+      channel: 'review',
+      count: draftItems.length,
+      hasBulk: true,
+      onOpenSeller: () => openOrFocusSellerPage('review'),
+      onBulk: () => onBulkSubmit(),
+    });
+  } else {
+    openOrFocusSellerPage('review');
+  }
+}
+
+function openOrFocusSellerPage(kind) {
+  const url =
+    kind === 'inquiry'
+      ? 'https://sell.smartstore.naver.com/#/comment'
+      : 'https://sell.smartstore.naver.com/#/review/search';
+  chrome.tabs.query({ url: 'https://sell.smartstore.naver.com/*' }, (tabs) => {
+    if (chrome.runtime.lastError) {
+      chrome.tabs.create({ url });
+      return;
+    }
+    const needle = kind === 'inquiry' ? /comment|inquiry/i : /review/i;
+    const match = (tabs || []).find((t) => needle.test(t.url || '')) || (tabs || [])[0];
+    if (match?.id) {
+      const patch = { active: true };
+      if (!needle.test(match.url || '')) patch.url = url;
+      chrome.tabs.update(match.id, patch);
+      if (match.windowId != null) chrome.windows.update(match.windowId, { focused: true });
+      return;
+    }
+    chrome.tabs.create({ url });
+  });
 }
 
 async function onBulkSubmit() {
@@ -652,6 +681,21 @@ async function onBulkSubmit() {
     return;
   }
 
+  if (typeof ssConfirmBulkUpload === 'function') {
+    ssConfirmBulkUpload({
+      count: pending.length,
+      onConfirm: () => executeBulkSubmit(pending),
+    });
+    return;
+  }
+  const ok = window.confirm(
+    `${pending.length}건이 바로 등록됩니다.\n각 답글을 확인한 뒤에만 올리세요.`
+  );
+  if (!ok) return;
+  await executeBulkSubmit(pending);
+}
+
+async function executeBulkSubmit(pending) {
   isBulkSubmitting = true;
   updateReviewStats();
   showSubmitProgress(0, pending.length, '일괄 등록 준비 중...');
@@ -791,10 +835,21 @@ async function onGenerate() {
 
   const reviewPrompt = String(settings.systemPrompt || '').trim();
   if (!reviewPrompt || (typeof isLegacyBuiltinPrompt === 'function' && isLegacyBuiltinPrompt(reviewPrompt))) {
-    showProgress(
-      '답글 지침이 없습니다. 사이드 패널 「리뷰」→ 답변 스타일에서 기존 답글로 말투를 먼저 만들어 주세요.',
-      true
-    );
+    if (typeof showUxToast === 'function') {
+      showUxToast({
+        title: '먼저 답변 스타일을 만들어 주세요',
+        body: '사이드 패널의 답변 스타일 설정으로 이동했어요. 기존 답글 2~3개만 고르면 됩니다.',
+        actionLabel: '스타일 설정 보기',
+        onAction: () => typeof requestStyleSetup === 'function' && requestStyleSetup('review'),
+        ms: 10000,
+      });
+    } else {
+      showProgress(
+        '답글 지침이 없습니다. 사이드 패널 「리뷰」→ 답변 스타일에서 기존 답글로 말투를 먼저 만들어 주세요.',
+        true
+      );
+    }
+    if (typeof requestStyleSetup === 'function') requestStyleSetup('review');
     return;
   }
 
@@ -933,6 +988,15 @@ function refreshJobStatus() {
           return;
         } else {
           showDoneProgress(job);
+          if (typeof showUxToast === 'function') {
+            showUxToast({
+              title: `답글 ${success}건 완성`,
+              body: '내용을 확인한 뒤 「판매자센터에서 직접 올리기」를 누르면 올리는 방법을 보여 드려요. 「한 번에 올리기」는 확인한 뒤에만 쓰세요.',
+              actionLabel: '검토하기',
+              onAction: () => switchTab('review'),
+              ms: 8000,
+            });
+          }
         }
         await loadDraftAndRender();
         switchTab('review');

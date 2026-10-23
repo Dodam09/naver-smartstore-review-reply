@@ -428,9 +428,9 @@ function updateReviewStats() {
   } else if (confirmPending > 0) {
     els.reviewSummary.textContent = `확인 필요 ${confirmPending}건이 있어요. 노란 카드의 반품·배송 초안을 검토해 주세요.`;
   } else if (filled === total && total > 0) {
-    els.reviewSummary.textContent = '답글 확인이 끝났어요. 아래 「답변란에 자동 채우기」를 누르세요.';
+    els.reviewSummary.textContent = '답글 확인이 끝났어요. 아래 「판매자센터에서 직접 올리기」를 누르세요.';
   } else {
-    els.reviewSummary.textContent = '답글을 읽고 필요하면 고친 뒤, 답변란에 자동 채우기를 켜 주세요.';
+    els.reviewSummary.textContent = '답글을 읽고 필요하면 고친 뒤, 「판매자센터에서 직접 올리기」를 누르세요.';
   }
 
   updateConfirmButton(filled, total);
@@ -439,15 +439,15 @@ function updateReviewStats() {
 function updateConfirmButton(filled, total) {
   if (!els.confirmBtn) return;
   if (applyEnabled) {
-    els.confirmBtn.disabled = true;
-    els.confirmBtn.textContent = '✓ 답변란 자동 채우기 켜짐';
+    els.confirmBtn.disabled = false;
+    els.confirmBtn.textContent = '판매자센터에서 직접 올리기';
     els.confirmBtn.classList.add('is-ready');
     return;
   }
   els.confirmBtn.classList.remove('is-ready');
   const ready = total > 0 && filled === total;
   els.confirmBtn.disabled = !ready;
-  els.confirmBtn.textContent = '답변란에 자동 채우기';
+  els.confirmBtn.textContent = '판매자센터에서 직접 올리기';
 }
 
 function updateReviewStatsFromUi() {
@@ -505,7 +505,7 @@ async function saveDraft(showMessage = false) {
     updates[APPLY_KEY] = false;
     applyEnabled = false;
     if (!showMessage) {
-      showBanner('답글을 고쳤어요. 다시 「답변란에 자동 채우기」를 눌러 주세요.', 'warn');
+      showBanner('답글을 고쳤어요. 다시 「판매자센터에서 직접 올리기」를 눌러 주세요.', 'warn');
     }
   }
 
@@ -568,9 +568,42 @@ async function onConfirmAll() {
   showBanner(
     `${draftItems.length}건 준비됐어요.` +
       (learned > 0 ? ` 수정·직접 작성 ${learned}건은 다음 비슷한 문의 지침으로 저장했습니다.` : '') +
-      `\n판매자센터 상품문의에서 [답글]을 누르면 자동으로 채워집니다.`,
+      `\n판매자센터 상품문의에서 [답글] → [확인]을 눌러 등록하세요.`,
     'info'
   );
+  if (typeof ssShowFillHowto === 'function') {
+    ssShowFillHowto({
+      channel: 'inquiry',
+      count: draftItems.length,
+      hasBulk: false,
+      onOpenSeller: () => openOrFocusSellerPage('inquiry'),
+    });
+  } else {
+    openOrFocusSellerPage('inquiry');
+  }
+}
+
+function openOrFocusSellerPage(kind) {
+  const url =
+    kind === 'inquiry'
+      ? 'https://sell.smartstore.naver.com/#/comment'
+      : 'https://sell.smartstore.naver.com/#/review/search';
+  chrome.tabs.query({ url: 'https://sell.smartstore.naver.com/*' }, (tabs) => {
+    if (chrome.runtime.lastError) {
+      chrome.tabs.create({ url });
+      return;
+    }
+    const needle = kind === 'inquiry' ? /comment|inquiry/i : /review/i;
+    const match = (tabs || []).find((t) => needle.test(t.url || '')) || (tabs || [])[0];
+    if (match?.id) {
+      const patch = { active: true };
+      if (!needle.test(match.url || '')) patch.url = url;
+      chrome.tabs.update(match.id, patch);
+      if (match.windowId != null) chrome.windows.update(match.windowId, { focused: true });
+      return;
+    }
+    chrome.tabs.create({ url });
+  });
 }
 
 function updateReviewBanner() {
@@ -628,10 +661,21 @@ async function onGenerate() {
   }
 
   if (!isInquiryStyleConfigured(settings)) {
-    showProgress(
-      '응대 지침이 없습니다. 사이드 패널 「상품문의」→ 답변 스타일에서 기존 답글로 지침서를 먼저 만들어 주세요.',
-      true
-    );
+    if (typeof showUxToast === 'function') {
+      showUxToast({
+        title: '먼저 응대 지침을 만들어 주세요',
+        body: '사이드 패널의 답변 스타일 설정으로 이동했어요. 기존 답변 2건만 고르면 됩니다.',
+        actionLabel: '스타일 설정 보기',
+        onAction: () => typeof requestStyleSetup === 'function' && requestStyleSetup('inquiry'),
+        ms: 10000,
+      });
+    } else {
+      showProgress(
+        '응대 지침이 없습니다. 사이드 패널 「상품문의」→ 답변 스타일에서 기존 답글로 지침서를 먼저 만들어 주세요.',
+        true
+      );
+    }
+    if (typeof requestStyleSetup === 'function') requestStyleSetup('inquiry');
     return;
   }
 
@@ -794,6 +838,15 @@ function refreshJobStatus() {
         }
 
         showDoneProgress(job);
+        if (typeof showUxToast === 'function') {
+          showUxToast({
+            title: `답글 ${success}건 완성`,
+            body: '내용을 확인한 뒤 「판매자센터에서 직접 올리기」를 누르면, [답글] → [확인]으로 올리는 방법을 보여 드려요.',
+            actionLabel: '검토하기',
+            onAction: () => switchTab('review'),
+            ms: 7000,
+          });
+        }
         await loadDraftAndRender();
         await syncInquiryApplyFromDraft();
         switchTab('review');

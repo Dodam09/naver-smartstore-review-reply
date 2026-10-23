@@ -45,6 +45,17 @@ async function init() {
   els.selectAllBtn.addEventListener('click', selectAllReadable);
   els.clearBtn.addEventListener('click', clearSelection);
   els.analyzeBtn.addEventListener('click', onAnalyzeSelected);
+
+  if (typeof showUxToast === 'function') {
+    showUxToast({
+      title: '이 화면은 말투 만드는 곳이에요',
+      body: '기존에 단 답글 2개 이상을 고르면, 그 말투로 앞으로의 답글 초안이 나갑니다.',
+      actionLabel: '답글 목록 불러오기',
+      onAction: () => els.reloadBtn?.click(),
+      hintId: 'style-pick-why',
+      ms: 12000,
+    });
+  }
 }
 
 async function loadCatalog() {
@@ -270,11 +281,24 @@ async function onAnalyzeSelected() {
 
     await storageSet({ [CONFIG.SETTINGS_KEY]: confirm.patch });
 
+    if (confirm.cleared) {
+      setBanner('지침을 모두 지웠습니다. 답글 만들기 전에 다시 만들면 됩니다.', 'warn');
+      return;
+    }
+
     setBanner(
-      `✓ 새 스타일 적용 · 선택 ${response.sampleCount || samples.length}개로 「내 스타일」이 저장되었습니다.\n` +
-        '[리뷰 답글 작업]에서 바로 답변 생성하면 자동 적용됩니다.',
+      `✓ 새 스타일 적용 · 선택 ${response.sampleCount || samples.length}개로 「내 스타일」이 저장되었습니다.`,
       'success'
     );
+    if (typeof showUxGuide === 'function') {
+      showUxGuide({
+        title: '말투 지침이 저장됐어요',
+        body: '이제 이 지침으로 리뷰 답글 초안을 만들 수 있어요.',
+        actionLabel: '이 지침으로 답글 만들러 가기',
+        tone: 'ok',
+        onAction: () => typeof openWorkAfterStyle === 'function' && openWorkAfterStyle('review'),
+      });
+    }
   } catch (err) {
     setBanner(`분석 오류: ${err.message}`, 'error');
   } finally {

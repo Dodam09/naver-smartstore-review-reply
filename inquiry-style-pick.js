@@ -57,6 +57,17 @@ async function init() {
       applyCatalogProgress(message.payload || {});
     }
   });
+
+  if (typeof showUxToast === 'function') {
+    showUxToast({
+      title: '이 화면은 응대 지침 만드는 곳이에요',
+      body: '기존에 단 문의 답변 2건 이상을 고르면, 그 안내 방식으로 앞으로의 초안이 나갑니다.',
+      actionLabel: '답변 목록 불러오기',
+      onAction: () => els.reloadBtn?.click(),
+      hintId: 'inquiry-style-pick-why',
+      ms: 12000,
+    });
+  }
 }
 
 function setProgress(percent, label, stage) {
@@ -355,12 +366,26 @@ async function onAnalyzeSelected() {
 
     await storageSet({ [CONFIG.SETTINGS_KEY]: confirm.patch });
 
+    if (confirm.cleared) {
+      setProgress(100, '지침을 모두 지웠습니다.', 'done');
+      setBanner('지침을 모두 지웠습니다. 답글 만들기 전에 다시 만들면 됩니다.', 'warn');
+      return;
+    }
+
     setProgress(100, `지침서 저장 완료 · ${response.sampleCount || pairs.length}건 반영`, 'done');
     setBanner(
-      `✓ 응대 지침서 저장 · ${response.sampleCount || pairs.length}건 실제 답변을 반영했습니다.\n` +
-        '[문의 답글 작업]에서 바로 답변 생성하면 이 지침이 적용됩니다.',
+      `✓ 응대 지침서 저장 · ${response.sampleCount || pairs.length}건 실제 답변을 반영했습니다.`,
       'success'
     );
+    if (typeof showUxGuide === 'function') {
+      showUxGuide({
+        title: '응대 지침서가 저장됐어요',
+        body: '이제 이 지침으로 문의 답글 초안을 만들 수 있어요.',
+        actionLabel: '이 지침으로 답글 만들러 가기',
+        tone: 'ok',
+        onAction: () => typeof openWorkAfterStyle === 'function' && openWorkAfterStyle('inquiry'),
+      });
+    }
   } catch (err) {
     setBanner(`분석 오류: ${err.message}`, 'error');
     stopAnalyzeProgress();

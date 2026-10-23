@@ -30,6 +30,23 @@
     }
     h1 { margin: 0 0 6px; font-size: 24px; font-weight: 800; }
     .sub { margin: 0; color: #666; font-size: 14px; line-height: 1.5; }
+    .page-why {
+      margin: 14px 0 0;
+      padding: 14px 16px;
+      background: #ecfdf5;
+      border: 1px solid #a7f3d0;
+      border-radius: 14px;
+      color: #0f172a;
+    }
+    .page-why-kicker {
+      margin: 0 0 4px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .04em;
+      color: #047857;
+    }
+    .page-why-title { margin: 0 0 8px; font-size: 15px; font-weight: 700; line-height: 1.45; }
+    .page-why ol { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.7; color: #334155; }
     .toolbar {
       max-width: 960px;
       margin: 0 auto;
@@ -214,8 +231,17 @@
           <button type="button" class="app-brand-back" data-open-side-panel>사이드 패널로</button>
         </span>
       </div>
-      <h1>답글 스타일 선택</h1>
-      <p class="sub">판매자센터에 등록한 답글 중 원하는 것만 골라 AI 톤(내 스타일)을 만듭니다. 답글 등록 목록을 찾은 뒤, 각 답글 본문을 불러옵니다. (최대 2년, 90일씩 검색)</p>
+      <h1>내 말투 만들기</h1>
+      <p class="sub">리뷰 답글 초안을 내 말투로 만들려면, 먼저 이 화면에서 지침을 만들어야 합니다.</p>
+      <div class="page-why">
+        <p class="page-why-kicker">왜 이 화면인가요?</p>
+        <p class="page-why-title">예전에 단 답글을 골라 <strong>내 말투 지침</strong>을 만듭니다.</p>
+        <ol>
+          <li>판매자센터에서 기존 답글을 불러옵니다.</li>
+          <li>내 말투에 가까운 답글 <strong>2개 이상</strong>을 고릅니다.</li>
+          <li>저장이 끝나면 그 지침으로 바로 답글 초안을 만들 수 있습니다.</li>
+        </ol>
+      </div>
     </div>
   </header>
 
@@ -246,6 +272,7 @@
 
   <script src="config.js"></script>
   <script src="lib/app-shell.js"></script>
+  <script src="lib/ux-guide.js"></script>
   <script src="lib/ai-proxy.js"></script>
   <script src="lib/lookup-days.js"></script>
   <script src="lib/tone-presets.js"></script>

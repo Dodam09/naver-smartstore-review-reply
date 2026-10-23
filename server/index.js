@@ -49,6 +49,9 @@ import {
   buildProductFactLookupPrompt,
   buildProductSearchKeywords,
   buildReviewUserContent,
+  appendReplyHardRules,
+  sanitizeLearnedStylePrompt,
+  scrubReplyPlaceholders,
   inquiryNeedsWebSearch,
   normalizeSamples,
   parseProductFactLookup,
@@ -825,7 +828,7 @@ app.post('/api/analyze-tone', authenticate, async (req, res) => {
 
     res.json({
       ok: true,
-      prompt: prompt.trim(),
+      prompt: sanitizeLearnedStylePrompt(prompt.trim()),
       sampleCount: inquiryPairs.length >= 2 ? inquiryPairs.length : normalized.length,
       usage: usage || null,
     });
@@ -910,7 +913,7 @@ app.post('/api/generate-reply', authenticate, async (req, res) => {
           })
         : buildReviewUserContent(row);
 
-    let text = await generateWithSystem(systemPrompt, userContent, {
+    let text = await generateWithSystem(appendReplyHardRules(systemPrompt, row), userContent, {
       model,
       temperature: webSearch ? 0.3 : 0.35,
       googleSearch: false,
@@ -935,6 +938,8 @@ app.post('/api/generate-reply', authenticate, async (req, res) => {
         if (!grounding.grounded) text = '';
       }
     }
+
+    if (text) text = scrubReplyPlaceholders(text);
 
     let usage;
     if (req.auth.mode === 'user') {

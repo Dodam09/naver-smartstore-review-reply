@@ -75,10 +75,6 @@ function getCurrentPrompt() {
 
 async function onSave() {
   const prompt = getCurrentPrompt();
-  if (!prompt) {
-    setBanner('지침을 1개 이상 남겨 주세요.', 'warn');
-    return;
-  }
 
   els.saveBtn.disabled = true;
   els.saveBtn.textContent = '저장 중...';
@@ -88,29 +84,55 @@ async function onSave() {
     const settings = data[CONFIG.SETTINGS_KEY] || {};
     const presets = settings[storageKeys.customPresets] || [];
     const learned = presets.find((p) => p.id === learnedPresetId);
-    const nextLearned = {
-      id: learnedPresetId,
-      name:
-        learned?.name ||
-        (isInquiry ? '응대 지침서' : '내 스타일 (학습)'),
-      prompt,
-      updatedAt: Date.now(),
-    };
-    const nextSettings = {
-      ...settings,
-      [storageKeys.customPresets]: [
-        nextLearned,
-        ...presets.filter((p) => p.id !== learnedPresetId),
-      ],
-      [storageKeys.systemPrompt]: prompt,
-      [storageKeys.tonePresetId]:
-        settings[storageKeys.tonePresetId] || learnedPresetId,
-    };
+    const flowKey = isInquiry ? 'inquirySampleFlow' : 'sampleFlow';
+    const modeKey = isInquiry ? 'inquiryStyleActiveMode' : 'styleActiveMode';
+
+    let nextSettings;
+    if (!prompt) {
+      const flow = settings[flowKey] || {};
+      nextSettings = {
+        ...settings,
+        [storageKeys.customPresets]: presets.filter((p) => p.id !== learnedPresetId),
+        [storageKeys.systemPrompt]: '',
+        [storageKeys.tonePresetId]: CUSTOM_PRESET_ID,
+        [flowKey]: {
+          ...flow,
+          analyzedAt: null,
+          analyzedCount: 0,
+          analyzedFingerprint: '',
+        },
+        [modeKey]: settings[modeKey] || 'pick',
+      };
+    } else {
+      const nextLearned = {
+        id: learnedPresetId,
+        name:
+          learned?.name ||
+          (isInquiry ? '응대 지침서' : '내 스타일 (학습)'),
+        prompt,
+        updatedAt: Date.now(),
+      };
+      nextSettings = {
+        ...settings,
+        [storageKeys.customPresets]: [
+          nextLearned,
+          ...presets.filter((p) => p.id !== learnedPresetId),
+        ],
+        [storageKeys.systemPrompt]: prompt,
+        [storageKeys.tonePresetId]:
+          settings[storageKeys.tonePresetId] || learnedPresetId,
+      };
+    }
 
     await storageSet({ [CONFIG.SETTINGS_KEY]: nextSettings });
     initialPrompt = prompt;
     settingsSnapshot = nextSettings;
-    setBanner('저장했습니다. 사이드패널에도 바로 반영됩니다.', 'success');
+    setBanner(
+      prompt
+        ? '저장했습니다. 사이드패널에도 바로 반영됩니다.'
+        : '지침을 모두 지웠습니다. 답글 만들기 전에 다시 만들면 됩니다.',
+      prompt ? 'success' : 'warn'
+    );
   } catch (err) {
     setBanner(`저장 실패: ${err.message || err}`, 'error');
   } finally {

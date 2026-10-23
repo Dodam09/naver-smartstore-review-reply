@@ -1,4 +1,4 @@
-importScripts('config.js', 'lib/lookup-days.js', 'lib/tone-presets.js', 'lib/inquiry-reference.js', 'lib/inquiry-search.js', 'lib/ai-proxy.js', 'lib/analytics.js');
+importScripts('config.js', 'lib/lookup-days.js', 'lib/tone-presets.js', 'lib/inquiry-reference.js', 'lib/inquiry-search.js', 'lib/reply-scrub.js', 'lib/ai-proxy.js', 'lib/analytics.js');
 
 let isRunning = false;
 let isInquiryRunning = false;
@@ -78,6 +78,26 @@ async function notifyManualInquiryNeeded(count) {
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === 'FOCUS_STYLE_SETUP' || message.type === 'OPEN_WORK_AFTER_STYLE') {
+    (async () => {
+      const channel = message.channel === 'inquiry' ? 'inquiry' : 'review';
+      const key = message.type === 'FOCUS_STYLE_SETUP' ? 'uxFocusStyle' : 'uxAfterStyle';
+      try {
+        await chrome.storage.local.set({ [key]: { channel, at: Date.now() } });
+        let windowId = _sender.tab?.windowId;
+        if (windowId == null) {
+          const win = await chrome.windows.getCurrent();
+          windowId = win?.id;
+        }
+        if (windowId != null) await chrome.sidePanel.open({ windowId });
+        sendResponse({ ok: true });
+      } catch (err) {
+        sendResponse({ ok: false, error: err?.message || String(err) });
+      }
+    })();
+    return true;
+  }
+
   if (message.type === 'OPEN_SIDE_PANEL') {
     (async () => {
       try {
@@ -988,6 +1008,7 @@ async function analyzeToneSamples(payload) {
 - 분류는 [말투·표현] [응대 원칙] [답변 방식] [상품·안내] [기타] 중 하나만 사용
 - 5~12개 지침
 - "복붙 티 나지 않게", "문의 내용의 질문에 구체적으로 답변"을 반드시 포함
+- 지침에는 말투·형식만 적을 것. 샘플의 스토어명·제품명 고유명과 자리표시는 넣지 말 것
 - 공개된 상품 정보는 문의 질문에 맞게 검색해 확인된 사실을 답하도록 지시. 확인되지 않은 사실은 지어내지 말 것
 - 리뷰 감사 인사 위주가 아닌, 문의 Q&A·안내 톤으로 작성하도록 지시
 - 샘플에 없는 이모지·유행어를 무리하게 추가하지 말 것
@@ -1004,6 +1025,7 @@ ${sampleBlock}`
 - 분류는 [말투·표현] [응대 원칙] [답변 방식] [상품·안내] [기타] 중 하나만 사용
 - 5~12개 지침
 - "복붙 티 나지 않게", "리뷰 내용에 구체적으로 반응"을 반드시 포함
+- 지침에는 말투·형식만 적을 것. 샘플의 스토어명·제품명 고유명과 자리표시는 넣지 말 것
 - 샘플에 없는 이모지·유행어를 무리하게 추가하지 말 것
 - 스마트스토어 판매자 답글임을 명시
 
@@ -1016,7 +1038,7 @@ ${sampleBlock}`;
   }
 
   return {
-    prompt: prompt.trim(),
+    prompt: sanitizeLearnedStylePrompt(prompt.trim()),
     sampleCount: normalized.length,
   };
 }
@@ -1077,16 +1099,18 @@ async function generateReply(apiKey, systemPrompt, row, model, signal) {
       signal
     );
     await trackAnalyticsEvent('generate_success', { channel: 'review' });
-    return data.text;
+    return scrubGeneratedReply(data.text);
   }
 
   const userContent = [
-    row.product && `상품명: ${row.product}`,
+    row.product && `이번 상품명: ${row.product}`,
     row.reviewType && `리뷰구분: ${row.reviewType}`,
     row.rating && `구매자평점: ${row.rating}점`,
     row.writer && `작성자: ${row.writer}`,
     row.option && `옵션: ${row.option}`,
     `리뷰 내용:\n${row.content}`,
+    '지침은 말투만 따르세요. 샘플·지침에 있는 스토어명·제품명은 복사하지 마세요.',
+    '고유명은 이번 상품명과 리뷰에 실제로 있는 것만 쓰세요. 자리표시는 쓰지 마세요.',
     '위 리뷰에 대한 판매자 답글만 출력하세요. 따옴표나 접두어 없이 본문만.',
   ]
     .filter(Boolean)
@@ -1102,7 +1126,7 @@ async function generateReply(apiKey, systemPrompt, row, model, signal) {
     signal,
     body: JSON.stringify({
       systemInstruction: {
-        parts: [{ text: systemPrompt }],
+        parts: [{ text: appendReplyHardRulesLocal(systemPrompt, row) }],
       },
       contents: [
         {
@@ -1132,7 +1156,7 @@ async function generateReply(apiKey, systemPrompt, row, model, signal) {
     .join('')
     .trim();
   if (!text) throw new Error('빈 응답');
-  return text;
+  return scrubGeneratedReply(text);
 }
 
 async function runTestInquiryReply(payload = {}) {
@@ -1222,7 +1246,7 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
       signal
     );
     await trackAnalyticsEvent('generate_success', { channel: 'inquiry' });
-    return data.text;
+    return scrubGeneratedReply(data.text);
   }
 
   const refBlock =
@@ -1301,11 +1325,15 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
     refBlock,
     factBlock,
     missingBlock,
-    row.product && `상품명: ${row.product}`,
+    row.product && `이번 상품명: ${row.product}`,
     row.productNo && `상품번호: ${row.productNo}`,
     row.writer && `문의자: ${row.writer}`,
     row.secret != null && `비밀문의: ${row.secret ? '예' : '아니오'}`,
     `문의 내용:\n${row.content}`,
+    '작성 규칙이 시스템 말투보다 우선합니다. 말투만 맞추고, 내용은 과거 판매자 답변을 따르세요.',
+    '고객 문의 문장을 따옴표로 다시 쓰지 마세요. "~라고 하셔서"도 쓰지 마세요. 물은 내용은 내 말로 받아 적으세요.',
+    '지침은 말투만 따르세요. 샘플·지침의 스토어명·제품명은 복사하지 마세요.',
+    '고유명은 이번 상품명과 문의에 실제로 있는 것만 쓰세요. 자리표시는 출력하지 마세요.',
     '작성 규칙:',
     ...buildInquiryAnswerRules({
       webSearch: false,
@@ -1326,7 +1354,7 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
 
   const body = {
     systemInstruction: {
-      parts: [{ text: systemPrompt }],
+      parts: [{ text: appendReplyHardRulesLocal(systemPrompt, row) }],
     },
     contents: [
       {
@@ -1373,7 +1401,7 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
     signal,
     systemPrompt
   );
-  return text;
+  return scrubGeneratedReply(text);
 }
 
 async function groundInquiryReplyText(apiKey, row, draft, references, verifiedFacts, model, signal, guidelines = '') {

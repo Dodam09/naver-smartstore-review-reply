@@ -40,6 +40,7 @@ export function buildInquiryPlaybookPrompt(pairs) {
 - 샘플에 없는 사실·수치·절차는 지어내지 말 것
 - 복붙 티 나지 않게, 스마트스토어 상품문의 판매자 답글임을 명시
 - 고객 문의/리뷰 문장을 따옴표로 다시 쓰지 말 것. "~라는 말씀에"도 쓰지 말고, 내용은 내 말로 받아 적을 것
+- 지침에는 말투·안내 방식만 적을 것. 샘플의 스토어명·제품명 고유명과 [스토어 이름] 같은 자리표시는 넣지 말 것
 
 실제 문의/답변:
 ${block}`;
@@ -72,6 +73,8 @@ export function buildAnalyzeMetaPrompt(context, normalizedSamples) {
 - 분류는 [말투·표현] [응대 원칙] [답변 방식] [상품·안내] [기타] 중 하나만 사용
 - 5~12개 지침
 - "복붙 티 나지 않게", "문의 내용의 질문에 구체적으로 답변", "고객 문장을 따옴표로 인용하지 말 것"을 반드시 포함
+- 지침에는 말투·형식만 적을 것. 샘플의 스토어명·제품명·브랜드 등 고유명은 복사하지 말 것
+- [스토어 이름] 같은 자리표시도 넣지 말 것. 인사에 이름이 필요하면 "작성 시점의 이번 상품명에 있는 이름을 쓴다"고만 적을 것
 - 공개된 상품 정보는 문의 질문에 맞게 검색해 확인된 사실을 답하도록 지시. 확인되지 않은 사실은 지어내지 말 것
 - 리뷰 감사 인사 위주가 아닌, 문의 Q&A·안내 톤으로 작성하도록 지시
 - 샘플에 없는 이모지·유행어를 무리하게 추가하지 말 것
@@ -90,6 +93,8 @@ ${sampleBlock}`;
 - 분류는 [말투·표현] [응대 원칙] [답변 방식] [상품·안내] [기타] 중 하나만 사용
 - 5~12개 지침
 - "복붙 티 나지 않게", "리뷰 내용에 구체적으로 반응", "고객 문장을 따옴표로 인용하지 말 것"을 반드시 포함
+- 지침에는 말투·형식만 적을 것. 샘플의 스토어명·제품명·브랜드 등 고유명은 복사하지 말 것
+- [스토어 이름] 같은 자리표시도 넣지 말 것. 인사에 이름이 필요하면 "작성 시점의 이번 상품명에 있는 이름을 쓴다"고만 적을 것
 - 샘플에 없는 이모지·유행어를 무리하게 추가하지 말 것
 - 스마트스토어 판매자 답글임을 명시
 
@@ -97,14 +102,62 @@ ${sampleBlock}`;
 ${sampleBlock}`;
 }
 
+export function inferProductBrand(product) {
+  return buildProductSearchKeywords(product).brand || '';
+}
+
+const STORE_PLACEHOLDER_RE =
+  /[\[［【「『{(]\s*(?:스마트\s*)?(?:스토어|쇼핑몰|샵|숍|shop|store)\s*(?:이름|명)?\s*[\]］】」』})]|[\[［【「『{(]\s*(?:브랜드|상호|가게|판매자)(?:\s*(?:이름|명))?\s*[\]］】」』})]/gi;
+
+function stripStorePlaceholders(text, replacement = '') {
+  return String(text || '')
+    .replace(STORE_PLACEHOLDER_RE, replacement)
+    .replace(
+      /[\[［【「『{(]\s*[^\]］】」』})\n]{0,24}(?:스마트\s*)?(?:스토어|쇼핑몰|브랜드|상호|샵|숍|가게|판매자|shop|store)[^\]］】」』})\n]{0,12}[\]］】」』})]/gi,
+      replacement
+    );
+}
+
+export function sanitizeLearnedStylePrompt(prompt) {
+  return stripStorePlaceholders(prompt, '이번 상품명에 있는 이름')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
+export function scrubReplyPlaceholders(text) {
+  let out = stripStorePlaceholders(text, '');
+  out = out.replace(/안녕하세요,?\s*(입니다|예요|이에요)/g, '안녕하세요');
+  return out.replace(/[ \t]{2,}/g, ' ').replace(/ ,/g, ',').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+export function appendReplyHardRules(systemPrompt, row = {}) {
+  const product = String(row?.product || '').trim();
+  return [
+    sanitizeLearnedStylePrompt(systemPrompt),
+    '',
+    '[말투와 내용의 구분 — 위 지침보다 우선]',
+    '- 위 지침은 말투·문장 길이·이모지·호응 방식만 따른다.',
+    '- 지침이나 샘플에 적힌 스토어명·제품명·브랜드는 이번 답글에 복사하지 않는다.',
+    '- 고유명은 이번 입력의 상품명과 리뷰/문의 본문에 실제로 있는 것만 쓴다.',
+    '- [스토어 이름], [스마트스토어 이름] 같은 자리표시는 출력하지 않는다.',
+    product
+      ? `- 상품을 언급할 때는 이번 상품 범위에서만 말한다: ${product}`
+      : '- 상품명이 없으면 특정 제품명을 지어내지 않는다.',
+    '- 인사에 이름을 넣는 말투여도, 상품명에서 확인되는 이름이 없으면 이름 없이 인사한다.',
+  ].join('\n');
+}
+
 export function buildReviewUserContent(row) {
   return [
-    row.product && `상품명: ${row.product}`,
+    row.product && `이번 상품명: ${row.product}`,
     row.reviewType && `리뷰구분: ${row.reviewType}`,
     row.rating && `구매자평점: ${row.rating}점`,
     row.writer && `작성자: ${row.writer}`,
     row.option && `옵션: ${row.option}`,
     `리뷰 내용:\n${row.content}`,
+    '지침은 말투만 따르세요. 샘플·지침에 있는 스토어명·제품명은 복사하지 마세요.',
+    '고유명은 이번 상품명과 리뷰에 실제로 있는 것만 쓰세요.',
+    '인사에 이름을 넣는 말투면 상품명에서 확인되는 이름만 쓰고, 자리표시는 쓰지 마세요.',
     '고객 리뷰 문장을 따옴표로 다시 쓰지 마세요. "~라는 말씀에"도 쓰지 마세요. 내용은 내 말로 짧게 받아 적으세요.',
     '위 리뷰에 대한 판매자 답글만 출력하세요. 따옴표나 접두어 없이 본문만.',
   ]
@@ -322,6 +375,9 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
     '- 죄송·사과 문구는 넣지 마세요. 공감은 짧게 하고 바로 안내하세요.',
     '- "상세페이지를 확인하세요", "다시 남겨 주세요"로 답을 넘기지 마세요.',
     '- 질문하지 않은 스펙 목록은 나열하지 마세요.',
+    '- 고객 문의 문장을 따옴표로 다시 쓰지 마세요.',
+    '- 지침·샘플의 스토어명·제품명은 복사하지 마세요. 고유명은 이번 상품명과 문의에 있는 것만 쓰세요.',
+    '- [스토어 이름], [스마트스토어 이름] 같은 자리표시는 출력하지 마세요.',
   ];
   const factRules = [
     '- 이 문의는 상품 사실(스펙·구성·호환·용량 등)이 필요합니다. 확인된 사실만 쓰세요.',
@@ -360,13 +416,15 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
     refBlock,
     factBlock,
     missingBlock,
-    row.product && `상품명: ${row.product}`,
+    row.product && `이번 상품명: ${row.product}`,
     row.productNo && `상품번호: ${row.productNo}`,
     row.writer && `문의자: ${row.writer}`,
     row.secret != null && `비밀문의: ${row.secret ? '예' : '아니오'}`,
     `문의 내용:\n${row.content}`,
     '작성 규칙이 시스템 말투보다 우선합니다. 말투만 맞추고, 내용은 과거 판매자 답변을 따르세요.',
     '고객 문의 문장을 따옴표로 다시 쓰지 마세요. "~라고 하셔서"도 쓰지 마세요. 물은 내용은 내 말로 받아 적으세요.',
+    '지침은 말투만 따르세요. 샘플·지침의 스토어명·제품명은 복사하지 마세요.',
+    '고유명은 이번 상품명과 문의에 실제로 있는 것만 쓰세요. 자리표시는 출력하지 마세요.',
     '작성 규칙:',
     ...rules,
     '위 상품문의에 대한 판매자 답글만 출력하세요. 따옴표나 접두어 없이 본문만.',
@@ -460,13 +518,14 @@ export function buildInquiryGroundingRewritePrompt(row, draftReply, references =
     '[허용된 근거 — 여기 없는 구체 사실은 답에 넣지 마세요]',
     allowed || '(근거 없음)',
     '',
-    `상품명: ${row?.product || '(없음)'}`,
+    `이번 상품명: ${row?.product || '(없음)'}`,
     `문의 내용:\n${row?.content || ''}`,
     '',
     '[수정 전 초안]',
     String(draftReply || '').trim(),
     '',
     '고객 문의 문장을 따옴표로 다시 쓰지 마세요.',
+    '샘플·지침의 스토어명·제품명은 복사하지 마세요. 자리표시는 쓰지 마세요.',
     '수정된 판매자 답글만 출력하세요. 따옴표나 설명 없이 본문만.',
   ].join('\n');
 }

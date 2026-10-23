@@ -1796,6 +1796,22 @@
       line-height: 1.45;
     }
 
+    .style-next-cta {
+      display: block;
+      width: 100%;
+      margin: 10px 0 0;
+      border: 0;
+      border-radius: 10px;
+      padding: 12px 14px;
+      background: #03c75a;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .style-next-cta[hidden] { display: none !important; }
+
   </style>
 
 </head>
@@ -2158,7 +2174,7 @@
 
       <button type="button" class="mode-btn active" id="inquiryModeWork">답변할 문의 가져오기</button>
 
-      <button type="button" class="mode-btn style-tab" id="inquiryModeStyle">답변 스타일 설정</button>
+      <button type="button" class="mode-btn style-tab" id="inquiryModeStyle" data-tour="inquiry-style">답변 스타일 설정</button>
 
     </div>
 
@@ -2220,7 +2236,7 @@
 
           <select id="inquiryFetchDays"></select>
 
-          <button id="inquiryFetchBtn" class="fetch" type="button">가져오기</button>
+          <button id="inquiryFetchBtn" class="fetch" type="button" data-tour="inquiry-fetch">가져오기</button>
 
         </div>
 
@@ -2236,9 +2252,9 @@
 
     <div id="inquiryStepCompose" class="panel-step">
 
-      <button id="inquirySelectBtn" class="select compose-cta" type="button" disabled>답글 만들기 시작 →</button>
+      <button id="inquirySelectBtn" class="select compose-cta" type="button" disabled data-tour="inquiry-compose">답글 만들기 시작 →</button>
 
-      <div class="hint" id="inquiryApplyHint">답글을 만든 뒤, 작업 화면에서 「답변란에 자동 채우기」를 누르면 [답글] 클릭 시 답변란에 자동으로 채워집니다.</div>
+      <div class="hint" id="inquiryApplyHint">답글을 만든 뒤, 작업 화면에서 「판매자센터에서 직접 올리기」를 누르면 [답글] 클릭 시 답변란에 자동으로 채워집니다.</div>
 
       <button type="button" class="step-back" id="inquiryBackFetchBtn">← 가져오기로 돌아가기</button>
 
@@ -2595,6 +2611,8 @@
   <script src="lib/sample-replies.js"></script>
 
   <script src="lib/style-channel.js"></script>
+
+  <script src="lib/ux-guide.js"></script>
 
   <script src="lib/onboarding-tour.js"></script>
 

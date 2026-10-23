@@ -16,6 +16,7 @@
   let applyEnabled = false;
   let scanTimer = null;
   let clickWatchAttached = false;
+  let readyBannerShown = false;
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
@@ -24,6 +25,10 @@
     }
     if (changes[APPLY_ENABLED_KEY]) {
       applyEnabled = !!changes[APPLY_ENABLED_KEY].newValue;
+      if (applyEnabled && !changes[APPLY_ENABLED_KEY].oldValue) {
+        readyBannerShown = false;
+        showApplyReadyBanner();
+      }
     }
     syncWatchState();
   });
@@ -39,8 +44,10 @@
       applyEnabled && cachedReplies && Object.keys(cachedReplies).length > 0;
     if (active) {
       ensureClickWatching();
+      if (typeof ssStartReplyPulseWatch === 'function') ssStartReplyPulseWatch();
     } else {
       teardownWatching();
+      if (typeof ssStopReplyPulseWatch === 'function') ssStopReplyPulseWatch();
     }
   }
 
@@ -146,7 +153,47 @@
     setTextareaValue(textarea, reply);
     root.setAttribute(FILLED_ATTR, '1');
     root.setAttribute(FILLED_ID_ATTR, reviewId);
-    showToast(`글번호 ${reviewId} 답변 자동 입력 완료`, 'ok');
+    if (typeof ssShowFillToast === 'function') {
+      ssShowFillToast({
+        title: '답변이 채워졌어요',
+        body: '아직 등록 전입니다. 초록으로 깜빡이는 [확인]을 눌러야 답글이 올라갑니다.',
+      });
+    } else {
+      showToast(`글번호 ${reviewId} 답변 자동 입력 완료`, 'ok');
+    }
+    if (typeof ssHighlightConfirmButton === 'function') {
+      ssHighlightConfirmButton(root);
+    }
+  }
+
+  window.addEventListener('hashchange', () => {
+    if (applyEnabled) showApplyReadyBanner();
+  });
+
+  function showApplyReadyBanner() {
+    if (!isReviewPage() || readyBannerShown) return;
+    readyBannerShown = true;
+    const count = uniqueReplyCount(cachedReplies);
+    if (typeof ssStartReplyPulseWatch === 'function') ssStartReplyPulseWatch();
+    if (typeof ssShowFillToast === 'function') {
+      ssShowFillToast({
+        title: count ? `답변 ${count}건 준비됨 · 리뷰내용을 누르세요` : '자동 채우기가 켜졌어요',
+        body: '초록으로 깜빡이는 파란 「리뷰내용」을 누르면 창이 열리고 채워집니다. 그다음 [확인]을 눌러야 등록됩니다.',
+        ms: 9000,
+      });
+    }
+  }
+
+  function isReviewPage() {
+    return /review/i.test(`${location.hash} ${location.pathname} ${location.href}`);
+  }
+
+  function uniqueReplyCount(map) {
+    const ids = new Set();
+    for (const key of Object.keys(map || {})) {
+      ids.add(String(key).replace(/[^\d]/g, '') || key);
+    }
+    return ids.size;
   }
 
   function extractReviewId(root) {

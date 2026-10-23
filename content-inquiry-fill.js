@@ -23,6 +23,7 @@
   let isScanning = false;
   let lastScanAt = 0;
   let openIdBurstTimer = null;
+  let readyBannerShown = false;
   const warnedIds = new Set();
   const MIN_SCAN_INTERVAL_MS = 500;
 
@@ -33,6 +34,10 @@
     }
     if (changes[APPLY_ENABLED_KEY]) {
       applyEnabled = !!changes[APPLY_ENABLED_KEY].newValue;
+      if (applyEnabled && !changes[APPLY_ENABLED_KEY].oldValue) {
+        readyBannerShown = false;
+        showApplyReadyBanner();
+      }
     }
     if (changes[PARSE_CACHE_KEY]) {
       cachedInquiryRows = changes[PARSE_CACHE_KEY].newValue?.inquiryRows || [];
@@ -59,8 +64,13 @@
   function syncWatchState() {
     const active =
       applyEnabled && cachedReplies && Object.keys(cachedReplies).length > 0;
-    if (active) ensureClickWatching();
-    else teardownWatching();
+    if (active) {
+      ensureClickWatching();
+      if (typeof ssStartReplyPulseWatch === 'function') ssStartReplyPulseWatch();
+    } else {
+      teardownWatching();
+      if (typeof ssStopReplyPulseWatch === 'function') ssStopReplyPulseWatch();
+    }
   }
 
   function ensureClickWatching() {
@@ -277,7 +287,47 @@
       root.setAttribute(FILLED_ATTR, '1');
       root.setAttribute(FILLED_ID_ATTR, id);
     }
-    showToast(`문의번호 ${id} 답변 자동 입력 완료`, 'ok');
+    if (typeof ssShowFillToast === 'function') {
+      ssShowFillToast({
+        title: '답변이 채워졌어요',
+        body: '아직 등록 전입니다. 초록으로 깜빡이는 [확인]을 눌러야 답글이 올라갑니다.',
+      });
+    } else {
+      showToast(`문의번호 ${id} 답변 자동 입력 완료`, 'ok');
+    }
+    if (typeof ssHighlightConfirmButton === 'function') {
+      ssHighlightConfirmButton(root);
+    }
+  }
+
+  window.addEventListener('hashchange', () => {
+    if (applyEnabled) showApplyReadyBanner();
+  });
+
+  function showApplyReadyBanner() {
+    if (!isInquiryPage() || readyBannerShown) return;
+    readyBannerShown = true;
+    const count = uniqueReplyCount(cachedReplies);
+    if (typeof ssStartReplyPulseWatch === 'function') ssStartReplyPulseWatch();
+    if (typeof ssShowFillToast === 'function') {
+      ssShowFillToast({
+        title: count ? `답변 ${count}건 준비됨 · [답글]을 누르세요` : '자동 채우기가 켜졌어요',
+        body: '초록으로 깜빡이는 [답글]을 누르면 채워집니다. 그다음 [확인]을 눌러야 등록됩니다.',
+        ms: 9000,
+      });
+    }
+  }
+
+  function isInquiryPage() {
+    return /comment|inquiry|상품문의/i.test(`${location.hash} ${location.pathname} ${location.href}`);
+  }
+
+  function uniqueReplyCount(map) {
+    const ids = new Set();
+    for (const key of Object.keys(map || {})) {
+      ids.add(String(key).replace(/[^\d]/g, '') || key);
+    }
+    return ids.size;
   }
 
   function resolveInquiryId(root) {
