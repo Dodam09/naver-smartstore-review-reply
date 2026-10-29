@@ -259,7 +259,7 @@
     <h1>플랜 선택 · 결제</h1>
     <div class="return-hint">카드 등록·결제가 끝나면 이 탭을 닫고, 확장 <strong>사이드 패널</strong>로 돌아가 주세요.</div>
     <div class="sub" style="margin-bottom:12px;font-weight:600;color:#334155;">기존 답글 자동 분석 기반 · 리뷰·문의 수집부터 작성까지</div>
-    <div class="sub">로그인하면 답글 10건·말투 분석 1회를 계정마다 한 번 무료로 써볼 수 있습니다. 신규 구독은 토스페이먼츠 카드 자동결제 등록(만료일 자동 갱신). 업그레이드는 차액만 결제(만료일 유지). 낮은 플랜은 만료일부터 전환 예약. 취소하면 자동결제가 중단되고 만료일까지 이용 가능합니다. 심사용 이메일 로그인: <a href="/review-login.html">review-login.html</a></div>
+    <div class="sub">로그인하면 답글 10건·말투 분석 1회를 계정마다 한 번 무료로 써볼 수 있습니다. 신규 구독은 토스페이먼츠 카드 자동결제 등록(만료일 자동 갱신). 업그레이드는 차액만 결제(만료일 유지). 낮은 플랜은 만료일부터 전환 예약. 취소하면 자동결제가 중단되고 만료일까지 이용 가능합니다.</div>
     <div class="legal" id="legalBox">
       <strong>정기결제 안내</strong>
       <div id="legalText" style="margin:8px 0;">불러오는 중…</div>
@@ -267,21 +267,21 @@
     </div>
     <div class="status" id="status">불러오는 중…</div>
 
-    <section class="product-section" id="billingProductsSection">
+    <section class="product-section" id="billingProductsSection" hidden>
       <h2>1. 빌링(정기결제) 상품 · 3개</h2>
       <p class="section-sub">신규 가입·30일 자동 갱신용입니다. 각 상품을 누르면 <strong>빌링 결제창(카드 등록)</strong>이 열립니다.</p>
       <div class="product-grid" id="billingProducts"></div>
     </section>
 
-    <section class="product-section" id="onetimeProductsSection">
+    <section class="product-section" id="onetimeProductsSection" hidden>
       <h2>2. 일반 결제(단건) 상품</h2>
       <p class="section-sub">플랜 업그레이드 차액 결제입니다. 베이직→스탠다드 10,000원 · 베이직→프로 30,000원 · 스탠다드→프로 20,000원. 각 상품을 누르면 <strong>일반 결제(단건) 창</strong>이 열립니다.</p>
       <div class="product-grid" id="onetimeProducts"></div>
     </section>
 
     <section class="product-section" id="myPlanSection">
-      <h2>3. 내 구독 기준 플랜 변경</h2>
-      <p class="section-sub">지금 이용 중인 플랜에 맞춰 결제합니다. 예: 스탠다드 → 프로는 차액 <strong>20,000원</strong> 단건 결제입니다.</p>
+      <h2>플랜 선택</h2>
+      <p class="section-sub">신규 구독은 카드 자동결제입니다. 업그레이드는 차액만 결제하고 만료일은 유지됩니다. 낮은 플랜은 만료일부터 전환 예약됩니다.</p>
       <div class="plans" id="plans"></div>
     </section>
     <div class="panel" id="accountPanel" hidden>
@@ -298,14 +298,14 @@
     </div>
 
     <section class="panel" id="productInfo" style="margin-top:20px;">
-      <h3>서비스 안내 (심사용)</h3>
+      <h3>서비스 안내</h3>
       <div class="meta" style="color:#334155;">
         <p style="margin:0 0 8px;"><strong>스마트스토어 AI 자동답글</strong> — 네이버 스마트스토어 판매자용 Chrome 확장 프로그램 구독 서비스입니다.</p>
         <ul style="margin:0;padding-left:18px;line-height:1.6;">
           <li>리뷰·상품문의 수집 → 기존 답글 분석 기반 AI 초안 → 판매자센터 답변란 입력 지원</li>
           <li>실물 배송 없음 · 디지털(SaaS) 정기결제 · <strong>1회 결제 제공기간 30일</strong></li>
-          <li>빌링(정기결제): 베이직 9,900원 / 스탠다드 19,900원 / 프로 39,900원 (최고가 39,900원)</li>
-          <li>일반 결제(단건·업그레이드): 베이직 9,900 · 스탠다드 10,000 · 프로 30,000 · 스탠다드→프로 20,000원</li>
+          <li>월 구독: 베이직 9,900원 / 스탠다드 19,900원 / 프로 39,900원</li>
+          <li>업그레이드는 차액만 결제(만료일 유지) · 낮은 플랜은 만료일부터 전환 예약</li>
           <li>환불·해지: <a href="/billing-terms.html" target="_blank" rel="noopener">구독·결제 안내</a> · <a href="/privacy.html" target="_blank" rel="noopener">개인정보 처리방침</a></li>
         </ul>
       </div>
@@ -382,10 +382,10 @@
         `· 구독 취소: ${notice.cancelMethod || '확장 [설정] → [구독 취소]'}`,
         config.productionReady
           ? config.liveMode
-            ? '· <strong>실결제 모드</strong> (토스페이먼츠 라이브)'
+            ? '· 결제: 토스페이먼츠 카드 자동결제'
             : config.testModeKeys
               ? '· <strong>토스 테스트 키</strong> (실제 청구 없음 · live 키로 교체 필요)'
-              : '· <strong>토스 연동</strong>'
+              : '· 결제: 토스페이먼츠 카드 자동결제'
           : config.mockMode
             ? '· <strong>테스트 모드</strong> (BILLING_MOCK)'
             : '· 결제 설정 필요 (TOSS 키 또는 BILLING_MOCK)',
@@ -776,15 +776,19 @@
       fill(onetimeProductsEl, onetimeList, 'onetime');
     }
 
+    function showReviewCatalog() {
+      return params.get('catalog') === 'review';
+    }
+
     function renderPlans(config, sub) {
       if (!plansEl) return;
       plansEl.innerHTML = '';
       const section = document.getElementById('myPlanSection');
-      if (section) section.hidden = !isLoggedIn();
-      if (!isLoggedIn()) return;
+      if (section) section.hidden = false;
+      const loggedIn = isLoggedIn();
 
       const tossReady = !!config.tossConfigured && !!config.productionReady;
-      const mockReady = !!config.mockMode;
+      const mockReady = !!config.mockMode && !config.liveMode;
 
       (config.plans || []).forEach((plan) => {
         const ui = resolvePlanUi(plan, sub, config);
@@ -800,10 +804,10 @@
           const payBtn = document.createElement('button');
           payBtn.type = 'button';
           payBtn.dataset.pay = '1';
-          payBtn.dataset.enabled = ui.enabled ? '1' : '0';
-          payBtn.disabled = !ui.enabled;
-          payBtn.textContent = ui.payLabel;
-          if (ui.enabled) payBtn.addEventListener('click', () => startCheckout(plan.id, config));
+          payBtn.dataset.enabled = loggedIn && ui.enabled ? '1' : '0';
+          payBtn.disabled = !loggedIn || !ui.enabled;
+          payBtn.textContent = loggedIn ? ui.payLabel : '로그인 후 결제';
+          if (loggedIn && ui.enabled) payBtn.addEventListener('click', () => startCheckout(plan.id, config));
           card.appendChild(payBtn);
         }
 
@@ -811,11 +815,11 @@
           const mockBtn = document.createElement('button');
           mockBtn.type = 'button';
           mockBtn.dataset.pay = '1';
-          mockBtn.dataset.enabled = ui.enabled ? '1' : '0';
-          mockBtn.disabled = !ui.enabled;
+          mockBtn.dataset.enabled = loggedIn && ui.enabled ? '1' : '0';
+          mockBtn.disabled = !loggedIn || !ui.enabled;
           mockBtn.className = tossReady ? 'secondary' : '';
           mockBtn.textContent = ui.mockLabel;
-          if (ui.enabled) {
+          if (loggedIn && ui.enabled) {
             mockBtn.addEventListener('click', () => mockCheckout(plan.id, mockBtn));
           }
           card.appendChild(mockBtn);
@@ -856,7 +860,12 @@
         }
       }
       currentSub = sub;
-      renderReviewProducts(config);
+      const reviewUi = showReviewCatalog();
+      const billingSec = document.getElementById('billingProductsSection');
+      const onetimeSec = document.getElementById('onetimeProductsSection');
+      if (billingSec) billingSec.hidden = !reviewUi;
+      if (onetimeSec) onetimeSec.hidden = !reviewUi;
+      if (reviewUi) renderReviewProducts(config);
       renderPlans(config, sub);
       if (!isLoggedIn()) {
         setPayButtonsDisabled(true);
@@ -865,18 +874,23 @@
           btn.textContent = '로그인 후 결제';
         });
         setStatus(
-          '빌링 3개·단건 3개 상품을 확인할 수 있습니다.\n결제창을 열려면 review-login.html 에서 로그인해 주세요.'
+          reviewUi
+            ? '빌링 3개·단건 3개 상품을 확인할 수 있습니다.\n결제창을 열려면 review-login.html 에서 로그인해 주세요.'
+            : '확장 [계정]에서 로그인한 뒤 [구독하기]를 눌러 주세요.'
         );
       } else {
-        updateStatusForSub(sub, config);
         renderAccountPanel(sub, config);
         await loadPaymentHistory();
-        setStatus(
-          '위 6개 상품을 각각 누르면 토스 결제창이 열립니다.\n' +
-            '1) 빌링 3개 → 카드 등록(정기결제) 창\n' +
-            '2) 단건 3개 → 일반 결제 창\n' +
-            '화면 확인만 하시면 되고, 결제 완료는 하지 않아도 됩니다.'
-        );
+        if (reviewUi) {
+          setStatus(
+            '위 6개 상품을 각각 누르면 토스 결제창이 열립니다.\n' +
+              '1) 빌링 3개 → 카드 등록(정기결제) 창\n' +
+              '2) 단건 3개 → 일반 결제 창\n' +
+              '화면 확인만 하시면 되고, 결제 완료는 하지 않아도 됩니다.'
+          );
+        } else {
+          updateStatusForSub(sub, config);
+        }
       }
       if (options.notifyExtension) notifyExtensionSubscriptionUpdated();
       return sub;
