@@ -98,8 +98,12 @@
 
     .stats {
       display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
+      grid-template-columns: repeat(6, minmax(0, 1fr));
       gap: 12px;
+    }
+    .stats.funnel-stats {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin-bottom: 12px;
     }
     .stat {
       background: #fafbfc;
@@ -317,10 +321,30 @@
       </div>
 
       <div class="card">
+        <div class="stats funnel-stats">
+          <div class="stat total">
+            <div class="stat-label">확장 설치</div>
+            <div class="stat-value" id="statInstalls">0</div>
+            <div class="stat-sub" style="font-size:12px;color:#6b7280;margin-top:4px;">아이콘을 안 눌러도 잡힘</div>
+          </div>
+          <div class="stat active">
+            <div class="stat-label">앱 열기</div>
+            <div class="stat-value" id="statOpened">0</div>
+          </div>
+          <div class="stat paid">
+            <div class="stat-label">로그인 성공</div>
+            <div class="stat-value" id="statLoginOk">0</div>
+          </div>
+          <div class="stat renew">
+            <div class="stat-label">답글 생성</div>
+            <div class="stat-value" id="statGenerated">0</div>
+          </div>
+        </div>
         <div class="stats">
           <div class="stat total">
-            <div class="stat-label">전체 유저</div>
+            <div class="stat-label">가입 계정</div>
             <div class="stat-value" id="statTotal">0</div>
+            <div class="stat-sub" style="font-size:12px;color:#6b7280;margin-top:4px;">카카오·이메일 로그인</div>
           </div>
           <div class="stat active">
             <div class="stat-label">이용 가능</div>
@@ -756,7 +780,11 @@
       });
 
       if (!dashboardData?.users?.length) {
-        usersBody.innerHTML = '<div class="empty">등록된 유저가 없습니다.</div>';
+        const installs = Number(dashboardData?.funnel?.totalInstalls || 0);
+        usersBody.innerHTML =
+          installs > 0
+            ? `<div class="empty">카카오 로그인한 계정이 없습니다. 확장은 ${installs}대가 설치됐습니다. [설치] 탭에서 볼 수 있습니다.</div>`
+            : '<div class="empty">등록된 유저가 없습니다.</div>';
         return;
       }
       if (!users.length) {
@@ -972,6 +1000,15 @@
       dashboardData = data;
       plans = data.plans || [];
       periodLabel.textContent = `기준 월 ${data.period || '-'}`;
+      const funnel = data.funnel || {};
+      const setStat = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = String(value ?? 0);
+      };
+      setStat('statInstalls', funnel.totalInstalls);
+      setStat('statOpened', funnel.opened);
+      setStat('statLoginOk', funnel.loginSuccess);
+      setStat('statGenerated', funnel.generateSuccess);
       statTotal.textContent = String(data.stats?.totalUsers ?? 0);
       statActive.textContent = String(data.stats?.activeSubscriptions ?? 0);
       statPaidActive.textContent = String(data.stats?.paidActiveSubscriptions ?? 0);
@@ -987,7 +1024,6 @@
         statTrialUsedSub.textContent = `미구독 ${trialUsers}명 · 답글 ${reply} · 말투 ${tone}`;
       }
 
-      const funnel = data.funnel || {};
       const setText = (id, value) => {
         const el = document.getElementById(id);
         if (el) el.textContent = String(value ?? 0);
