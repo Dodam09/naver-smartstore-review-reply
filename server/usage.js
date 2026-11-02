@@ -72,3 +72,20 @@ export function recordUsage(userId, kind, channel, period = currentPeriod(), sub
   incrementUsage(userId, kind, channel, resolveUsagePeriod(subscriptionActive, period));
   return getUsageRow(userId, resolveUsagePeriod(subscriptionActive, period));
 }
+
+const userLocks = new Map();
+
+export function withUserLock(userId, fn) {
+  const key = String(userId);
+  const run = (userLocks.get(key) || Promise.resolve())
+    .catch(() => {})
+    .then(fn);
+  userLocks.set(key, run);
+  return run.finally(() => {
+    if (userLocks.get(key) === run) userLocks.delete(key);
+  });
+}
+
+export function resetUserLocksForTests() {
+  userLocks.clear();
+}

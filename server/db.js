@@ -181,6 +181,12 @@ export function getDb() {
   return db;
 }
 
+export function closeDbForTests() {
+  if (!db) return;
+  db.close();
+  db = null;
+}
+
 export function currentPeriod(date = new Date()) {
   const kst = new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
   const year = kst.getFullYear();

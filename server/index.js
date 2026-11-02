@@ -39,7 +39,14 @@ import {
   getAdminDashboard,
 } from './admin.js';
 import { getDb, findUserById, markUserInstallGenerated, updateUserPlan } from './db.js';
-import { generateText, generateWithSystem } from './gemini.js';
+import {
+  GeminiError,
+  GeminiQueueFullError,
+  GeminiTimeoutError,
+  generateText,
+  generateWithSystem,
+  getGeminiQueueStats,
+} from './gemini.js';
 import { FREE_TRIAL, getPlan, normalizePlanId } from './plans.js';
 import {
   buildAnalyzeMetaPrompt,
@@ -60,7 +67,7 @@ import {
 } from './prompts.js';
 import { SubscriptionError, cancelUserSubscriptionAtPeriodEnd, clearPendingDowngrade, undoCancelSubscription } from './subscription.js';
 import { startRenewalScheduler } from './renewal.js';
-import { assertWithinLimit, getUsageSummary, recordUsage, UsageLimitError } from './usage.js';
+import { assertWithinLimit, getUsageSummary, recordUsage, UsageLimitError, withUserLock } from './usage.js';
 import {
   buildAuthorizeUrl,
   buildKakaoSuccessUrl,
@@ -168,6 +175,47 @@ function sendSubscriptionRequired(res, err) {
   });
 }
 
+function attachClientAbort(_req, res) {
+  const ac = new AbortController();
+  const onClose = () => {
+    if (!res.writableEnded) ac.abort();
+  };
+  res.on('close', onClose);
+  return ac.signal;
+}
+
+function sendAiError(res, err) {
+  if (res.headersSent) return;
+  if (err instanceof UsageLimitError) {
+    sendUsageLimit(res, err);
+    return;
+  }
+  if (err instanceof SubscriptionError) {
+    sendSubscriptionRequired(res, err);
+    return;
+  }
+  if (err instanceof GeminiQueueFullError || err instanceof GeminiTimeoutError || err instanceof GeminiError) {
+    const status = err.status === 429 ? 503 : Number(err.status) || 500;
+    res.status(status >= 400 && status < 600 ? status : 500).json({
+      ok: false,
+      error: err.message,
+      retryable: !!err.retryable,
+      code: err.code || err.name,
+    });
+    return;
+  }
+  if (err?.name === 'AbortError') {
+    res.status(503).json({
+      ok: false,
+      error: '요청이 취소되었습니다. 잠시 후 다시 시도해 주세요.',
+      retryable: true,
+      code: 'REQUEST_ABORTED',
+    });
+    return;
+  }
+  res.status(500).json({ ok: false, error: err.message || String(err) });
+}
+
 function isReqSubscriptionActive(req) {
   return !!req.auth.user?.subscription?.active;
 }
@@ -180,6 +228,15 @@ function sendPrivacyPolicy(req, res) {
   res.type('html');
   res.sendFile(path.join(publicDir, 'privacy.html'));
 }
+
+function sendLanding(req, res) {
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.type('html');
+  res.sendFile(path.join(publicDir, 'index.html'));
+}
+
+app.get('/', sendLanding);
 
 app.get(['/privacy', '/privacy/', '/privacy.html', '/legal/privacy'], sendPrivacyPolicy);
 
@@ -198,6 +255,7 @@ app.get('/health', (_req, res) => {
     billing: getBillingConfig(),
     requireSubscription: REQUIRE_SUBSCRIPTION,
     freeTrial: FREE_TRIAL,
+    geminiQueue: getGeminiQueueStats(),
   });
 });
 
@@ -770,7 +828,8 @@ app.post('/api/admin/orders/:id/refund', requireAdmin, async (req, res) => {
 });
 
 app.post('/api/analyze-tone', authenticate, async (req, res) => {
-  try {
+  const signal = attachClientAbort(req, res);
+  const work = async () => {
     if (req.auth.mode === 'user') {
       assertWithinLimit(
         req.auth.user.id,
@@ -808,7 +867,7 @@ app.post('/api/analyze-tone', authenticate, async (req, res) => {
       inquiryPairs.length >= 2
         ? buildInquiryPlaybookPrompt(inquiryPairs)
         : buildAnalyzeMetaPrompt(context, normalized);
-    const prompt = await generateText(metaPrompt, { model, temperature: 0.35 });
+    const prompt = await generateText(metaPrompt, { model, temperature: 0.35, signal });
 
     if (!prompt || prompt.length < 30) {
       res.status(502).json({ ok: false, error: '스타일 분석 결과가 너무 짧습니다. 샘플을 더 추가해 보세요.' });
@@ -832,21 +891,19 @@ app.post('/api/analyze-tone', authenticate, async (req, res) => {
       sampleCount: inquiryPairs.length >= 2 ? inquiryPairs.length : normalized.length,
       usage: usage || null,
     });
+  };
+
+  try {
+    if (req.auth.mode === 'user') await withUserLock(req.auth.user.id, work);
+    else await work();
   } catch (err) {
-    if (err instanceof UsageLimitError) {
-      sendUsageLimit(res, err);
-      return;
-    }
-    if (err instanceof SubscriptionError) {
-      sendSubscriptionRequired(res, err);
-      return;
-    }
-    res.status(500).json({ ok: false, error: err.message || String(err) });
+    sendAiError(res, err);
   }
 });
 
 app.post('/api/generate-reply', authenticate, async (req, res) => {
-  try {
+  const signal = attachClientAbort(req, res);
+  const work = async () => {
     if (req.auth.mode === 'user') {
       assertWithinLimit(
         req.auth.user.id,
@@ -880,7 +937,7 @@ app.post('/api/generate-reply', authenticate, async (req, res) => {
         const factRaw = await generateWithSystem(
           '당신은 상품 정보 검증기입니다. 지시된 JSON만 출력하세요.',
           buildProductFactLookupPrompt(targetRow, req.body?.references || []),
-          { model, temperature: 0.1, googleSearch: true }
+          { model, temperature: 0.1, googleSearch: true, signal }
         );
         return parseProductFactLookup(factRaw);
       };
@@ -898,7 +955,8 @@ app.post('/api/generate-reply', authenticate, async (req, res) => {
         verifiedFacts = parsed.facts;
         missingFacts = parsed.missing;
       } catch (err) {
-        console.warn('상품 사실 검색 실패:', err.message || err);
+        if (err?.name === 'AbortError') throw err;
+        console.warn('상품 사실 검색 실패');
         verifiedFacts = [];
         missingFacts = ['상품 정보 검색 실패'];
       }
@@ -917,6 +975,7 @@ app.post('/api/generate-reply', authenticate, async (req, res) => {
       model,
       temperature: webSearch ? 0.3 : 0.35,
       googleSearch: false,
+      signal,
     });
 
     if (channel === 'inquiry') {
@@ -929,9 +988,10 @@ app.post('/api/generate-reply', authenticate, async (req, res) => {
           text = await generateWithSystem(
             '당신은 판매자 답글 교정기입니다. 근거에 없는 구체 사실을 삭제하고 수정된 답글 본문만 출력하세요.',
             buildInquiryGroundingRewritePrompt(row, text, refs, facts, guidelines),
-            { model, temperature: 0.15, googleSearch: false }
+            { model, temperature: 0.15, googleSearch: false, signal }
           );
-        } catch (_) {
+        } catch (err) {
+          if (err?.name === 'AbortError') throw err;
           text = '';
         }
         grounding = assessInquiryReplyGrounding(row, text, refs, facts, guidelines);
@@ -954,16 +1014,13 @@ app.post('/api/generate-reply', authenticate, async (req, res) => {
     }
 
     res.json({ ok: true, text, usage: usage || null });
+  };
+
+  try {
+    if (req.auth.mode === 'user') await withUserLock(req.auth.user.id, work);
+    else await work();
   } catch (err) {
-    if (err instanceof UsageLimitError) {
-      sendUsageLimit(res, err);
-      return;
-    }
-    if (err instanceof SubscriptionError) {
-      sendSubscriptionRequired(res, err);
-      return;
-    }
-    res.status(500).json({ ok: false, error: err.message || String(err) });
+    sendAiError(res, err);
   }
 });
 
@@ -971,6 +1028,17 @@ app.use((_req, res) => {
   res.status(404).json({ ok: false, error: 'Not found' });
 });
 
+function isDirectRun() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return path.normalize(fileURLToPath(import.meta.url)) === path.normalize(path.resolve(entry));
+  } catch (_) {
+    return false;
+  }
+}
+
+if (isDirectRun()) {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Reply API listening on port ${PORT}`);
   if (!String(process.env.GEMINI_API_KEY || '').trim()) {
@@ -999,3 +1067,6 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log('Admin page: /admin.html');
   }
 });
+}
+
+export { app };
