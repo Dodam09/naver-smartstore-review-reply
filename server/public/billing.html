@@ -706,7 +706,7 @@
       } else if (config.tossConfigured) {
         setStatus('원하는 플랜의 결제하기를 누르세요.');
       } else {
-        setStatus('server/.env 에 BILLING_MOCK=true 또는 TOSS_CLIENT_KEY 를 설정한 뒤 서버를 재시작하세요.', true);
+        setStatus('server/.env 에 BILLING_MOCK=true 또는 단건·빌링 키를 설정한 뒤 서버를 재시작하세요.', true);
       }
     }
 
@@ -907,7 +907,7 @@
           await refreshBillingView({ notifyExtension: true });
           return;
         }
-        if (!config.tossConfigured) throw new Error('TOSS_CLIENT_KEY가 설정되지 않았습니다.');
+        if (!config.billingConfigured) throw new Error('TOSS_BILLING_CLIENT_KEY가 설정되지 않았습니다.');
         const data = await api('/api/billing/prepare-card-update', { method: 'POST', body: {} });
         const cardUpdate = data.cardUpdate;
         const tossPayments = TossPayments(cardUpdate.clientKey);
@@ -980,8 +980,8 @@
           return;
         }
         if (!requireLegalConsent()) return;
-        if (!config.tossConfigured) {
-          throw new Error('TOSS_CLIENT_KEY가 없습니다.');
+        if (mode === 'billing' ? !config.billingConfigured : !config.singleConfigured) {
+          throw new Error(mode === 'billing' ? 'TOSS_BILLING_CLIENT_KEY가 없습니다.' : 'TOSS_SINGLE_CLIENT_KEY가 없습니다.');
         }
 
         checkoutBusy = true;
@@ -1028,7 +1028,7 @@
             await mockCheckout(planId, null, { skipConfirm: true });
             return;
           }
-          throw new Error('TOSS_CLIENT_KEY가 없습니다. server/.env 에 BILLING_MOCK=true 를 넣고 서버를 재시작하세요.');
+          throw new Error('결제 클라이언트 키가 없습니다. server/.env 에 BILLING_MOCK=true 를 넣고 서버를 재시작하세요.');
         }
 
         checkoutBusy = true;

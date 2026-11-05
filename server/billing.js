@@ -1,13 +1,18 @@
 import crypto from 'node:crypto';
 import {
   activateUserSubscription,
+  billingChargeFingerprint,
   createBillingOrder,
   findBillingOrder,
   findBillingOrderByOrderId,
+  findOpenInitialBillingOrder,
   findUserById,
   getOrCreateCustomerKey,
+  isIdempotencyKeyExpired,
   listBillingOrdersForUser,
-  markBillingOrderPaid,
+  markBillingOrderRecovery,
+  rememberIdempotencySend,
+  rememberIssuedBillingKey,
   markBillingOrderRefunded,
   setUserBillingKey,
   upgradeUserSubscription,
@@ -31,9 +36,51 @@ import {
   scheduleDowngrade,
 } from './subscription.js';
 
-const TOSS_SECRET_KEY = String(process.env.TOSS_SECRET_KEY || '').trim();
-const TOSS_CLIENT_KEY = String(process.env.TOSS_CLIENT_KEY || '').trim();
 const BILLING_MOCK = String(process.env.BILLING_MOCK || 'false').toLowerCase() === 'true';
+
+function readEnv(name) {
+  return String(process.env[name] || '').trim();
+}
+
+function requireEnv(name) {
+  const value = readEnv(name);
+  if (!value) throw new Error(`${name}가 설정되지 않았습니다.`);
+  return value;
+}
+
+function singleClientKey() {
+  return readEnv('TOSS_SINGLE_CLIENT_KEY');
+}
+
+function billingClientKey() {
+  return readEnv('TOSS_BILLING_CLIENT_KEY');
+}
+
+function requireSingleClientKey() {
+  return requireEnv('TOSS_SINGLE_CLIENT_KEY');
+}
+
+function requireBillingClientKey() {
+  return requireEnv('TOSS_BILLING_CLIENT_KEY');
+}
+
+function requireSingleSecret() {
+  return requireEnv('TOSS_SINGLE_SECRET_KEY');
+}
+
+function requireBillingSecret() {
+  return requireEnv('TOSS_BILLING_SECRET_KEY');
+}
+
+function assertSingleMerchantReady() {
+  requireSingleSecret();
+  requireEnv('TOSS_SINGLE_MID');
+}
+
+function assertBillingMerchantReady() {
+  requireBillingSecret();
+  requireEnv('TOSS_BILLING_MID');
+}
 const SUBSCRIPTION_DAYS = Number(process.env.SUBSCRIPTION_DAYS || 30);
 const RENEWAL_GRACE_DAYS = Number(process.env.RENEWAL_GRACE_DAYS || 3);
 const RENEWAL_MAX_ATTEMPTS = Number(process.env.RENEWAL_MAX_ATTEMPTS || 3);
@@ -64,19 +111,29 @@ function assertOrderHasLegalConsent(order) {
 }
 
 export function getBillingConfig() {
-  const tossConfigured = !!TOSS_SECRET_KEY && !!TOSS_CLIENT_KEY;
+  const singleClient = singleClientKey();
+  const singleSecret = readEnv('TOSS_SINGLE_SECRET_KEY');
+  const billingClient = billingClientKey();
+  const billingSecret = readEnv('TOSS_BILLING_SECRET_KEY');
+  const singleConfigured = !!singleClient && !!singleSecret && !!readEnv('TOSS_SINGLE_MID');
+  const billingConfigured = !!billingClient && !!billingSecret && !!readEnv('TOSS_BILLING_MID');
+  const tossConfigured = singleConfigured || billingConfigured;
   const productionReady = tossConfigured && !BILLING_MOCK;
-  const liveKeys =
-    TOSS_CLIENT_KEY.startsWith('live_') && TOSS_SECRET_KEY.startsWith('live_');
-  const testKeys =
-    TOSS_CLIENT_KEY.startsWith('test_') && TOSS_SECRET_KEY.startsWith('test_');
+  const pairs = [];
+  if (singleClient || singleSecret) pairs.push([singleClient, singleSecret]);
+  if (billingClient || billingSecret) pairs.push([billingClient, billingSecret]);
+  const liveKeys = pairs.length > 0 && pairs.every(([client, secret]) => client.startsWith('live_') && secret.startsWith('live_'));
+  const testKeys = pairs.length > 0 && pairs.every(([client, secret]) => client.startsWith('test_') && secret.startsWith('test_'));
   return {
     mockMode: BILLING_MOCK,
     tossConfigured,
+    singleConfigured,
+    billingConfigured,
     productionReady,
     liveMode: productionReady && liveKeys,
     testModeKeys: productionReady && testKeys,
-    clientKey: TOSS_CLIENT_KEY || null,
+    singleClientKey: singleClient || null,
+    billingClientKey: billingClient || null,
     appBaseUrl: APP_BASE_URL,
     subscriptionDays: SUBSCRIPTION_DAYS,
     renewalGraceDays: RENEWAL_GRACE_DAYS,
@@ -106,8 +163,8 @@ export function getBillingConfig() {
 export function logBillingStartupWarnings() {
   if (BILLING_MOCK) {
     console.warn('WARN: BILLING_MOCK=true — 실제 결제 없음. 배포 시 false + TOSS 키 설정 필요');
-  } else if (!TOSS_SECRET_KEY || !TOSS_CLIENT_KEY) {
-    console.warn('WARN: TOSS 키 미설정 — 결제 불가');
+  } else if (!readEnv('TOSS_SINGLE_SECRET_KEY') || !singleClientKey() || !readEnv('TOSS_BILLING_SECRET_KEY') || !billingClientKey()) {
+    console.warn('WARN: 단건 또는 빌링 키 미설정 — 해당 결제는 불가');
   } else {
     console.log('Production billing ready (Toss + auto-renewal)');
   }
@@ -147,13 +204,14 @@ export async function refundBillingOrder(orderDbId, { reason = '관리자 환불
   const paymentKey = String(order.payment_key || '').trim();
   if (!paymentKey) throw new Error('환불할 payment_key가 없습니다.');
 
-  if (BILLING_MOCK || paymentKey.startsWith('mock_') || paymentKey.startsWith('mock_bill_')) {
+  const mockBilling = String(process.env.BILLING_MOCK || 'false').toLowerCase() === 'true';
+  if (mockBilling || paymentKey.startsWith('mock_') || paymentKey.startsWith('mock_bill_')) {
     markBillingOrderRefunded(order.id);
   } else {
-    if (!TOSS_SECRET_KEY) throw new Error('TOSS_SECRET_KEY가 설정되지 않았습니다.');
+    const secret = billingOrderUsesBillingKey(order) ? requireBillingSecret() : requireSingleSecret();
     await tossRequest(`https://api.tosspayments.com/v1/payments/${encodeURIComponent(paymentKey)}/cancel`, {
       cancelReason: reason,
-    });
+    }, { secret });
     markBillingOrderRefunded(order.id);
   }
 
@@ -173,34 +231,104 @@ function mockBillingKeyForUser(userId) {
   return `mock_bill_${userId}`;
 }
 
-function tossAuthHeader() {
-  return `Basic ${Buffer.from(`${TOSS_SECRET_KEY}:`).toString('base64')}`;
+export class TossPaymentUnknownError extends Error {
+  constructor(message, code = 'UNKNOWN') {
+    super(message);
+    this.name = 'TossPaymentUnknownError';
+    this.code = code;
+  }
 }
 
-async function tossRequest(url, body) {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: tossAuthHeader(),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
+export class TossPaymentFailedError extends Error {
+  constructor(message, code = 'FAILED') {
+    super(message);
+    this.name = 'TossPaymentFailedError';
+    this.code = code;
+  }
+}
 
+export function classifyTossSecretKey(secret = readEnv('TOSS_BILLING_SECRET_KEY')) {
+  const value = String(secret || '');
+  if (value.startsWith('live_gsk')) return 'live_gsk';
+  if (value.startsWith('test_gsk')) return 'test_gsk';
+  if (value.startsWith('live_sk')) return 'live_sk';
+  if (value.startsWith('test_sk')) return 'test_sk';
+  return 'unknown';
+}
+
+export function canLookupPaymentByOrderId(secret = readEnv('TOSS_BILLING_SECRET_KEY')) {
+  const family = classifyTossSecretKey(secret);
+  return family === 'live_sk' || family === 'test_sk';
+}
+
+function billingOrderUsesBillingKey(order) {
+  return ['subscribe', 'review_billing', 'renewal'].includes(String(order?.order_kind || ''));
+}
+
+let tossTransportForTests = null;
+
+export function setTossTransportForTests(fn) {
+  tossTransportForTests = typeof fn === 'function' ? fn : null;
+}
+
+async function defaultTossFetch({ url, method, headers, body, signal }) {
+  const response = await fetch(url, {
+    method,
+    headers,
+    body: body == null ? undefined : JSON.stringify(body),
+    signal,
+  });
   const raw = await response.text();
   let data = {};
   try {
     data = raw ? JSON.parse(raw) : {};
   } catch (_) {
-    data = {};
+    data = { message: raw.slice(0, 200) };
   }
+  return { ok: response.ok, status: response.status, data };
+}
 
-  if (!response.ok) {
-    const message = data?.message || raw.slice(0, 200) || `Toss 요청 실패 (${response.status})`;
-    throw new Error(message);
+function interpretTossResponse(result) {
+  const status = Number(result?.status || 0);
+  const data = result?.data || {};
+  const code = String(data.code || '');
+  if (!result || status === 0) {
+    throw new TossPaymentUnknownError('결제 응답이 없습니다.', 'EMPTY');
   }
-
+  if (status >= 500 || status === 408 || status === 409 || status === 429) {
+    throw new TossPaymentUnknownError(data.message || `결제 응답을 확정할 수 없습니다. (${status})`, code || 'UPSTREAM');
+  }
+  if (!result.ok) {
+    if (code === 'NOT_FOUND_PAYMENT' || code === 'NOT_FOUND' || status === 404) {
+      throw new TossPaymentUnknownError(data.message || '결제 조회 결과가 없습니다.', 'NOT_FOUND');
+    }
+    throw new TossPaymentFailedError(data.message || `결제 실패 (${status})`, code || 'FAILED');
+  }
   return data;
+}
+
+async function tossRequest(url, body, { method = 'POST', idempotencyKey = null, timeoutMs = 60_000, secret } = {}) {
+  if (!secret) throw new Error('결제 시크릿 키가 없습니다.');
+  const headers = {
+    Authorization: `Basic ${Buffer.from(`${secret}:`).toString('base64')}`,
+    'Content-Type': 'application/json',
+  };
+  if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const exec = tossTransportForTests || defaultTossFetch;
+    const result = await exec({ url, method, headers, body, signal: controller.signal });
+    return interpretTossResponse(result);
+  } catch (error) {
+    if (error instanceof TossPaymentUnknownError || error instanceof TossPaymentFailedError) throw error;
+    if (error?.name === 'AbortError') {
+      throw new TossPaymentUnknownError('결제 응답 시간이 초과되었습니다.', 'TIMEOUT');
+    }
+    throw new TossPaymentUnknownError(error?.message || '결제 네트워크 오류', 'NETWORK');
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function confirmTossPayment({ paymentKey, orderId, amount }) {
@@ -208,15 +336,14 @@ async function confirmTossPayment({ paymentKey, orderId, amount }) {
     paymentKey,
     orderId,
     amount,
-  });
+  }, { secret: requireSingleSecret() });
 }
 
 export async function issueTossBillingKey({ authKey, customerKey }) {
-  if (!TOSS_SECRET_KEY) throw new Error('TOSS_SECRET_KEY가 설정되지 않았습니다.');
   const data = await tossRequest('https://api.tosspayments.com/v1/billing/authorizations/issue', {
     authKey,
     customerKey,
-  });
+  }, { secret: requireBillingSecret() });
   if (!data?.billingKey) {
     throw new Error('빌링키 발급에 실패했습니다.');
   }
@@ -239,17 +366,83 @@ export function extractCardMetaFromBillingIssue(data) {
 }
 
 export async function chargeWithBillingKey({ billingKey, customerKey, amount, orderId, orderName }) {
-  if (!TOSS_SECRET_KEY) throw new Error('TOSS_SECRET_KEY가 설정되지 않았습니다.');
-  const data = await tossRequest(`https://api.tosspayments.com/v1/billing/${billingKey}`, {
+  if (!tossTransportForTests) assertBillingMerchantReady();
+  const order = findBillingOrderByOrderId(orderId);
+  if (!order) throw new Error('주문을 찾을 수 없습니다.');
+  if (Number(order.usage_applied) === 1 || order.status === 'paid') {
+    return {
+      paymentKey: order.payment_key || null,
+      raw: null,
+      idempotencyKey: order.idempotency_key,
+      alreadyApplied: true,
+    };
+  }
+  if (order.status === 'manual_review' || isIdempotencyKeyExpired(order)) {
+    markBillingOrderRecovery(order.id, {
+      status: 'manual_review',
+      failureReason: 'idempotency_expired',
+      nextRecoveryAt: null,
+    });
+    throw new TossPaymentUnknownError('멱등키 유효기간이 지나 자동 재승인할 수 없습니다.', 'IDEMPOTENCY_EXPIRED');
+  }
+  const fingerprint = billingChargeFingerprint({ amount, orderId, customerKey, orderName });
+  if (order.charge_fingerprint && order.charge_fingerprint !== fingerprint) {
+    throw new TossPaymentFailedError('같은 주문의 금액이나 결제 정보가 달라 요청할 수 없습니다.', 'PAYLOAD_MISMATCH');
+  }
+  if (order.charge_billing_key && order.charge_billing_key !== String(billingKey || '')) {
+    throw new TossPaymentFailedError('같은 주문의 결제 수단이 달라 요청할 수 없습니다.', 'PAYLOAD_MISMATCH');
+  }
+  assertBillingMerchantReady();
+  rememberIdempotencySend(order.id, billingKey, new Date().toISOString());
+  const data = await tossRequest(`https://api.tosspayments.com/v1/billing/${encodeURIComponent(billingKey)}`, {
     customerKey,
     amount,
     orderId,
     orderName,
+  }, {
+    idempotencyKey: order.idempotency_key,
+    timeoutMs: 60_000,
+    secret: requireBillingSecret(),
   });
   return {
     paymentKey: data.paymentKey || null,
     raw: data,
+    idempotencyKey: order.idempotency_key,
+    alreadyApplied: false,
   };
+}
+
+export async function lookupTossPaymentByOrderId(orderId) {
+  const secret = requireBillingSecret();
+  if (!tossTransportForTests && !canLookupPaymentByOrderId(secret)) {
+    throw new TossPaymentUnknownError(
+      '주문번호 결제 조회는 API 개별 연동 시크릿 키(test_sk, live_sk)에서만 가능합니다.',
+      'LOOKUP_KEY_UNSUPPORTED'
+    );
+  }
+  return tossRequest(
+    `https://api.tosspayments.com/v1/payments/orders/${encodeURIComponent(orderId)}`,
+    null,
+    { method: 'GET', timeoutMs: 15_000, secret }
+  );
+}
+
+export function assessTossPayment(order, payment, { channel = 'billing' } = {}) {
+  if (!payment || typeof payment !== 'object') return { action: 'unknown', reason: 'empty' };
+  if (String(payment.orderId || '') !== String(order.order_id)) return { action: 'mismatch', reason: 'order_mismatch' };
+  const paidAmount = payment.totalAmount != null ? payment.totalAmount : payment.amount;
+  if (Number(paidAmount) !== Number(order.amount)) return { action: 'mismatch', reason: 'amount_mismatch' };
+  const merchantId = channel === 'single' ? readEnv('TOSS_SINGLE_MID') : readEnv('TOSS_BILLING_MID');
+  if (!merchantId) return { action: 'unknown', reason: 'merchant_unconfigured' };
+  if (String(payment.mId || '') !== merchantId) return { action: 'mismatch', reason: 'merchant_mismatch' };
+  const expectedType = channel === 'single' ? 'NORMAL' : 'BILLING';
+  if (String(payment.type || '') !== expectedType) return { action: 'mismatch', reason: 'type_mismatch' };
+  const status = String(payment.status || '');
+  if (status === 'DONE') return { action: 'apply', reason: 'DONE' };
+  if (['CANCELED', 'PARTIAL_CANCELED', 'ABORTED', 'EXPIRED'].includes(status)) {
+    return { action: 'fail', reason: status };
+  }
+  return { action: 'unknown', reason: status || 'unclear' };
 }
 
 /**
@@ -257,6 +450,65 @@ export async function chargeWithBillingKey({ billingKey, customerKey, amount, or
  * - billing: 베이직·스탠다드·프로 정가 → 카드 등록(빌링) 창
  * - onetime: 베이직 9,900 / 스탠다드 10,000 / 프로 30,000 → 일반 결제 창
  */
+function billingWindow(order, extra = {}) {
+  return {
+    orderId: order.order_id,
+    amount: Number(order.amount),
+    orderName: order.order_name,
+    customerKey: order.customer_key,
+    planId: order.plan_id,
+    planName: getPlan(order.plan_id).name,
+    clientKey: requireBillingClientKey(),
+    successUrl: `${APP_BASE_URL}/billing-success.html`,
+    billingAuthSuccessUrl: `${APP_BASE_URL}/billing-auth-success.html?orderId=${encodeURIComponent(order.order_id)}`,
+    failUrl: `${APP_BASE_URL}/billing-fail.html`,
+    mockMode: BILLING_MOCK,
+    useBillingAuth: true,
+    ...extra,
+  };
+}
+
+function singleWindow(order, extra = {}) {
+  return {
+    orderId: order.order_id,
+    amount: Number(order.amount),
+    orderName: order.order_name,
+    customerKey: order.customer_key,
+    planId: order.plan_id,
+    planName: getPlan(order.plan_id).name,
+    clientKey: requireSingleClientKey(),
+    successUrl: `${APP_BASE_URL}/billing-success.html`,
+    billingAuthSuccessUrl: `${APP_BASE_URL}/billing-auth-success.html?orderId=${encodeURIComponent(order.order_id)}`,
+    failUrl: `${APP_BASE_URL}/billing-fail.html`,
+    mockMode: BILLING_MOCK,
+    useBillingAuth: false,
+    ...extra,
+  };
+}
+
+function reuseOrCreateInitialBillingOrder(userId, { planId, amount, orderName, customerKey, orderKind }) {
+  const open = findOpenInitialBillingOrder(userId);
+  if (open) {
+    if (open.status === 'manual_review') {
+      throw new Error('확인이 필요한 자동결제가 있어 새 구독을 시작할 수 없습니다.');
+    }
+    if (String(open.plan_id) !== String(planId) || Number(open.amount) !== Number(amount)) {
+      throw new Error('확인되지 않은 자동결제가 있어 새 구독을 시작할 수 없습니다.');
+    }
+    return open;
+  }
+  return createBillingOrder({
+    userId,
+    orderId: createOrderId(userId),
+    planId,
+    amount,
+    orderName,
+    customerKey,
+    orderKind,
+    legalConsentAt: new Date().toISOString(),
+  });
+}
+
 export function prepareReviewCheckout(userId, { mode, planId, productKey, legalConsent } = {}) {
   assertLegalConsent(legalConsent);
   const user = findUserById(userId);
@@ -264,48 +516,33 @@ export function prepareReviewCheckout(userId, { mode, planId, productKey, legalC
 
   const plan = getPlan(normalizePaidPlanId(planId));
   const checkoutMode = String(mode || '').trim() === 'onetime' ? 'onetime' : 'billing';
-  const orderId = createOrderId(userId);
   const customerKey = getOrCreateCustomerKey(userId);
 
   if (checkoutMode === 'billing') {
-    const orderName = `스마트스토어 답글 ${plan.name} 정기결제(빌링)`;
-    createBillingOrder({
-      userId,
-      orderId,
+    requireBillingClientKey();
+    const order = reuseOrCreateInitialBillingOrder(userId, {
       planId: plan.id,
       amount: plan.price,
-      orderName,
+      orderName: `스마트스토어 답글 ${plan.name} 정기결제(빌링)`,
       customerKey,
       orderKind: 'review_billing',
-      legalConsentAt: new Date().toISOString(),
     });
-    return {
-      orderId,
-      amount: plan.price,
-      orderName,
-      customerKey,
-      planId: plan.id,
-      planName: plan.name,
+    return billingWindow(order, {
       checkoutType: 'subscribe',
       reviewMode: 'billing',
-      useBillingAuth: true,
-      clientKey: TOSS_CLIENT_KEY || null,
-      successUrl: `${APP_BASE_URL}/billing-success.html`,
-      billingAuthSuccessUrl: `${APP_BASE_URL}/billing-auth-success.html?orderId=${encodeURIComponent(orderId)}`,
-      failUrl: `${APP_BASE_URL}/billing-fail.html`,
-      mockMode: BILLING_MOCK,
-    };
+    });
   }
 
+  requireSingleClientKey();
   const key = String(productKey || plan.id);
   const catalog =
     REVIEW_ONETIME_PRODUCTS.find((item) => (item.productKey || item.id) === key) ||
     REVIEW_ONETIME_PRODUCTS.find((item) => item.id === plan.id);
   const amount = Number(catalog?.amount || REVIEW_ONETIME_AMOUNTS[key] || REVIEW_ONETIME_AMOUNTS[plan.id] || plan.price);
   const orderName = `스마트스토어 답글 ${catalog?.label || `${plan.name} 업그레이드`}(단건)`;
-  createBillingOrder({
+  const order = createBillingOrder({
     userId,
-    orderId,
+    orderId: createOrderId(userId),
     planId: plan.id,
     amount,
     orderName,
@@ -313,23 +550,11 @@ export function prepareReviewCheckout(userId, { mode, planId, productKey, legalC
     orderKind: 'review_onetime',
     legalConsentAt: new Date().toISOString(),
   });
-  return {
-    orderId,
-    amount,
-    orderName,
-    customerKey,
-    planId: plan.id,
-    planName: plan.name,
+  return singleWindow(order, {
     checkoutType: 'upgrade',
     reviewMode: 'onetime',
     productKey: key,
-    useBillingAuth: false,
-    clientKey: TOSS_CLIENT_KEY || null,
-    successUrl: `${APP_BASE_URL}/billing-success.html`,
-    billingAuthSuccessUrl: `${APP_BASE_URL}/billing-auth-success.html?orderId=${encodeURIComponent(orderId)}`,
-    failUrl: `${APP_BASE_URL}/billing-fail.html`,
-    mockMode: BILLING_MOCK,
-  };
+  });
 }
 
 export function prepareCheckout(userId, planId, { legalConsent } = {}) {
@@ -351,7 +576,7 @@ export function prepareCheckout(userId, planId, { legalConsent } = {}) {
       planName: plan.name,
       checkoutType: action.type,
       useBillingAuth: false,
-      clientKey: TOSS_CLIENT_KEY || null,
+      clientKey: null,
       successUrl: `${APP_BASE_URL}/billing.html`,
       billingAuthSuccessUrl: `${APP_BASE_URL}/billing.html`,
       failUrl: `${APP_BASE_URL}/billing-fail.html`,
@@ -362,37 +587,32 @@ export function prepareCheckout(userId, planId, { legalConsent } = {}) {
     };
   }
 
-  const orderId = createOrderId(userId);
   const customerKey = getOrCreateCustomerKey(userId);
+  const useBillingAuth = action.type === 'subscribe';
+  if (useBillingAuth) {
+    requireBillingClientKey();
+    const order = reuseOrCreateInitialBillingOrder(userId, {
+      planId: plan.id,
+      amount: action.amount,
+      orderName: action.orderName,
+      customerKey,
+      orderKind: 'subscribe',
+    });
+    return billingWindow(order, { checkoutType: action.type });
+  }
 
-  createBillingOrder({
+  requireSingleClientKey();
+  const order = createBillingOrder({
     userId,
-    orderId,
+    orderId: createOrderId(userId),
     planId: plan.id,
     amount: action.amount,
     orderName: action.orderName,
     customerKey,
-    orderKind: action.type === 'upgrade' ? 'upgrade' : 'subscribe',
+    orderKind: 'upgrade',
     legalConsentAt: new Date().toISOString(),
   });
-
-  const useBillingAuth = action.type === 'subscribe';
-
-  return {
-    orderId,
-    amount: action.amount,
-    orderName: action.orderName,
-    customerKey,
-    planId: plan.id,
-    planName: plan.name,
-    checkoutType: action.type,
-    useBillingAuth,
-    clientKey: TOSS_CLIENT_KEY || null,
-    successUrl: `${APP_BASE_URL}/billing-success.html`,
-    billingAuthSuccessUrl: `${APP_BASE_URL}/billing-auth-success.html?orderId=${encodeURIComponent(orderId)}`,
-    failUrl: `${APP_BASE_URL}/billing-fail.html`,
-    mockMode: BILLING_MOCK,
-  };
+  return singleWindow(order, { checkoutType: action.type });
 }
 
 export async function confirmCheckout(userId, { paymentKey, orderId, amount }) {
@@ -418,38 +638,65 @@ export async function confirmCheckout(userId, { paymentKey, orderId, amount }) {
     throw new Error('결제 금액이 일치하지 않습니다.');
   }
 
-  if (BILLING_MOCK && String(paymentKey || '').startsWith('mock_')) {
-    markBillingOrderPaid(order.id, paymentKey || 'mock_payment');
-  } else {
-    if (!TOSS_SECRET_KEY) throw new Error('TOSS_SECRET_KEY가 설정되지 않았습니다.');
-    await confirmTossPayment({ paymentKey, orderId, amount: expectedAmount });
-    markBillingOrderPaid(order.id, paymentKey);
+  let paidKey = paymentKey || 'mock_payment';
+  if (!(BILLING_MOCK && String(paymentKey || '').startsWith('mock_'))) {
+    if (billingOrderUsesBillingKey(order)) {
+      throw new Error('자동결제는 단건 승인으로 확인할 수 없습니다.');
+    }
+    assertSingleMerchantReady();
+    const payment = await confirmTossPayment({ paymentKey, orderId, amount: expectedAmount });
+    const decision = assessTossPayment(order, payment, { channel: 'single' });
+    if (decision.action !== 'apply') {
+      if (decision.action === 'fail') {
+        markBillingOrderRecovery(order.id, {
+          status: 'failed',
+          failureReason: decision.reason,
+          nextRecoveryAt: null,
+        });
+      } else if (decision.action === 'mismatch') {
+        markBillingOrderRecovery(order.id, {
+          status: 'manual_review',
+          failureReason: decision.reason,
+          nextRecoveryAt: null,
+        });
+      }
+      throw new Error(
+        decision.action === 'mismatch'
+          ? '단건 결제 상점 정보가 일치하지 않습니다.'
+          : '단건 결제가 완료되지 않았습니다.'
+      );
+    }
+    paidKey = payment.paymentKey || paidKey;
   }
 
   const userBeforeActivate = findUserById(userId);
   const orderKind = String(order.order_kind || '');
+  const paymentOptions = { billingOrderId: order.id, paymentKey: paidKey };
   let user;
   if (orderKind === 'review_onetime') {
     if (isSubscriptionActive(userBeforeActivate)) {
       try {
-        user = upgradeUserSubscription(userId, order.plan_id);
+        user = upgradeUserSubscription(userId, order.plan_id, paymentOptions);
       } catch (_) {
         user = activateUserSubscription(userId, order.plan_id, SUBSCRIPTION_DAYS, {
           autoRenew: false,
+          ...paymentOptions,
         });
       }
     } else {
       user = activateUserSubscription(userId, order.plan_id, SUBSCRIPTION_DAYS, {
         autoRenew: false,
+        ...paymentOptions,
       });
     }
   } else {
     const action = resolveCheckoutAction(userBeforeActivate, order.plan_id);
     if (action.type === 'upgrade') {
-      user = upgradeUserSubscription(userId, action.planId);
+      user = upgradeUserSubscription(userId, action.planId, paymentOptions);
     } else {
       user = activateUserSubscription(userId, order.plan_id, SUBSCRIPTION_DAYS, {
         autoRenew: false,
+        ...paymentOptions,
       });
     }
   }
@@ -469,7 +716,10 @@ export async function confirmBillingAuthCheckout(userId, { authKey, customerKey,
     throw new Error('주문 정보가 일치하지 않습니다.');
   }
   assertOrderHasLegalConsent(order);
-  if (order.status === 'paid') {
+  if (customerKey && customerKey !== order.customer_key) {
+    throw new Error('고객 키가 주문과 일치하지 않습니다.');
+  }
+  if (order.status === 'paid' || Number(order.usage_applied) === 1) {
     const user = findUserById(userId);
     return {
       order,
@@ -477,6 +727,9 @@ export async function confirmBillingAuthCheckout(userId, { authKey, customerKey,
       subscription: getSubscriptionSummary(user),
       alreadyPaid: true,
     };
+  }
+  if (order.status === 'failed' || order.status === 'manual_review') {
+    throw new Error('이 주문은 자동으로 다시 결제할 수 없습니다.');
   }
 
   const userBeforeActivate = findUserById(userId);
@@ -489,36 +742,116 @@ export async function confirmBillingAuthCheckout(userId, { authKey, customerKey,
     }
   }
 
-  let billingKey;
+  let billingKey = order.charge_billing_key || null;
   let cardMeta = { cardCompany: null, cardNumber: null };
-  if (BILLING_MOCK && String(authKey || '').startsWith('mock_auth_')) {
-    billingKey = mockBillingKeyForUser(userId);
-    cardMeta = { cardCompany: '테스트', cardNumber: '****0000' };
-  } else {
-    if (!TOSS_SECRET_KEY) throw new Error('TOSS_SECRET_KEY가 설정되지 않았습니다.');
-    const issued = await issueTossBillingKey({ authKey, customerKey });
-    billingKey = issued.billingKey;
-    cardMeta = extractCardMetaFromBillingIssue(issued);
+  const mockIssue = BILLING_MOCK && String(authKey || '').startsWith('mock_auth_');
+  if (!billingKey) {
+    if (mockIssue) {
+      billingKey = mockBillingKeyForUser(userId);
+      cardMeta = { cardCompany: '테스트', cardNumber: '****0000' };
+    } else {
+      assertBillingMerchantReady();
+      const issued = await issueTossBillingKey({ authKey, customerKey: customerKey || order.customer_key });
+      billingKey = issued.billingKey;
+      cardMeta = extractCardMetaFromBillingIssue(issued);
+    }
+    if (!billingKey) throw new Error('빌링키 발급에 실패했습니다.');
+    rememberIssuedBillingKey(order.id, billingKey);
   }
 
-  setUserBillingKey(userId, billingKey, {
-    enableAutoRenew: true,
-    cardCompany: cardMeta.cardCompany,
-    cardNumber: cardMeta.cardNumber,
-  });
-  markBillingOrderPaid(order.id, billingKey);
+  if (mockIssue) {
+    const user = activateUserSubscription(userId, order.plan_id, SUBSCRIPTION_DAYS, {
+      billingKey,
+      autoRenew: true,
+      billingOrderId: order.id,
+      paymentKey: `mock_pay_${order.order_id}`,
+      cardCompany: cardMeta.cardCompany,
+      cardNumber: cardMeta.cardNumber,
+    });
+    return {
+      order: findBillingOrder(order.id),
+      user,
+      subscription: getSubscriptionSummary(user),
+      alreadyPaid: false,
+    };
+  }
 
-  const user = activateUserSubscription(userId, order.plan_id, SUBSCRIPTION_DAYS, {
-    billingKey,
-    autoRenew: true,
-  });
+  let charge;
+  try {
+    charge = await chargeWithBillingKey({
+      billingKey,
+      customerKey: order.customer_key,
+      amount: order.amount,
+      orderId: order.order_id,
+      orderName: order.order_name,
+    });
+  } catch (error) {
+    if (error instanceof TossPaymentUnknownError && error.code !== 'IDEMPOTENCY_EXPIRED') {
+      markBillingOrderRecovery(order.id, {
+        status: 'unknown',
+        failureReason: error.code,
+        nextRecoveryAt: new Date().toISOString(),
+      });
+    } else if (error instanceof TossPaymentFailedError && error.code !== 'PAYLOAD_MISMATCH') {
+      markBillingOrderRecovery(order.id, {
+        status: 'failed',
+        failureReason: error.code,
+        nextRecoveryAt: null,
+      });
+    }
+    throw error;
+  }
 
-  return {
-    order: findBillingOrder(order.id),
-    user,
-    subscription: getSubscriptionSummary(user),
-    alreadyPaid: false,
-  };
+  if (charge.alreadyApplied) {
+    const user = findUserById(userId);
+    return {
+      order: findBillingOrder(order.id),
+      user,
+      subscription: getSubscriptionSummary(user),
+      alreadyPaid: true,
+    };
+  }
+
+  const decision = assessTossPayment(order, charge.raw, { channel: 'billing' });
+  if (decision.action === 'apply') {
+    const user = activateUserSubscription(userId, order.plan_id, SUBSCRIPTION_DAYS, {
+      billingKey,
+      autoRenew: true,
+      billingOrderId: order.id,
+      paymentKey: charge.paymentKey,
+      cardCompany: cardMeta.cardCompany,
+      cardNumber: cardMeta.cardNumber,
+    });
+    return {
+      order: findBillingOrder(order.id),
+      user,
+      subscription: getSubscriptionSummary(user),
+      alreadyPaid: false,
+    };
+  }
+
+  if (decision.action === 'fail') {
+    markBillingOrderRecovery(order.id, {
+      status: 'failed',
+      failureReason: decision.reason,
+      nextRecoveryAt: null,
+    });
+    throw new TossPaymentFailedError('자동결제 승인이 완료되지 않았습니다.', decision.reason);
+  }
+  if (decision.action === 'mismatch') {
+    markBillingOrderRecovery(order.id, {
+      status: 'manual_review',
+      failureReason: decision.reason,
+      nextRecoveryAt: null,
+    });
+    throw new TossPaymentFailedError('자동결제 상점 정보가 일치하지 않습니다.', decision.reason);
+  }
+  markBillingOrderRecovery(order.id, {
+    status: 'unknown',
+    failureReason: decision.reason,
+    nextRecoveryAt: new Date().toISOString(),
+  });
+  throw new TossPaymentUnknownError('결제 결과를 확인하지 못했습니다. 구독은 결제 확인 후 시작됩니다.', decision.reason);
 }
 
 export async function mockConfirmCheckout(userId, orderId) {
@@ -537,11 +870,12 @@ export async function mockConfirmCheckout(userId, orderId) {
 
   if (action.type === 'subscribe') {
     const billingKey = mockBillingKeyForUser(userId);
-    setUserBillingKey(userId, billingKey);
-    markBillingOrderPaid(order.id, billingKey);
+    rememberIssuedBillingKey(order.id, billingKey);
     const user = activateUserSubscription(userId, order.plan_id, SUBSCRIPTION_DAYS, {
       billingKey,
       autoRenew: true,
+      billingOrderId: order.id,
+      paymentKey: `mock_pay_${order.order_id}`,
     });
     return {
       order: findBillingOrder(order.id),
@@ -600,7 +934,7 @@ export function prepareCardUpdate(userId) {
   const customerKey = getOrCreateCustomerKey(userId);
   return {
     customerKey,
-    clientKey: TOSS_CLIENT_KEY || null,
+    clientKey: requireBillingClientKey(),
     billingAuthSuccessUrl: `${APP_BASE_URL}/billing-auth-success.html?mode=card-update`,
     failUrl: `${APP_BASE_URL}/billing-fail.html`,
     mockMode: BILLING_MOCK,
@@ -620,7 +954,6 @@ export async function confirmCardUpdate(userId, { authKey, customerKey }) {
     billingKey = mockBillingKeyForUser(userId);
     cardMeta = { cardCompany: '테스트', cardNumber: '****0000' };
   } else {
-    if (!TOSS_SECRET_KEY) throw new Error('TOSS_SECRET_KEY가 설정되지 않았습니다.');
     const issued = await issueTossBillingKey({ authKey, customerKey });
     billingKey = issued.billingKey;
     cardMeta = extractCardMetaFromBillingIssue(issued);

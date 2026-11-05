@@ -2,14 +2,17 @@ import {
   createBillingOrder,
   expireEndedSubscriptions,
   expireRenewalGracePeriod,
+  findOpenRenewalOrder,
   findUserById,
   getOrCreateCustomerKey,
+  isIdempotencyKeyExpired,
   listUsersDueForRenewal,
-  markBillingOrderPaid,
+  markBillingOrderRecovery,
   recordRenewalFailure,
   renewUserSubscriptionPeriod,
 } from './db.js';
-import { chargeWithBillingKey, createOrderId, isMockBillingKey } from './billing.js';
+import { chargeWithBillingKey, createOrderId, isMockBillingKey, TossPaymentFailedError, TossPaymentUnknownError } from './billing.js';
+import { recoverBillingOrder, recoverUnconfirmedBillingOrders } from './billing-recovery.js';
 import { getPlan } from './plans.js';
 
 const SUBSCRIPTION_DAYS = Number(process.env.SUBSCRIPTION_DAYS || 30);
@@ -29,9 +32,11 @@ export async function processSubscriptionRenewals() {
   }
 
   renewalRunning = true;
-  const summary = { expired: 0, graceExpired: 0, renewed: 0, failed: 0, errors: [] };
+  const summary = { expired: 0, graceExpired: 0, renewed: 0, failed: 0, recovered: 0, errors: [] };
 
   try {
+    const recovered = await recoverUnconfirmedBillingOrders();
+    summary.recovered = recovered.filter((item) => item.action === 'applied').length;
     summary.expired = expireEndedSubscriptions();
     summary.graceExpired = expireRenewalGracePeriod(RENEWAL_GRACE_DAYS, RENEWAL_MAX_ATTEMPTS);
 
@@ -63,7 +68,71 @@ export async function processSubscriptionRenewals() {
   return summary;
 }
 
+export async function chargeAndApplyRenewal(user, order) {
+  let charged = null;
+  try {
+    const charge = await chargeWithBillingKey({
+      billingKey: user.billing_key,
+      customerKey: order.customer_key,
+      amount: order.amount,
+      orderId: order.order_id,
+      orderName: order.order_name,
+    });
+    charged = charge;
+    if (charge.alreadyApplied) return findUserById(user.id);
+    renewUserSubscriptionPeriod(user.id, SUBSCRIPTION_DAYS, {
+      planId: order.plan_id,
+      billingOrderId: order.id,
+      paymentKey: charge.paymentKey,
+    });
+    return findUserById(user.id);
+  } catch (error) {
+    if (error instanceof TossPaymentUnknownError) {
+      if (error.code !== 'IDEMPOTENCY_EXPIRED') {
+        markBillingOrderRecovery(order.id, {
+          status: 'unknown',
+          failureReason: error.code,
+          nextRecoveryAt: new Date().toISOString(),
+        });
+      }
+      return findUserById(user.id);
+    }
+    if (charged) {
+      markBillingOrderRecovery(order.id, {
+        status: 'unknown',
+        failureReason: 'db_apply_failed',
+        nextRecoveryAt: new Date().toISOString(),
+      });
+      return findUserById(user.id);
+    }
+    if (error instanceof TossPaymentFailedError) {
+      markBillingOrderRecovery(order.id, {
+        status: 'failed',
+        failureReason: error.code,
+        nextRecoveryAt: null,
+      });
+    }
+    throw error;
+  }
+}
+
 async function renewSingleUser(user) {
+  const open = findOpenRenewalOrder(user.id);
+  if (open && !isMockBillingKey(user.billing_key)) {
+    if (open.status === 'manual_review' || isIdempotencyKeyExpired(open)) {
+      if (open.status !== 'manual_review') {
+        markBillingOrderRecovery(open.id, {
+          status: 'manual_review',
+          failureReason: 'idempotency_expired',
+          nextRecoveryAt: null,
+        });
+      }
+      return findUserById(user.id);
+    }
+    const recovered = await recoverBillingOrder(open.id);
+    if (recovered.action !== 'failed') return findUserById(user.id);
+  }
+
   const renewPlanId = user.pending_plan_id || user.plan_id;
   const plan = getPlan(renewPlanId);
   if (!plan.price) {
@@ -87,23 +156,16 @@ async function renewSingleUser(user) {
     orderKind: 'renewal',
   });
 
-  let paymentKey;
   if (isMockBillingKey(user.billing_key)) {
-    paymentKey = `mock_renew_${orderId}`;
-  } else {
-    const charge = await chargeWithBillingKey({
-      billingKey: user.billing_key,
-      customerKey,
-      amount: plan.price,
-      orderId,
-      orderName,
+    renewUserSubscriptionPeriod(user.id, SUBSCRIPTION_DAYS, {
+      planId: plan.id,
+      billingOrderId: order.id,
+      paymentKey: `mock_renew_${orderId}`,
     });
-    paymentKey = charge.paymentKey || `billing_${orderId}`;
+    return findUserById(user.id);
   }
 
-  markBillingOrderPaid(order.id, paymentKey);
-  renewUserSubscriptionPeriod(user.id, SUBSCRIPTION_DAYS, { planId: plan.id });
-  return findUserById(user.id);
+  return chargeAndApplyRenewal(user, order);
 }
 
 export function startRenewalScheduler() {

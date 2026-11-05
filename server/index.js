@@ -68,6 +68,7 @@ import {
 import { SubscriptionError, cancelUserSubscriptionAtPeriodEnd, clearPendingDowngrade, undoCancelSubscription } from './subscription.js';
 import { startRenewalScheduler } from './renewal.js';
 import { assertWithinLimit, getUsageSummary, recordUsage, UsageLimitError, withUserLock } from './usage.js';
+import { devApiBypassEnabled, readDevApiSecret } from './dev-auth.js';
 import {
   buildAuthorizeUrl,
   buildKakaoSuccessUrl,
@@ -82,7 +83,6 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = Number(process.env.PORT) || 8787;
-const DEV_SECRET = String(process.env.DEV_API_SECRET || '').trim();
 const ADMIN_SECRET = String(process.env.ADMIN_SECRET || '').trim();
 const ALLOW_REGISTRATION = String(process.env.ALLOW_REGISTRATION || 'false').toLowerCase() === 'true';
 const REQUIRE_SUBSCRIPTION = String(process.env.REQUIRE_SUBSCRIPTION ?? 'true').toLowerCase() === 'true';
@@ -126,8 +126,9 @@ app.use((req, res, next) => {
 
 function authenticate(req, res, next) {
   const token = parseBearerToken(req.headers.authorization);
+  const devSecret = readDevApiSecret();
 
-  if (DEV_SECRET && token === DEV_SECRET) {
+  if (devSecret && token === devSecret) {
     req.auth = { mode: 'dev', unlimited: true };
     next();
     return;
@@ -150,8 +151,9 @@ function authenticate(req, res, next) {
 }
 
 function requireAdmin(req, res, next) {
+  const configured = String(process.env.ADMIN_SECRET || '').trim();
   const secret = String(req.headers['x-admin-secret'] || '').trim();
-  if (!ADMIN_SECRET || secret !== ADMIN_SECRET) {
+  if (!configured || secret !== configured) {
     res.status(403).json({ ok: false, error: '관리자 권한이 필요합니다.' });
     return;
   }
@@ -734,7 +736,8 @@ app.post('/api/analytics/event', (req, res) => {
   try {
     let userId = null;
     const token = parseBearerToken(req.headers.authorization);
-    if (token && !(DEV_SECRET && token === DEV_SECRET)) {
+    const devSecret = readDevApiSecret();
+    if (token && token !== devSecret) {
       const auth = getAuthFromToken(token);
       if (auth?.user?.id) userId = auth.user.id;
     }
@@ -1000,6 +1003,16 @@ app.post('/api/generate-reply', authenticate, async (req, res) => {
     }
 
     if (text) text = scrubReplyPlaceholders(text);
+    text = String(text || '').trim();
+    if (!text) {
+      res.status(502).json({
+        ok: false,
+        error: '답글을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        retryable: true,
+        code: 'EMPTY_REPLY',
+      });
+      return;
+    }
 
     let usage;
     if (req.auth.mode === 'user') {
@@ -1044,8 +1057,10 @@ app.listen(PORT, '0.0.0.0', () => {
   if (!String(process.env.GEMINI_API_KEY || '').trim()) {
     console.warn('WARN: GEMINI_API_KEY is not set');
   }
-  if (DEV_SECRET) {
-    console.log('DEV_API_SECRET enabled (local dev bypass)');
+  if (devApiBypassEnabled()) {
+    console.log('DEV_API_SECRET enabled (development only)');
+  } else if (String(process.env.DEV_API_SECRET || '').trim()) {
+    console.log('DEV_API_SECRET ignored');
   } else {
     console.log('User login required for AI endpoints');
   }

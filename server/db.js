@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -107,6 +108,7 @@ function initSchema(database) {
 
   migrateBillingOrdersTable(database);
   migrateUsersTable(database);
+  migrateLegacySubscriptionUsage(database);
 }
 
 function migrateBillingOrdersTable(database) {
@@ -116,6 +118,39 @@ function migrateBillingOrdersTable(database) {
   }
   if (!cols.includes('legal_consent_at')) {
     database.exec(`ALTER TABLE billing_orders ADD COLUMN legal_consent_at TEXT`);
+  }
+  if (!cols.includes('usage_applied')) {
+    database.exec(`ALTER TABLE billing_orders ADD COLUMN usage_applied INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!cols.includes('idempotency_key')) {
+    database.exec(`ALTER TABLE billing_orders ADD COLUMN idempotency_key TEXT`);
+  }
+  if (!cols.includes('idempotency_created_at')) {
+    database.exec(`ALTER TABLE billing_orders ADD COLUMN idempotency_created_at TEXT`);
+  }
+  if (!cols.includes('idempotency_sent_at')) {
+    database.exec(`ALTER TABLE billing_orders ADD COLUMN idempotency_sent_at TEXT`);
+  }
+  if (!cols.includes('charge_billing_key')) {
+    database.exec(`ALTER TABLE billing_orders ADD COLUMN charge_billing_key TEXT`);
+  }
+  if (!cols.includes('charge_fingerprint')) {
+    database.exec(`ALTER TABLE billing_orders ADD COLUMN charge_fingerprint TEXT`);
+  }
+  if (!cols.includes('recovery_attempts')) {
+    database.exec(`ALTER TABLE billing_orders ADD COLUMN recovery_attempts INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!cols.includes('next_recovery_at')) {
+    database.exec(`ALTER TABLE billing_orders ADD COLUMN next_recovery_at TEXT`);
+  }
+  if (!cols.includes('last_recovery_at')) {
+    database.exec(`ALTER TABLE billing_orders ADD COLUMN last_recovery_at TEXT`);
+  }
+  if (!cols.includes('failure_reason')) {
+    database.exec(`ALTER TABLE billing_orders ADD COLUMN failure_reason TEXT`);
+  }
+  if (!cols.includes('last_webhook_event_id')) {
+    database.exec(`ALTER TABLE billing_orders ADD COLUMN last_webhook_event_id TEXT`);
   }
 }
 
@@ -163,6 +198,15 @@ function migrateUsersTable(database) {
   if (!cols.includes('card_number')) {
     database.exec(`ALTER TABLE users ADD COLUMN card_number TEXT`);
   }
+  if (!cols.includes('usage_cycle')) {
+    database.exec(`ALTER TABLE users ADD COLUMN usage_cycle INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!cols.includes('usage_legacy_migrated')) {
+    database.exec(`ALTER TABLE users ADD COLUMN usage_legacy_migrated INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!cols.includes('usage_legacy_review')) {
+    database.exec(`ALTER TABLE users ADD COLUMN usage_legacy_review INTEGER NOT NULL DEFAULT 0`);
+  }
 
   database.exec(`
     UPDATE users
@@ -172,11 +216,138 @@ function migrateUsersTable(database) {
   `);
 }
 
+let usageMigrationFaultForTests = null;
+
+export function setUsageMigrationFaultForTests(fn) {
+  usageMigrationFaultForTests = typeof fn === 'function' ? fn : null;
+}
+
+function sqlTime(date) {
+  return date.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+function legacyEntitlementActive(user, now) {
+  const status = String(user.subscription_status || 'none');
+  if (status !== 'active' && status !== 'cancelled') return false;
+  if (!['basic', 'standard', 'pro'].includes(String(user.plan_id || ''))) return false;
+  const expires = Date.parse(`${String(user.subscription_expires_at || '').replace(' ', 'T')}Z`);
+  if (!Number.isFinite(expires)) return false;
+  if (expires > now.getTime()) return true;
+  const graceDays = Number(process.env.RENEWAL_GRACE_DAYS || 3);
+  const maxAttempts = Number(process.env.RENEWAL_MAX_ATTEMPTS || 3);
+  const failCount = Number(user.renewal_fail_count || 0);
+  if (status !== 'active' || !user.auto_renew || !user.billing_key) return false;
+  if (failCount <= 0 || failCount >= maxAttempts) return false;
+  return now.getTime() <= expires + graceDays * 86400000;
+}
+
+function legacyMonthsMatchLogs(database, userId) {
+  const monthly = database
+    .prepare(
+      `SELECT period, reply_count, tone_count
+       FROM usage_monthly
+       WHERE user_id = ? AND period GLOB '????-??'`
+    )
+    .all(userId);
+  const logs = database
+    .prepare(
+      `SELECT period,
+         COALESCE(SUM(CASE WHEN kind = 'tone' THEN 1 ELSE 0 END), 0) AS tone,
+         COALESCE(SUM(CASE WHEN kind != 'tone' THEN 1 ELSE 0 END), 0) AS reply
+       FROM usage_logs
+       WHERE user_id = ? AND period GLOB '????-??'
+       GROUP BY period`
+    )
+    .all(userId);
+  const monthlyByPeriod = new Map(monthly.map((row) => [row.period, row]));
+  const logsByPeriod = new Map(logs.map((row) => [row.period, row]));
+  const periods = new Set([...monthlyByPeriod.keys(), ...logsByPeriod.keys()]);
+  for (const period of periods) {
+    const month = monthlyByPeriod.get(period);
+    const log = logsByPeriod.get(period);
+    if (Number(month?.reply_count || 0) !== Number(log?.reply || 0)) return false;
+    if (Number(month?.tone_count || 0) !== Number(log?.tone || 0)) return false;
+  }
+  return true;
+}
+
+function legacyWindowUsage(database, user, now) {
+  const cycleDays = Number(process.env.SUBSCRIPTION_DAYS || 30);
+  const expiresMs = Date.parse(`${String(user.subscription_expires_at || '').replace(' ', 'T')}Z`);
+  const start = new Date(expiresMs - cycleDays * 86400000);
+  const counts = database
+    .prepare(
+      `SELECT
+         COALESCE(SUM(CASE WHEN kind = 'tone' THEN 1 ELSE 0 END), 0) AS tone,
+         COALESCE(SUM(CASE WHEN kind != 'tone' THEN 1 ELSE 0 END), 0) AS reply
+       FROM usage_logs
+       WHERE user_id = ?
+         AND created_at >= ?
+         AND created_at <= ?
+         AND created_at < ?`
+    )
+    .get(user.id, sqlTime(start), sqlTime(now), sqlTime(new Date(expiresMs)));
+  return {
+    reply: Number(counts?.reply || 0),
+    tone: Number(counts?.tone || 0),
+  };
+}
+
+export function migrateLegacySubscriptionUsage(database = getDb()) {
+  const pending = database
+    .prepare('SELECT COUNT(*) AS n FROM users WHERE COALESCE(usage_legacy_migrated, 0) = 0')
+    .get();
+  if (!pending || Number(pending.n) === 0) return;
+  const apply = database.transaction(() => {
+    const users = database
+      .prepare('SELECT * FROM users WHERE COALESCE(usage_legacy_migrated, 0) = 0')
+      .all();
+    const mark = database.prepare(
+      `UPDATE users
+       SET usage_legacy_migrated = 1,
+           usage_legacy_review = 0,
+           usage_cycle = CASE WHEN COALESCE(usage_cycle, 0) = 0 THEN ? ELSE usage_cycle END
+       WHERE id = ?`
+    );
+    const markReview = database.prepare(
+      `UPDATE users
+       SET usage_legacy_migrated = 1,
+           usage_legacy_review = 1
+       WHERE id = ?`
+    );
+    const saveCycle = database.prepare(
+      `INSERT INTO usage_monthly (user_id, period, reply_count, tone_count)
+       VALUES (?, 'cycle:1', ?, ?)
+       ON CONFLICT(user_id, period) DO UPDATE SET
+         reply_count = MAX(reply_count, excluded.reply_count),
+         tone_count = MAX(tone_count, excluded.tone_count),
+         updated_at = datetime('now')`
+    );
+    const now = new Date();
+    for (const user of users) {
+      if (usageMigrationFaultForTests) usageMigrationFaultForTests();
+      if (Number(user.usage_cycle || 0) > 0 || !legacyEntitlementActive(user, now)) {
+        mark.run(0, user.id);
+        continue;
+      }
+      if (!legacyMonthsMatchLogs(database, user.id)) {
+        markReview.run(user.id);
+        continue;
+      }
+      const counts = legacyWindowUsage(database, user, now);
+      saveCycle.run(user.id, counts.reply, counts.tone);
+      mark.run(1, user.id);
+    }
+  });
+  apply();
+}
+
 export function getDb() {
   if (db) return db;
   ensureDataDir();
-  db = new Database(DB_PATH);
+  db = new Database(DB_PATH, { timeout: 5000 });
   db.pragma('foreign_keys = ON');
+  db.pragma('busy_timeout = 5000');
   initSchema(db);
   return db;
 }
@@ -235,8 +406,8 @@ export function createKakaoUser({ kakaoId, email, displayName, planId = DEFAULT_
   const normalizedPlan = normalizePlanId(planId);
   const result = getDb()
     .prepare(
-      `INSERT INTO users (email, password_hash, plan_id, kakao_id, auth_provider, display_name)
-       VALUES (?, 'oauth:kakao', ?, ?, 'kakao', ?)`
+      `INSERT INTO users (email, password_hash, plan_id, kakao_id, auth_provider, display_name, usage_legacy_migrated)
+       VALUES (?, 'oauth:kakao', ?, ?, 'kakao', ?, 1)`
     )
     .run(normalizedEmail, normalizedPlan, String(kakaoId), allocateDisplayName(displayName));
   return findUserById(result.lastInsertRowid);
@@ -247,8 +418,8 @@ export function createUser(email, passwordHash, planId = DEFAULT_PLAN_ID) {
   const normalizedPlan = normalizePlanId(planId);
   const result = getDb()
     .prepare(
-      `INSERT INTO users (email, password_hash, plan_id, display_name)
-       VALUES (?, ?, ?, ?)`
+      `INSERT INTO users (email, password_hash, plan_id, display_name, usage_legacy_migrated)
+       VALUES (?, ?, ?, ?, 1)`
     )
     .run(normalizedEmail, passwordHash, normalizedPlan, allocateDisplayName());
   return findUserById(result.lastInsertRowid);
@@ -499,25 +670,36 @@ export function ensureUsageRow(userId, period = currentPeriod()) {
   return getUsageRow(userId, period);
 }
 
+let usageLogFaultForTests = null;
+
+export function setUsageLogFaultForTests(fn) {
+  usageLogFaultForTests = typeof fn === 'function' ? fn : null;
+}
+
 export function incrementUsage(userId, kind, channel, period = currentPeriod()) {
-  ensureUsageRow(userId, period);
-  const column = kind === 'tone' ? 'tone_count' : 'reply_count';
-  getDb()
-    .prepare(
-      `UPDATE usage_monthly
-       SET ${column} = ${column} + 1, updated_at = datetime('now')
-       WHERE user_id = ? AND period = ?`
-    )
-    .run(userId, period);
+  const apply = getDb().transaction(() => {
+    ensureUsageRow(userId, period);
+    const column = kind === 'tone' ? 'tone_count' : 'reply_count';
+    getDb()
+      .prepare(
+        `UPDATE usage_monthly
+         SET ${column} = ${column} + 1, updated_at = datetime('now')
+         WHERE user_id = ? AND period = ?`
+      )
+      .run(userId, period);
 
-  getDb()
-    .prepare(
-      `INSERT INTO usage_logs (user_id, period, kind, channel)
-       VALUES (?, ?, ?, ?)`
-    )
-    .run(userId, period, kind, channel || null);
+    if (usageLogFaultForTests) usageLogFaultForTests();
 
-  return getUsageRow(userId, period);
+    getDb()
+      .prepare(
+        `INSERT INTO usage_logs (user_id, period, kind, channel)
+         VALUES (?, ?, ?, ?)`
+      )
+      .run(userId, period, kind, channel || null);
+
+    return getUsageRow(userId, period);
+  });
+  return apply();
 }
 
 /** channel별 사용량 (구 로그 channel NULL → review로 취급) */
@@ -812,6 +994,60 @@ export function getOrCreateCustomerKey(userId) {
   return customerKey;
 }
 
+export function billingChargeFingerprint({ amount, orderId, customerKey, orderName }) {
+  return crypto
+    .createHash('sha256')
+    .update([String(amount), String(orderId), String(customerKey), String(orderName)].join('\n'))
+    .digest('hex');
+}
+
+export const IDEMPOTENCY_TTL_MS = 15 * 24 * 60 * 60 * 1000;
+
+export function isIdempotencyKeyExpired(order, now = new Date()) {
+  const raw = String(order?.idempotency_sent_at || '').trim();
+  if (!raw) return false;
+  const parsed = raw.includes('T') ? Date.parse(raw) : Date.parse(`${raw.replace(' ', 'T')}Z`);
+  if (!Number.isFinite(parsed)) return false;
+  return now.getTime() - parsed >= IDEMPOTENCY_TTL_MS;
+}
+
+export function rememberIssuedBillingKey(orderDbId, billingKey) {
+  getDb()
+    .prepare(
+      `UPDATE billing_orders
+       SET charge_billing_key = COALESCE(charge_billing_key, ?)
+       WHERE id = ?`
+    )
+    .run(String(billingKey || ''), orderDbId);
+  return findBillingOrder(orderDbId);
+}
+
+export function findOpenInitialBillingOrder(userId) {
+  return getDb()
+    .prepare(
+      `SELECT * FROM billing_orders
+       WHERE user_id = ?
+         AND order_kind IN ('subscribe', 'review_billing')
+         AND usage_applied = 0
+         AND status IN ('pending', 'unknown', 'manual_review')
+       ORDER BY id DESC
+       LIMIT 1`
+    )
+    .get(userId);
+}
+
+export function rememberIdempotencySend(orderDbId, billingKey, sentAtIso) {
+  getDb()
+    .prepare(
+      `UPDATE billing_orders
+       SET idempotency_sent_at = COALESCE(idempotency_sent_at, ?),
+           charge_billing_key = COALESCE(charge_billing_key, ?)
+       WHERE id = ?`
+    )
+    .run(sentAtIso, String(billingKey || ''), orderDbId);
+  return findBillingOrder(orderDbId);
+}
+
 export function createBillingOrder({
   userId,
   orderId,
@@ -822,10 +1058,16 @@ export function createBillingOrder({
   orderKind = 'payment',
   legalConsentAt = null,
 }) {
+  const idempotencyKey = crypto.randomUUID();
+  const idempotencyCreatedAt = new Date().toISOString();
+  const fingerprint = billingChargeFingerprint({ amount, orderId, customerKey, orderName });
   const result = getDb()
     .prepare(
-      `INSERT INTO billing_orders (user_id, order_id, plan_id, amount, order_name, customer_key, status, order_kind, legal_consent_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
+      `INSERT INTO billing_orders (
+         user_id, order_id, plan_id, amount, order_name, customer_key, status, order_kind, legal_consent_at,
+         idempotency_key, idempotency_created_at, charge_fingerprint
+       )
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`
     )
     .run(
       userId,
@@ -835,9 +1077,70 @@ export function createBillingOrder({
       orderName,
       customerKey,
       orderKind,
-      legalConsentAt
+      legalConsentAt,
+      idempotencyKey,
+      idempotencyCreatedAt,
+      fingerprint
     );
   return findBillingOrder(result.lastInsertRowid);
+}
+
+export function findOpenRenewalOrder(userId) {
+  return getDb()
+    .prepare(
+      `SELECT * FROM billing_orders
+       WHERE user_id = ? AND order_kind = 'renewal' AND status IN ('pending', 'unknown', 'manual_review')
+       ORDER BY id DESC
+       LIMIT 1`
+    )
+    .get(userId);
+}
+
+export function listRenewalOrdersForRecovery(nowIso) {
+  return getDb()
+    .prepare(
+      `SELECT * FROM billing_orders
+       WHERE order_kind IN ('renewal', 'subscribe', 'review_billing')
+         AND usage_applied = 0
+         AND status IN ('pending', 'unknown')
+         AND (next_recovery_at IS NULL OR next_recovery_at <= ?)
+       ORDER BY id ASC`
+    )
+    .all(nowIso);
+}
+
+export function claimBillingOrderRecovery(orderDbId, nowIso, nextIso) {
+  const apply = getDb().transaction(() => {
+    const result = getDb()
+      .prepare(
+        `UPDATE billing_orders
+         SET recovery_attempts = COALESCE(recovery_attempts, 0) + 1,
+             last_recovery_at = ?,
+             next_recovery_at = ?
+         WHERE id = ?
+           AND usage_applied = 0
+           AND status IN ('pending', 'unknown')
+           AND (next_recovery_at IS NULL OR next_recovery_at <= ?)`
+      )
+      .run(nowIso, nextIso, orderDbId, nowIso);
+    if (result.changes !== 1) return null;
+    return findBillingOrder(orderDbId);
+  });
+  return apply.immediate();
+}
+
+export function markBillingOrderRecovery(orderDbId, { status, failureReason = null, nextRecoveryAt = null, paymentKey = null } = {}) {
+  getDb()
+    .prepare(
+      `UPDATE billing_orders
+       SET status = ?,
+           failure_reason = ?,
+           next_recovery_at = ?,
+           payment_key = COALESCE(?, payment_key)
+       WHERE id = ? AND status NOT IN ('paid', 'refunded')`
+    )
+    .run(status, failureReason, nextRecoveryAt, paymentKey, orderDbId);
+  return findBillingOrder(orderDbId);
 }
 
 export function findBillingOrder(id) {
@@ -869,89 +1172,145 @@ export function markBillingOrderRefunded(orderDbId) {
   return findBillingOrder(orderDbId);
 }
 
-export function activateUserSubscription(userId, planId, days = 30, options = {}) {
-  const user = findUserById(userId);
-  if (!user) throw new Error('사용자를 찾을 수 없습니다.');
-  const { billingKey = null, autoRenew = null } = options;
+let subscriptionFaultForTests = null;
 
-  const now = new Date();
-  let base = now;
-  if (user.subscription_status === 'active' && user.subscription_expires_at) {
-    const currentExpires = new Date(String(user.subscription_expires_at).replace(' ', 'T') + 'Z');
-    if (currentExpires.getTime() > now.getTime()) {
-      base = currentExpires;
-    }
-  }
-  if (user.subscription_status === 'cancelled' && user.subscription_expires_at) {
-    const currentExpires = new Date(String(user.subscription_expires_at).replace(' ', 'T') + 'Z');
-    if (currentExpires.getTime() > now.getTime()) {
-      base = currentExpires;
-    }
-  }
+export function setSubscriptionFaultForTests(fn) {
+  subscriptionFaultForTests = typeof fn === 'function' ? fn : null;
+}
 
-  const expiresAt = addDaysIsoLocal(days, base);
-  const nextBillingKey = billingKey != null ? billingKey : user.billing_key;
-  const nextAutoRenew =
-    autoRenew != null ? (autoRenew ? 1 : 0) : billingKey != null ? 1 : user.auto_renew ? 1 : 0;
-
-  getDb()
+function claimBillingOrder(orderDbId, paymentKey) {
+  const database = getDb();
+  const order = database.prepare('SELECT id, usage_applied FROM billing_orders WHERE id = ?').get(orderDbId);
+  if (!order) throw new Error('주문을 찾을 수 없습니다.');
+  if (Number(order.usage_applied) === 1) return false;
+  const key = paymentKey != null && String(paymentKey) !== '' ? String(paymentKey) : null;
+  const result = database
     .prepare(
-      `UPDATE users
-       SET plan_id = ?, subscription_status = 'active', subscription_expires_at = ?,
-           billing_key = ?, auto_renew = ?, pending_plan_id = NULL, updated_at = datetime('now')
-       WHERE id = ?`
+      `UPDATE billing_orders
+       SET status = CASE WHEN status IN ('pending', 'unknown') THEN 'paid' ELSE status END,
+           payment_key = COALESCE(?, payment_key),
+           paid_at = COALESCE(paid_at, datetime('now')),
+           usage_applied = 1
+       WHERE id = ? AND COALESCE(usage_applied, 0) = 0`
     )
-    .run(normalizePlanId(planId), expiresAt, nextBillingKey, nextAutoRenew, userId);
+    .run(key, orderDbId);
+  return result.changes === 1;
+}
 
-  return findUserById(userId);
+function throwSubscriptionFaultForTests() {
+  if (subscriptionFaultForTests) subscriptionFaultForTests();
+}
+
+export function activateUserSubscription(userId, planId, days = 30, options = {}) {
+  const apply = getDb().transaction(() => {
+    const user = findUserById(userId);
+    if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+    if (options.billingOrderId != null && !claimBillingOrder(options.billingOrderId, options.paymentKey)) {
+      return findUserById(userId);
+    }
+
+    const { billingKey = null, autoRenew = null } = options;
+    const now = new Date();
+    let base = now;
+    if (user.subscription_status === 'active' && user.subscription_expires_at) {
+      const currentExpires = new Date(String(user.subscription_expires_at).replace(' ', 'T') + 'Z');
+      if (currentExpires.getTime() > now.getTime()) base = currentExpires;
+    }
+    if (user.subscription_status === 'cancelled' && user.subscription_expires_at) {
+      const currentExpires = new Date(String(user.subscription_expires_at).replace(' ', 'T') + 'Z');
+      if (currentExpires.getTime() > now.getTime()) base = currentExpires;
+    }
+
+    const expiresAt = addDaysIsoLocal(days, base);
+    const openingNewCycle = base === now;
+    const nextCycle = openingNewCycle ? Number(user.usage_cycle || 0) + 1 : Number(user.usage_cycle || 0);
+    const nextBillingKey = billingKey != null ? billingKey : user.billing_key;
+    const nextAutoRenew =
+      autoRenew != null ? (autoRenew ? 1 : 0) : billingKey != null ? 1 : user.auto_renew ? 1 : 0;
+
+    if (billingKey != null) {
+      const cardOptions = { enableAutoRenew: nextAutoRenew === 1 };
+      if (options.cardCompany !== undefined) cardOptions.cardCompany = options.cardCompany;
+      if (options.cardNumber !== undefined) cardOptions.cardNumber = options.cardNumber;
+      setUserBillingKey(userId, billingKey, cardOptions);
+    }
+
+    getDb()
+      .prepare(
+        `UPDATE users
+         SET plan_id = ?, subscription_status = 'active', subscription_expires_at = ?,
+             usage_cycle = ?, billing_key = ?, auto_renew = ?, pending_plan_id = NULL, updated_at = datetime('now')
+         WHERE id = ?`
+      )
+      .run(normalizePlanId(planId), expiresAt, nextCycle, nextBillingKey, nextAutoRenew, userId);
+
+    throwSubscriptionFaultForTests();
+    return findUserById(userId);
+  });
+  return apply.immediate();
 }
 
 export function renewUserSubscriptionPeriod(userId, days = 30, options = {}) {
-  const user = findUserById(userId);
-  if (!user) throw new Error('사용자를 찾을 수 없습니다.');
-  if (!user.subscription_expires_at) {
-    throw new Error('갱신할 구독 만료일이 없습니다.');
-  }
+  const apply = getDb().transaction(() => {
+    const user = findUserById(userId);
+    if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+    if (options.billingOrderId != null && !claimBillingOrder(options.billingOrderId, options.paymentKey)) {
+      return findUserById(userId);
+    }
+    if (!user.subscription_expires_at) {
+      throw new Error('갱신할 구독 만료일이 없습니다.');
+    }
 
-  const nextPlanId =
-    options.planId != null && options.planId !== ''
-      ? normalizePaidPlanId(options.planId)
-      : user.pending_plan_id
-        ? normalizePaidPlanId(user.pending_plan_id)
-        : normalizePaidPlanId(user.plan_id);
+    const nextPlanId =
+      options.planId != null && options.planId !== ''
+        ? normalizePaidPlanId(options.planId)
+        : user.pending_plan_id
+          ? normalizePaidPlanId(user.pending_plan_id)
+          : normalizePaidPlanId(user.plan_id);
 
-  const base = new Date(String(user.subscription_expires_at).replace(' ', 'T') + 'Z');
-  const expiresAt = addDaysIsoLocal(days, base);
-  getDb()
-    .prepare(
-      `UPDATE users
-       SET plan_id = ?, subscription_status = 'active', subscription_expires_at = ?, auto_renew = 1,
-           pending_plan_id = NULL, renewal_fail_count = 0, renewal_last_attempt_at = NULL,
-           updated_at = datetime('now')
-       WHERE id = ?`
-    )
-    .run(nextPlanId, expiresAt, userId);
+    const base = new Date(String(user.subscription_expires_at).replace(' ', 'T') + 'Z');
+    const expiresAt = addDaysIsoLocal(days, base);
+    const nextCycle = Number(user.usage_cycle || 0) + 1;
+    getDb()
+      .prepare(
+        `UPDATE users
+         SET plan_id = ?, subscription_status = 'active', subscription_expires_at = ?, usage_cycle = ?,
+             auto_renew = 1, pending_plan_id = NULL, renewal_fail_count = 0, renewal_last_attempt_at = NULL,
+             updated_at = datetime('now')
+         WHERE id = ?`
+      )
+      .run(nextPlanId, expiresAt, nextCycle, userId);
 
-  return findUserById(userId);
+    throwSubscriptionFaultForTests();
+    return findUserById(userId);
+  });
+  return apply.immediate();
 }
 
-export function upgradeUserSubscription(userId, planId) {
-  const user = findUserById(userId);
-  if (!user) throw new Error('사용자를 찾을 수 없습니다.');
-  if (!user.subscription_expires_at) {
-    throw new Error('업그레이드할 활성 구독이 없습니다.');
-  }
+export function upgradeUserSubscription(userId, planId, options = {}) {
+  const apply = getDb().transaction(() => {
+    const user = findUserById(userId);
+    if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+    if (options.billingOrderId != null && !claimBillingOrder(options.billingOrderId, options.paymentKey)) {
+      return findUserById(userId);
+    }
+    if (!user.subscription_expires_at) {
+      throw new Error('업그레이드할 활성 구독이 없습니다.');
+    }
 
-  getDb()
-    .prepare(
-      `UPDATE users
-       SET plan_id = ?, subscription_status = 'active', pending_plan_id = NULL,
-           updated_at = datetime('now')
-       WHERE id = ?`
-    )
-    .run(normalizePlanId(planId), userId);
+    getDb()
+      .prepare(
+        `UPDATE users
+         SET plan_id = ?, subscription_status = 'active', pending_plan_id = NULL,
+             updated_at = datetime('now')
+         WHERE id = ?`
+      )
+      .run(normalizePlanId(planId), userId);
 
-  return findUserById(userId);
+    throwSubscriptionFaultForTests();
+    return findUserById(userId);
+  });
+  return apply.immediate();
 }
 
 export function setUserSubscriptionActive(userId, planId, days = 365) {
@@ -968,7 +1327,7 @@ export function listBillingOrdersForUser(userId, limit = 20) {
   return getDb()
     .prepare(
       `SELECT * FROM billing_orders
-       WHERE user_id = ? AND status IN ('paid', 'refunded')
+       WHERE user_id = ? AND status IN ('paid', 'refunded', 'failed')
        ORDER BY COALESCE(paid_at, created_at) DESC
        LIMIT ?`
     )
