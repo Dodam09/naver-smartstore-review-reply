@@ -1102,19 +1102,7 @@ async function generateReply(apiKey, systemPrompt, row, model, signal) {
     return scrubGeneratedReply(data.text);
   }
 
-  const userContent = [
-    row.product && `이번 상품명: ${row.product}`,
-    row.reviewType && `리뷰구분: ${row.reviewType}`,
-    row.rating && `구매자평점: ${row.rating}점`,
-    row.writer && `작성자: ${row.writer}`,
-    row.option && `옵션: ${row.option}`,
-    `리뷰 내용:\n${row.content}`,
-    '지침은 말투만 따르세요. 샘플·지침에 있는 스토어명·제품명은 복사하지 마세요.',
-    '고유명은 이번 상품명과 리뷰에 실제로 있는 것만 쓰세요. 자리표시는 쓰지 마세요.',
-    '위 리뷰에 대한 판매자 답글만 출력하세요. 따옴표나 접두어 없이 본문만.',
-  ]
-    .filter(Boolean)
-    .join('\n');
+  const userContent = buildReviewUserContentLocal(row);
 
   const geminiModel = model || CONFIG.GEMINI_MODEL;
   const url =
@@ -1330,10 +1318,8 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
     row.writer && `문의자: ${row.writer}`,
     row.secret != null && `비밀문의: ${row.secret ? '예' : '아니오'}`,
     `문의 내용:\n${row.content}`,
-    '작성 규칙이 시스템 말투보다 우선합니다. 말투만 맞추고, 내용은 과거 판매자 답변을 따르세요.',
-    '고객 문의 문장을 따옴표로 다시 쓰지 마세요. "~라고 하셔서"도 쓰지 마세요. 물은 내용은 내 말로 받아 적으세요.',
-    '지침은 말투만 따르세요. 샘플·지침의 스토어명·제품명은 복사하지 마세요.',
-    '고유명은 이번 상품명과 문의에 실제로 있는 것만 쓰세요. 자리표시는 출력하지 마세요.',
+    '작성 규칙이 시스템 말투보다 우선합니다. 말투만 맞추고, 내용은 과거 판매자 답변·확인된 사실을 따르세요.',
+    '물은 내용은 내 말로 받아 적으세요. "~라고 하셔서"처럼 원문을 따옴표로 되풀이하지 마세요.',
     '작성 규칙:',
     ...buildInquiryAnswerRules({
       webSearch: false,
@@ -1343,7 +1329,7 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
       isEligibility: isEligibilityInquiry(row),
       product: row.product || '',
     }),
-    '위 상품문의에 대한 판매자 답글만 출력하세요. 따옴표나 접두어 없이 본문만.',
+    '위 상품문의에 대한 판매자 답글 본문만 출력하세요.',
   ]
     .filter(Boolean)
     .join('\n');
