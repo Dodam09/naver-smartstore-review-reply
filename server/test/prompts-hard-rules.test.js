@@ -6,6 +6,7 @@ import vm from 'node:vm';
 import { test } from 'node:test';
 import {
   appendReplyHardRules,
+  buildAnalyzeMetaPrompt,
   buildInquiryUserContent,
   buildReplyHardRulesSuffix,
   buildReviewUserContent,
@@ -40,6 +41,9 @@ test('공통 하드룰에 출력·사실·약속·개인정보 금지가 들어�
   assert.match(withProduct, /긍정 리뷰 작성·수정·삭제/);
   assert.match(withProduct, /테스트상품A/);
   assert.match(withProduct, /\[말투·표현\] - 존댓말로 짧게/);
+  assert.match(withProduct, /안녕하세요 고객님/);
+  assert.match(withProduct, /A x B/);
+  assert.doesNotMatch(withProduct, /상품명에서 확인되는 이름이 없으면/);
 
   const noProduct = buildReplyHardRulesSuffix('');
   assert.match(noProduct, /상품명이 없으면 특정 제품명을 지어내지 않는다/);
@@ -57,15 +61,30 @@ test('서버 하드룰과 확장 Local 하드룰·리뷰 userContent가 동일�
     option: '단품',
     content: '배송이 빨라요',
   };
+  const collab = {
+    product: '[아밀리x조던누나] 아밀리 락토프리 프로바이오틱스 공동구매',
+    content: '좋아요',
+  };
+  const withStore = { ...row, storeName: '아밀리공식몰' };
   const style = '[응대 원칙] - 짧게 감사한다';
 
   assert.equal(
     appendReplyHardRules(style, row),
     local.appendReplyHardRulesLocal(style, row)
   );
+  assert.equal(
+    appendReplyHardRules(style, withStore),
+    local.appendReplyHardRulesLocal(style, withStore)
+  );
   assert.equal(buildReplyHardRulesSuffix(row.product), local.buildReplyHardRulesSuffixLocal(row.product));
   assert.equal(buildReplyHardRulesSuffix(''), local.buildReplyHardRulesSuffixLocal(''));
+  assert.equal(
+    buildReplyHardRulesSuffix(collab.product, ''),
+    local.buildReplyHardRulesSuffixLocal(collab.product, '')
+  );
   assert.equal(buildReviewUserContent(row), local.buildReviewUserContentLocal(row));
+  assert.equal(buildReviewUserContent(collab), local.buildReviewUserContentLocal(collab));
+  assert.equal(buildReviewUserContent(withStore), local.buildReviewUserContentLocal(withStore));
 });
 
 test('문의 userContent는 문의 전용 규칙을 유지하고 공통 중복은 줄인다', () => {
@@ -99,6 +118,76 @@ test('리뷰 userContent는 건강·원인·고객센터 가드와 예시를 포
   assert.match(content, /나쁜 예/);
   assert.match(content, /좋은 예/);
   assert.doesNotMatch(content, /환불·교환·재배송/);
+});
+
+test('협업 상품명과 일반 상품명에서 판매자명 추론을 막는다', () => {
+  const collabProduct = '[아밀리x조던누나] 아밀리 락토프리 프로바이오틱스 공동구매';
+  const collab = appendReplyHardRules('[말투·표현] - 인사에 이름을 넣는다', {
+    product: collabProduct,
+    content: '좋아요',
+  });
+  assert.match(collab, /브랜드명·인플루언서명·공동구매/);
+  assert.match(collab, /A x B/);
+  assert.match(collab, /안녕하세요 고객님/);
+  assert.match(collab, /상품명에서 이름을 가져와 인사하라/);
+  assert.doesNotMatch(collab, /상품명에서 확인되는 이름이 없으면/);
+
+  const collabUser = buildReviewUserContent({
+    product: collabProduct,
+    content: '배송 빨라요',
+  });
+  assert.match(collabUser, /아밀리x조던누나/);
+  assert.match(collabUser, /조던누나입니다/);
+  assert.match(collabUser, /이름 없이 인사/);
+  assert.doesNotMatch(collabUser, /확인된 스토어명:/);
+
+  const normal = buildReviewUserContent({
+    product: '순면 수건 세트',
+    content: '부드러워요',
+  });
+  assert.match(normal, /판매자명으로 쓰지 마세요/);
+  assert.match(normal, /이름 없이 인사/);
+  assert.doesNotMatch(normal, /확인된 스토어명:/);
+});
+
+test('storeName이 있으면 확인된 스토어명만 인사에 허용한다', () => {
+  const withStore = appendReplyHardRules('[말투·표현] - 존댓말', {
+    product: '순면 수건 세트',
+    storeName: '아밀리공식몰',
+  });
+  assert.match(withStore, /확인된 스토어명만 쓴다: 아밀리공식몰/);
+  assert.doesNotMatch(withStore, /안녕하세요 고객님/);
+
+  const user = buildReviewUserContent({
+    product: '순면 수건 세트',
+    storeName: '아밀리공식몰',
+    content: '좋아요',
+  });
+  assert.match(user, /확인된 스토어명: 아밀리공식몰/);
+  assert.match(user, /아밀리공식몰/);
+  assert.doesNotMatch(user, /이름 없이 인사하세요/);
+});
+
+test('오래된 상품명 이름 사용 지침이 있어도 하드룰이 우선한다', () => {
+  const legacy =
+    '[말투·표현] - 인사할 때 상품명에 있는 이름을 써서 "OO입니다"로 시작한다\n[답변 방식] - 이모지 😊 를 쓴다';
+  const out = appendReplyHardRules(legacy, {
+    product: '[아밀리x조던누나] 아밀리 락토프리 프로바이오틱스 공동구매',
+  });
+  assert.match(out, /상품명에 있는 이름을 써서/);
+  assert.match(out, /상품명에서 이름을 가져와 인사하라"는 내용이 있어도 무시/);
+  assert.match(out, /안녕하세요 고객님/);
+  assert.match(out, /이모지 😊/);
+});
+
+test('분석 메타프롬프트는 상품명에서 판매자명을 뽑으라고 하지 않는다', () => {
+  const review = buildAnalyzeMetaPrompt('review', ['감사합니다 고객님']);
+  const inquiry = buildAnalyzeMetaPrompt('inquiry', ['확인 후 안내드립니다']);
+  for (const prompt of [review, inquiry]) {
+    assert.doesNotMatch(prompt, /상품명에 있는 이름을 쓴다/);
+    assert.match(prompt, /판매자명을 뽑으라는 지침도 만들지 말 것/);
+    assert.match(prompt, /이모지/);
+  }
 });
 
 test('scrubReplyPlaceholders는 자리표시만 지우고 일반 인사는 남긴다', () => {

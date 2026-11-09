@@ -74,7 +74,7 @@ export function buildAnalyzeMetaPrompt(context, normalizedSamples) {
 - 5~12개 지침
 - "복붙 티 나지 않게", "문의 내용의 질문에 구체적으로 답변", "고객 문장을 따옴표로 인용하지 말 것"을 반드시 포함
 - 지침에는 말투·형식만 적을 것. 샘플의 스토어명·제품명·브랜드 등 고유명은 복사하지 말 것
-- [스토어 이름] 같은 자리표시도 넣지 말 것. 인사에 이름이 필요하면 "작성 시점의 이번 상품명에 있는 이름을 쓴다"고만 적을 것
+- [스토어 이름] 같은 자리표시도 넣지 말 것. 인사에 스토어명을 넣으라는 지침을 만들지 말 것. 상품명·협업자명에서 판매자명을 뽑으라는 지침도 만들지 말 것
 - 공개된 상품 정보는 문의 질문에 맞게 검색해 확인된 사실을 답하도록 지시. 확인되지 않은 사실은 지어내지 말 것
 - 리뷰 감사 인사 위주가 아닌, 문의 Q&A·안내 톤으로 작성하도록 지시
 - 샘플에 없는 이모지·유행어를 무리하게 추가하지 말 것
@@ -94,7 +94,7 @@ ${sampleBlock}`;
 - 5~12개 지침
 - "복붙 티 나지 않게", "리뷰 내용에 구체적으로 반응", "고객 문장을 따옴표로 인용하지 말 것"을 반드시 포함
 - 지침에는 말투·형식만 적을 것. 샘플의 스토어명·제품명·브랜드 등 고유명은 복사하지 말 것
-- [스토어 이름] 같은 자리표시도 넣지 말 것. 인사에 이름이 필요하면 "작성 시점의 이번 상품명에 있는 이름을 쓴다"고만 적을 것
+- [스토어 이름] 같은 자리표시도 넣지 말 것. 인사에 스토어명을 넣으라는 지침을 만들지 말 것. 상품명·협업자명에서 판매자명을 뽑으라는 지침도 만들지 말 것
 - 샘플에 없는 이모지·유행어를 무리하게 추가하지 말 것
 - 스마트스토어 판매자 답글임을 명시
 
@@ -119,7 +119,7 @@ function stripStorePlaceholders(text, replacement = '') {
 }
 
 export function sanitizeLearnedStylePrompt(prompt) {
-  return stripStorePlaceholders(prompt, '이번 상품명에 있는 이름')
+  return stripStorePlaceholders(prompt, '확인된 스토어명만(없으면 이름 없이)')
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
 }
@@ -131,8 +131,9 @@ export function scrubReplyPlaceholders(text) {
 }
 
 /** 모든 스토어·채널 공통. 말투는 스토어 지침, 사실·약속·형식·금지는 이 규칙이 우선. */
-export function buildReplyHardRulesSuffix(product = '') {
+export function buildReplyHardRulesSuffix(product = '', storeName = '') {
   const name = String(product || '').trim();
+  const store = String(storeName || '').trim();
   return [
     '[공통 안전 규칙 — 사실·약속·형식·금지는 위 말투 지침보다 항상 우선]',
     '- 위 지침은 말투·문장 길이·이모지·호응 방식만 따른다. 말투가 아래 안전 규칙을 덮어쓰지 않는다.',
@@ -144,7 +145,12 @@ export function buildReplyHardRulesSuffix(product = '') {
     name
       ? `- 상품을 언급할 때는 이번 상품 범위에서만 말한다: ${name}`
       : '- 상품명이 없으면 특정 제품명을 지어내지 않는다.',
-    '- 인사에 이름을 넣는 말투여도, 상품명에서 확인되는 이름이 없으면 이름 없이 인사한다.',
+    '- 상품명에 들어 있는 브랜드명·인플루언서명·공동구매 진행자명을 판매자명·스토어명으로 추론하지 않는다.',
+    '- 상품명에 A x B, A X B, A×B, [A x B]처럼 협업·공동구매 표기가 있으면 어느 쪽도 판매자명으로 쓰지 않는다.',
+    '- 위 말투 지침에 "상품명에서 이름을 가져와 인사하라"는 내용이 있어도 무시한다. 이 안전 규칙이 항상 우선한다.',
+    store
+      ? `- 인사에 스토어명을 넣을 때는 확인된 스토어명만 쓴다: ${store}`
+      : '- 확인된 스토어명(storeName)이 없으면 "안녕하세요 고객님,"처럼 이름 없이 인사한다. "OO입니다" 형태의 판매자 자기소개를 만들지 않는다.',
     '- 현재 입력·확인된 근거에 없는 상품 정보·원재료·기능·성능·배송 상태·재고·정책을 지어내지 않는다. 없는 사실은 빼고 확인된 범위만 말한다.',
     '- 고객이 느낀 변화는 그 고객의 경험으로만 받는다. "제품 덕분에 개선·치료·예방·원활해졌다"처럼 인과·객관 효능으로 바꿔 쓰지 않는다. 공감은 "만족해 주셔서/편해지셨다니" 수준으로만 한다.',
     '- 확인되지 않은 치료·예방·개선·건강 효과, 장 건강·배변·면역 등 일반 효능 설명을 주장하지 않는다.',
@@ -161,12 +167,15 @@ export function buildReplyHardRulesSuffix(product = '') {
 
 export function appendReplyHardRules(systemPrompt, row = {}) {
   const product = String(row?.product || '').trim();
-  return [sanitizeLearnedStylePrompt(systemPrompt), '', buildReplyHardRulesSuffix(product)].join('\n');
+  const storeName = String(row?.storeName || '').trim();
+  return [sanitizeLearnedStylePrompt(systemPrompt), '', buildReplyHardRulesSuffix(product, storeName)].join('\n');
 }
 
 export function buildReviewUserContent(row) {
+  const storeName = String(row?.storeName || '').trim();
   return [
     row.product && `이번 상품명: ${row.product}`,
+    storeName && `확인된 스토어명: ${storeName}`,
     row.reviewType && `리뷰구분: ${row.reviewType}`,
     row.rating && `구매자평점: ${row.rating}점`,
     row.writer && `작성자: ${row.writer}`,
@@ -174,12 +183,16 @@ export function buildReviewUserContent(row) {
     `리뷰 내용:\n${row.content}`,
     '시스템 공통 안전 규칙을 지키세요. 말투·이모지만 스토어 지침을 따르세요.',
     '리뷰의 내용·감정에 맞춰 길이와 호응을 조절하세요. 짧은 리뷰도 원문을 따옴표나 \'좋아요\' 형태로 되풀이하지 마세요.',
+    '상품명의 브랜드·인플루언서·공동구매 진행자(예: [아밀리x조던누나])를 판매자명으로 쓰지 마세요. A x B 협업 표기의 어느 쪽도 판매자 인사에 넣지 마세요.',
+    storeName
+      ? `인사에 스토어명을 쓸 때는 확인된 스토어명("${storeName}")만 쓰세요.`
+      : '확인된 스토어명이 없으면 "안녕하세요 고객님,"처럼 이름 없이 인사하세요. "조던누나입니다"처럼 상품명에서 뽑은 이름을 쓰지 마세요.',
     '불만·이슈 리뷰: 소재·공정·설계 원인("~특성상")을 추정하지 마세요. 경험 확인·공감·감사만 하세요.',
     '건강·컨디션 리뷰: 장 건강·배변·면역 등 일반 효능 설명을 넣지 마세요. 고객 경험에만 짧게 호응하세요.',
     '고객센터·채팅·전화·외부 문의 채널로 유도하지 마세요. 입력 또는 스토어 지침에 명시된 안내 경로가 있을 때만 그 경로를 말하세요.',
     '정보가 부족하면 추측·임의 약속 없이, 입력·지침에 있는 안내만 짧게 하세요.',
-    '나쁜 예: "제품 덕분에 장 건강이 개선되고 배변이 원활해졌다니 기쁩니다." / "순면 소재 특성상 보풀이 생길 수 있습니다."',
-    '좋은 예: "편해지셨다니 기쁩니다. 소중한 후기 감사합니다." / "보풀이 생기셔서 불편하셨을 것 같습니다. 말씀 남겨 주셔서 감사합니다."',
+    '나쁜 예: "안녕하세요, 조던누나입니다." / "제품 덕분에 장 건강이 개선되고 배변이 원활해졌다니 기쁩니다." / "순면 소재 특성상 보풀이 생길 수 있습니다."',
+    '좋은 예: "안녕하세요 고객님, 소중한 후기 감사합니다." / "편해지셨다니 기쁩니다. 소중한 후기 감사합니다." / "보풀이 생기셔서 불편하셨을 것 같습니다. 말씀 남겨 주셔서 감사합니다."',
     '위 리뷰에 대한 판매자 답글 본문만 출력하세요.',
   ]
     .filter(Boolean)
