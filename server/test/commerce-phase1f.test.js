@@ -269,10 +269,10 @@ test('1F-10: 목록 sync 중복 실행 방지 (lease)', async () => {
 test('1F-11: 확장 manifest 1.3.85 · 서버 health 표기 분리 확인', () => {
   // 확장/스토어 패키지 버전 (UX·배포 단위)
   assert.equal(manifest.version, '1.3.85');
-  // 서버 health 버전은 API 배포 단위로 따로 관리 (현재 1.3.81). 확장과 강제 일치시키지 않음.
+  // 서버 health 버전은 API 배포 단위로 따로 관리 (현재 1.3.85). 확장과 강제 일치시키지 않음.
   const healthVersion = indexJs.match(/\/health[\s\S]*?version:\s*'([^']+)'/);
   assert.ok(healthVersion, 'health 응답 version 필드 필요');
-  assert.equal(healthVersion[1], '1.3.81');
+  assert.equal(healthVersion[1], '1.3.85');
   assert.equal(/version:\s*'1\.3\.79'/.test(indexJs), false);
 });
 

@@ -300,7 +300,7 @@ app.get('/health', (_req, res) => {
     ok: true,
     service: 'naver-smartstore-reply-api',
     // 패키징 기준: 루트 manifest.json (배포/CWS 업로드 없음 — 표기 정합만)
-    version: '1.3.81',
+    version: '1.3.85',
     geminiConfigured: isGeminiConfigured(),
     authEnabled: true,
     registrationOpen: ALLOW_REGISTRATION,
