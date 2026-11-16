@@ -826,7 +826,7 @@ async function onGenerate() {
 
   const settingsData = await storageGet(CONFIG.SETTINGS_KEY);
   const settings = settingsData[CONFIG.SETTINGS_KEY] || {};
-  const apiKey = settings.apiKey || CONFIG.GEMINI_API_KEY;
+  const apiKey = settings.apiKey || '';
 
   if (!(await hasAiCredentialsAsync(apiKey))) {
     showProgress('AI 연결이 필요해요. [계정]에서 로그인하거나 API 키를 넣어 주세요.', true);

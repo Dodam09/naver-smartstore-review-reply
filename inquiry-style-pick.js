@@ -32,16 +32,6 @@ init();
 
 async function init() {
   renderLookupDayOptions(els.daysSelect, { includeLong: true, selected: 7 });
-  for (const item of [
-    { value: 14, label: '2주일' },
-    { value: 30, label: '1개월' },
-    { value: 90, label: '3개월' },
-  ]) {
-    const opt = document.createElement('option');
-    opt.value = String(item.value);
-    opt.textContent = item.label;
-    els.daysSelect.appendChild(opt);
-  }
 
   els.reloadBtn.addEventListener('click', loadCatalog);
   els.daysSelect.addEventListener('change', loadCatalog);
@@ -60,8 +50,8 @@ async function init() {
 
   if (typeof showUxToast === 'function') {
     showUxToast({
-      title: '이 화면은 응대 지침 만드는 곳이에요',
-      body: '기존에 단 문의 답변 2건 이상을 고르면, 그 안내 방식으로 앞으로의 초안이 나갑니다.',
+      title: '이 화면은 응대 지침만 만들어요',
+      body: '기존 문의 답변 2건 이상으로 말투·응대 지침만 만듭니다. 상품정보는 지식 관리에서 따로 하세요.',
       actionLabel: '답변 목록 불러오기',
       onAction: () => els.reloadBtn?.click(),
       hintId: 'inquiry-style-pick-why',
@@ -76,15 +66,13 @@ function setProgress(percent, label, stage) {
   if (els.progressFill) els.progressFill.style.width = `${pct}%`;
   if (els.progressPct) els.progressPct.textContent = `${pct}%`;
   if (els.progressLabel && label) els.progressLabel.textContent = label;
+  const order = ['list', 'analyze', 'done'];
+  const stageIdx = order.indexOf(stage);
   const mark = (el, name) => {
     if (!el) return;
+    const idx = order.indexOf(name);
     el.classList.toggle('active', stage === name);
-    el.classList.toggle(
-      'done',
-      (name === 'list' && (stage === 'analyze' || stage === 'done')) ||
-        (name === 'analyze' && stage === 'done') ||
-        (name === 'done' && stage === 'done')
-    );
+    el.classList.toggle('done', stageIdx > idx || (stage === 'done' && name === 'done'));
   };
   mark(els.stepList, 'list');
   mark(els.stepAnalyze, 'analyze');
@@ -292,6 +280,8 @@ async function onAnalyzeSelected() {
   const pairs = selected.map((item) => ({
     question: item.question || item.content || '',
     answer: getAnswerText(item),
+    productNo: item.productNo || '',
+    productName: item.product || item.productName || '',
   }));
   const samples = normalizeSamples(pairs.map((item) => item.answer));
   if (samples.length < 2 && pairs.length < 2) {
@@ -305,7 +295,7 @@ async function onAnalyzeSelected() {
   }
 
   const settings = (await storageGet([CONFIG.SETTINGS_KEY]))[CONFIG.SETTINGS_KEY] || {};
-  const apiKey = settings.apiKey || CONFIG.GEMINI_API_KEY || '';
+  const apiKey = settings.apiKey || '';
   if (!(await hasAiCredentialsAsync(apiKey))) {
     setBanner('AI 연결이 필요해요.\n[계정]에서 로그인하거나 API 키를 확인해 주세요.', 'warn');
     return;
@@ -380,7 +370,7 @@ async function onAnalyzeSelected() {
     if (typeof showUxGuide === 'function') {
       showUxGuide({
         title: '응대 지침서가 저장됐어요',
-        body: '이제 이 지침으로 문의 답글 초안을 만들 수 있어요.',
+        body: '이제 이 지침으로 문의 답글 초안을 만들 수 있어요. 상품정보는 지식 관리에서 따로 등록하세요.',
         actionLabel: '이 지침으로 답글 만들러 가기',
         tone: 'ok',
         onAction: () => typeof openWorkAfterStyle === 'function' && openWorkAfterStyle('inquiry'),
@@ -403,6 +393,14 @@ function setBanner(message, variant) {
 
 function formatFetchError(message) {
   const msg = String(message || '가져오기 실패');
+  if (/Cannot access contents of the page|must request permission|사이트 액세스|접근 권한/i.test(msg)) {
+    return (
+      '판매자센터 페이지 접근 권한이 없습니다.\n\n' +
+      '1. chrome://extensions → 이 확장 [세부정보]\n' +
+      '2. [사이트 액세스]를 sell.smartstore.naver.com 허용 (클릭 시에만 X)\n' +
+      '3. 상품문의 탭 F5 후 다시 시도'
+    );
+  }
   if (/Receiving end does not exist|Could not establish connection|message port closed/i.test(msg)) {
     return (
       '판매자센터 페이지와 연결되지 않았습니다.\n\n' +

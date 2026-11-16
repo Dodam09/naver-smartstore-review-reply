@@ -36,8 +36,19 @@ export function setGeminiFetchForTests(fn) {
 
 function getApiKey() {
   const key = String(process.env.GEMINI_API_KEY || '').trim();
-  if (!key) throw new GeminiError('서버 GEMINI_API_KEY가 설정되지 않았습니다.', { status: 500 });
+  if (!key) {
+    throw new GeminiError('서버 GEMINI_API_KEY가 설정되지 않았습니다.', {
+      status: 500,
+      retryable: false,
+      code: 'GEMINI_NOT_CONFIGURED',
+    });
+  }
   return key;
+}
+
+/** 로그·응답에 키를 넣지 않기 위한 설정 여부만 반환 */
+export function isGeminiConfigured() {
+  return !!String(process.env.GEMINI_API_KEY || '').trim();
 }
 
 function sleep(ms, signal) {

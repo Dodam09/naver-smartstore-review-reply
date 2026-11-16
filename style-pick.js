@@ -24,17 +24,15 @@ let isAnalyzing = false;
 init();
 
 async function init() {
-  renderLookupDayOptions(els.daysSelect, { includeLong: true, selected: 7 });
-  for (const item of [
-    { value: 180, label: '6개월' },
-    { value: 365, label: '1년' },
-    { value: 730, label: '최대 2년' },
-  ]) {
-    const opt = document.createElement('option');
-    opt.value = String(item.value);
-    opt.textContent = item.label;
-    els.daysSelect.appendChild(opt);
-  }
+  renderLookupDayOptions(els.daysSelect, {
+    includeLong: true,
+    selected: 7,
+    extra: [
+      { value: 180, label: '6개월' },
+      { value: 365, label: '1년' },
+      { value: 730, label: '최대 2년' },
+    ],
+  });
 
   els.reloadBtn.addEventListener('click', loadCatalog);
   els.daysSelect.addEventListener('change', loadCatalog);
@@ -226,7 +224,7 @@ async function onAnalyzeSelected() {
   }
 
   const settings = (await storageGet([CONFIG.SETTINGS_KEY]))[CONFIG.SETTINGS_KEY] || {};
-  const apiKey = settings.apiKey || CONFIG.GEMINI_API_KEY || '';
+  const apiKey = settings.apiKey || '';
   if (!(await hasAiCredentialsAsync(apiKey))) {
     setBanner('AI 연결이 필요해요.\n[계정]에서 로그인하거나 API 키를 확인해 주세요.', 'warn');
     return;

@@ -290,6 +290,31 @@
       color: #fff;
       font-weight: 800;
     }
+    .badge.answerable {
+      background: #dcfce7;
+      color: #166534;
+      font-weight: 800;
+    }
+    .badge.realtime {
+      background: #7c3aed;
+      color: #fff;
+      font-weight: 800;
+    }
+    .badge.no-product {
+      background: #fee2e2;
+      color: #991b1b;
+      font-weight: 700;
+    }
+    .badge.knowledge-review {
+      background: #ffedd5;
+      color: #9a3412;
+      font-weight: 700;
+    }
+    .badge.product-no {
+      background: #e0e7ff;
+      color: #3730a3;
+      font-weight: 700;
+    }
     .card.needs-manual {
       border-color: #fca5a5;
       background: #fff7f7;
@@ -300,6 +325,17 @@
       border-width: 2px;
       background: #fffbeb;
       box-shadow: 0 4px 16px rgba(180, 83, 9, .12);
+    }
+    .card.needs-realtime {
+      border-color: #8b5cf6;
+      border-width: 2px;
+      background: #f5f3ff;
+      box-shadow: 0 4px 16px rgba(109, 40, 217, .12);
+    }
+    .card.needs-answerable {
+      border-color: #86efac;
+      background: #f0fdf4;
+      box-shadow: 0 4px 16px rgba(22, 163, 74, .08);
     }
     .manual-hint {
       margin: 0 0 10px;
@@ -321,6 +357,75 @@
       font-size: 14px;
       font-weight: 700;
       line-height: 1.5;
+    }
+    .realtime-hint {
+      margin: 0 0 10px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: #f5f3ff;
+      border: 1px solid #c4b5fd;
+      color: #5b21b6;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.5;
+    }
+    .knowledge-panel {
+      margin: 0 0 12px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #334155;
+    }
+    .knowledge-panel-title {
+      font-weight: 800;
+      margin-bottom: 6px;
+      color: #0f172a;
+    }
+    .knowledge-panel-meta {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      color: #475569;
+      margin-bottom: 8px;
+      white-space: pre-wrap;
+    }
+    .knowledge-panel-list {
+      margin: 0;
+      padding-left: 18px;
+      color: #1e293b;
+    }
+    .knowledge-panel-list li { margin: 2px 0; }
+    .knowledge-panel-empty {
+      color: #64748b;
+      font-style: italic;
+    }
+    .knowledge-panel-actions {
+      margin-top: 8px;
+      color: #475569;
+      font-size: 12px;
+    }
+    .review-card-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+    .review-card-actions button {
+      border: 1px solid #cbd5e1;
+      background: #fff;
+      color: #1e293b;
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .review-card-actions button:hover { background: #f8fafc; }
+    .review-card-actions button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
     }
     .card-product { font-size: 13px; color: #666; margin-bottom: 10px; line-height: 1.4; }
     .card-content { font-size: 15px; line-height: 1.6; color: #333; white-space: pre-wrap; word-break: break-word; }
@@ -521,12 +626,14 @@
   </div>
 
   <script src="config.js"></script>
+  <script src="config.local.js"></script>
   <script src="lib/app-shell.js"></script>
   <script src="lib/ux-guide.js"></script>
   <script src="lib/seller-fill-guide.js"></script>
   <script src="lib/ai-proxy.js"></script>
   <script src="lib/inquiry-search.js"></script>
   <script src="lib/tone-presets.js"></script>
+  <script src="lib/inquiry-knowledge-ui.js"></script>
   <script src="inquiry-select.js"></script>
 </body>
 </html>

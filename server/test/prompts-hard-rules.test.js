@@ -16,11 +16,12 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 function loadReplyScrub() {
+  const tone = fs.readFileSync(path.join(root, 'lib/tone-profile.js'), 'utf8');
   const code = fs.readFileSync(path.join(root, 'lib/reply-scrub.js'), 'utf8');
   const context = {};
   vm.createContext(context);
   vm.runInContext(
-    `${code}\n;this.api={appendReplyHardRulesLocal,buildReviewUserContentLocal,buildReplyHardRulesSuffixLocal,scrubGeneratedReply};`,
+    `${tone}\n${code}\n;this.api={appendReplyHardRulesLocal,buildReviewUserContentLocal,buildReplyHardRulesSuffixLocal,scrubGeneratedReply,sanitizeLearnedStylePrompt};`,
     context
   );
   return context.api;
@@ -87,7 +88,7 @@ test('서버 하드룰과 확장 Local 하드룰·리뷰 userContent가 동일�
   assert.equal(buildReviewUserContent(withStore), local.buildReviewUserContentLocal(withStore));
 });
 
-test('문의 userContent는 문의 전용 규칙을 유지하고 공통 중복은 줄인다', () => {
+test('문의 userContent는 과거 Q&A를 참고로만 취급하고 정책 확정을 막는다', () => {
   const content = buildInquiryUserContent(
     { content: '환불해 주세요', product: '테스트상품' },
     [{ question: '환불요', answer: '확인 후 안내드립니다' }],
@@ -95,6 +96,8 @@ test('문의 userContent는 문의 전용 규칙을 유지하고 공통 중복�
   );
   assert.match(content, /고객센터·병원 상담/);
   assert.match(content, /죄송·사과 문구는 넣지 마세요/);
+  assert.match(content, /과거 판매자 Q&A \*\*참고 자료\*\*/);
+  assert.match(content, /배송 정책·교환·환불 정책·효능/);
   assert.doesNotMatch(content, /\[스마트스토어 이름\] 같은 자리표시는 출력하지 마세요/);
 
   const factContent = buildInquiryUserContent(
@@ -102,8 +105,8 @@ test('문의 userContent는 문의 전용 규칙을 유지하고 공통 중복�
     [],
     { verifiedFacts: ['비타민C 100mg'], missingFacts: [] }
   );
-  assert.match(factContent, /확인된 정보가 없어/);
   assert.match(factContent, /확인된 사실만 쓰세요/);
+  assert.match(factContent, /출처가 표시된 사실만/);
 });
 
 test('리뷰 userContent는 건강·원인·고객센터 가드와 예시를 포함한다', () => {
@@ -180,14 +183,23 @@ test('오래된 상품명 이름 사용 지침이 있어도 하드룰이 우선�
   assert.match(out, /이모지 😊/);
 });
 
-test('분석 메타프롬프트는 상품명에서 판매자명을 뽑으라고 하지 않는다', () => {
+test('분석 메타프롬프트는 tone_v2 JSON만 요청하고 사실·약속을 금지한다', () => {
   const review = buildAnalyzeMetaPrompt('review', ['감사합니다 고객님']);
   const inquiry = buildAnalyzeMetaPrompt('inquiry', ['확인 후 안내드립니다']);
   for (const prompt of [review, inquiry]) {
-    assert.doesNotMatch(prompt, /상품명에 있는 이름을 쓴다/);
-    assert.match(prompt, /판매자명을 뽑으라는 지침도 만들지 말 것/);
+    assert.match(prompt, /tone_v2/);
+    assert.match(prompt, /JSON 객체 하나만/);
     assert.match(prompt, /이모지/);
+    assert.match(prompt, /제품 개선 약속/);
+    assert.doesNotMatch(prompt, /공개된 상품 정보는 문의 질문에 맞게 검색/);
   }
+});
+
+test('공통 하드룰에 주문 상태·과거 Q&A 정책 확정 금지가 들어간다', () => {
+  const rules = buildReplyHardRulesSuffix('상품');
+  assert.match(rules, /개별 주문의 출고·송장·도착·재고/);
+  assert.match(rules, /과거 Q&A만으로 배송·교환·환불 정책/);
+  assert.match(rules, /제품 개선에 반영/);
 });
 
 test('scrubReplyPlaceholders는 자리표시만 지우고 일반 인사는 남긴다', () => {

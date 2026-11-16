@@ -1,0 +1,227 @@
+{
+  "version": 1,
+  "purpose": "아밀리 외 업종을 합성 말투·리뷰로 회귀 테스트하기 위한 로컬 시드. 배포/하드룰 변경용이 아님.",
+  "checklist": [
+    "협업/인플루언서명을 판매자 인사로 쓰지 않음",
+    "storeName 없으면 이름 없는 인사",
+    "효능 확대(덕분에/개선/원활) 금지",
+    "특성상·원인 추측 금지",
+    "고객센터 유도 금지",
+    "원문 따옴표·Markdown 금지"
+  ],
+  "stores": [
+    {
+      "id": "pet_probiotic",
+      "label": "반려동물 유산균",
+      "storeName": null,
+      "systemPrompt": "[말투·표현] - 존댓말로 따뜻하게, 이모지 😊💛 를 문장 끝에 가끔 쓴다\n[답변 방식] - 리뷰 포인트에 2~3문장으로 반응한다\n[응대 원칙] - 과도한 사과는 하지 않는다\n[기타] - 복붙 티 나지 않게 쓴다",
+      "banSellerNames": ["조던누나", "펫인플루언서"],
+      "reviews": [
+        {
+          "id": "pp_short",
+          "tag": "short_positive",
+          "product": "데일리 강아지 유산균 30포",
+          "rating": "5",
+          "content": "좋아요"
+        },
+        {
+          "id": "pp_detail",
+          "tag": "detail_positive",
+          "product": "데일리 강아지 유산균 30포",
+          "rating": "5",
+          "content": "냄새도 안 강하고 급여하기 편해요. 배송도 빨랐습니다."
+        },
+        {
+          "id": "pp_health",
+          "tag": "health",
+          "product": "데일리 강아지 유산균 30포",
+          "rating": "5",
+          "content": "먹고 나서 변 상태가 좋아진 것 같아요. 장에도 좋을까요?"
+        },
+        {
+          "id": "pp_collab",
+          "tag": "collab",
+          "product": "[아밀리x조던누나] 아밀리 락토프리 프로바이오틱스 공동구매",
+          "rating": "5",
+          "content": "공동구매로 샀는데 만족해요."
+        },
+        {
+          "id": "pp_negative",
+          "tag": "negative",
+          "product": "데일리 강아지 유산균 30포",
+          "rating": "2",
+          "content": "알약이 커서 급여가 힘들어요."
+        },
+        {
+          "id": "pp_scarce",
+          "tag": "scarce",
+          "product": "프리미엄 펫건강즙",
+          "rating": "4",
+          "content": "효과가 있는 것 같아요."
+        },
+        {
+          "id": "pp_legacy_tone",
+          "tag": "legacy_tone_trap",
+          "product": "[브랜드A X 인플루언서B] 유산균 세트",
+          "rating": "5",
+          "content": "맛있어서 잘 먹어요.",
+          "systemPromptOverride": "[말투·표현] - 인사할 때 상품명에 있는 이름을 써서 OO입니다 로 시작한다\n[답변 방식] - 짧게 감사한다"
+        }
+      ]
+    },
+    {
+      "id": "baby_fashion",
+      "label": "유아복",
+      "storeName": null,
+      "systemPrompt": "[말투·표현] - 친근한 존댓말, 이모지는 거의 쓰지 않는다\n[답변 방식] - 1~2문장으로 짧게\n[응대 원칙] - 불만에도 원인 설명보다 공감 먼저\n[기타] - 리뷰 내용에 구체적으로 반응한다",
+      "banSellerNames": ["육아인플루언서A", "맘카페B"],
+      "reviews": [
+        {
+          "id": "bf_short",
+          "tag": "short_positive",
+          "product": "아기 순면 바디슈트 3종",
+          "rating": "5",
+          "content": "귀여워요"
+        },
+        {
+          "id": "bf_detail",
+          "tag": "detail_positive",
+          "product": "아기 순면 바디슈트 3종",
+          "rating": "5",
+          "content": "원단이 부드럽고 세탁 후에도 형태가 잘 유지돼요."
+        },
+        {
+          "id": "bf_negative_pill",
+          "tag": "negative",
+          "product": "아기 순면 바디슈트 3종",
+          "rating": "2",
+          "content": "사용하면서 보풀이 생겼어요."
+        },
+        {
+          "id": "bf_thin",
+          "tag": "negative",
+          "product": "아기 순면 바디슈트 3종",
+          "rating": "2",
+          "content": "생각보다 얇아서 실망이에요."
+        },
+        {
+          "id": "bf_collab",
+          "tag": "collab",
+          "product": "[베이비코튼 x 육아인플루언서A] 봄맞이 공동구매",
+          "rating": "5",
+          "content": "사이즈 표기대로라 편했어요."
+        },
+        {
+          "id": "bf_scarce",
+          "tag": "scarce",
+          "product": "시즌오프 유아복 세트",
+          "rating": "4",
+          "content": "그냥 무난해요."
+        }
+      ]
+    },
+    {
+      "id": "electronics",
+      "label": "무선이어폰",
+      "storeName": null,
+      "systemPrompt": "[말투·표현] - 정중하고 간결한 존댓말\n[답변 방식] - 사실만 짧게, 이모지 없음\n[응대 원칙] - 임의 환불·재배송 약속 금지\n[기타] - 기술 원인을 추측하지 않는다",
+      "banSellerNames": ["테크리뷰어Z"],
+      "reviews": [
+        {
+          "id": "el_pos",
+          "tag": "detail_positive",
+          "product": "무선 이어폰 X",
+          "rating": "5",
+          "content": "음질 괜찮고 연결도 안정적이에요."
+        },
+        {
+          "id": "el_neg",
+          "tag": "negative",
+          "product": "무선 이어폰 X",
+          "rating": "1",
+          "content": "한쪽만 안 들려요."
+        },
+        {
+          "id": "el_battery",
+          "tag": "negative",
+          "product": "무선 이어폰 X",
+          "rating": "2",
+          "content": "배터리 시간이 광고보다 짧아요."
+        },
+        {
+          "id": "el_collab",
+          "tag": "collab",
+          "product": "[사운드랩×테크리뷰어Z] 한정 패키지",
+          "rating": "4",
+          "content": "구성품은 쓸만합니다."
+        },
+        {
+          "id": "el_short",
+          "tag": "short_positive",
+          "product": "무선 이어폰 X",
+          "rating": "5",
+          "content": "굿"
+        },
+        {
+          "id": "el_scarce",
+          "tag": "scarce",
+          "product": "블루투스 이어셋",
+          "rating": "3",
+          "content": "그냥 그래요."
+        }
+      ]
+    },
+    {
+      "id": "kitchen",
+      "label": "주방세제",
+      "storeName": "우리집키친공식",
+      "systemPrompt": "[말투·표현] - 밝은 존댓말, 이모지 ✨ 한 개까지\n[답변 방식] - 구체 칭찬에만 짧게 호응\n[응대 원칙] - 성분·제조 추측 금지\n[기타] - 확인된 스토어명이 있으면 인사에만 사용 가능",
+      "banSellerNames": ["셰프인플루언서"],
+      "reviews": [
+        {
+          "id": "kc_foam",
+          "tag": "detail_positive",
+          "product": "우리집 주방세제 1L",
+          "rating": "5",
+          "content": "거품이 잘 나고 헹굼이 편해요."
+        },
+        {
+          "id": "kc_smell",
+          "tag": "negative",
+          "product": "우리집 주방세제 1L",
+          "rating": "2",
+          "content": "냄새난다고 느껴졌어요."
+        },
+        {
+          "id": "kc_collab",
+          "tag": "collab",
+          "product": "[우리집 x 셰프인플루언서] 주방세트 공동구매",
+          "rating": "5",
+          "content": "세정력 좋아요."
+        },
+        {
+          "id": "kc_short",
+          "tag": "short_positive",
+          "product": "우리집 주방세제 1L",
+          "rating": "5",
+          "content": "재구매할게요"
+        },
+        {
+          "id": "kc_scarce",
+          "tag": "scarce",
+          "product": "주방세제",
+          "rating": "4",
+          "content": "무난합니다."
+        },
+        {
+          "id": "kc_with_store",
+          "tag": "storeName_ok",
+          "product": "우리집 주방세제 1L",
+          "rating": "5",
+          "content": "기름때 잘 지워져요.",
+          "useStoreName": true
+        }
+      ]
+    }
+  ]
+}

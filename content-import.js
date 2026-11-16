@@ -2,11 +2,28 @@
  * 판매자센터 리뷰 search API
  */
 (function () {
-  if (globalThis.__ssReviewImportLoaded) return;
+  const REVIEW_IMPORT_VERSION = 3;
+  if (globalThis.__ssReviewImportVersion === REVIEW_IMPORT_VERSION && globalThis.__ssReviewImportLoaded) {
+    return;
+  }
+  globalThis.__ssReviewImportVersion = REVIEW_IMPORT_VERSION;
   globalThis.__ssReviewImportLoaded = true;
 
   const MAX_CATALOG_DAYS = 730;
+  /** SPA 화면이 아닌 실제 리뷰 search API 후보 (캡처 실패 시 1회씩만 시도) */
+  const SEARCH_API_CANDIDATES = [
+    '/api/v1/reviews/search',
+    '/api/v2/reviews/search',
+    '/api/v3/reviews/search',
+    '/api/v3/contents/reviews/search',
+    '/o/v3/reviews/search',
+    '/n/seller/v1/reviews/search',
+  ];
 
+  // 페이지 훅 재주입 허용 (버전 올라간 경우)
+  try {
+    delete document.documentElement.dataset.ssPageHook;
+  } catch (_) {}
   injectPageHook();
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -64,7 +81,7 @@
 
     while (hasMore) {
       const payload = buildSearchPayload(page, days, options);
-      const json = await postSearch(searchUrl, payload);
+      const json = await callSearch(searchUrl, payload);
       const contents = json?.contents || json?.data?.contents || [];
 
       if (!Array.isArray(contents)) {
@@ -102,7 +119,9 @@
 
     let skippedReplied = 0;
     let skippedEmpty = 0;
+    let skippedDuplicate = 0;
     const parsedRows = [];
+    const seenIds = new Set();
 
     for (const item of allItems) {
       const content = normalizeReviewContent(item.reviewContent || '');
@@ -113,16 +132,25 @@
         continue;
       }
 
+      if (seenIds.has(id)) {
+        skippedDuplicate++;
+        continue;
+      }
+
       if (onlyUnreplied && itemHasSellerComment(item)) {
         skippedReplied++;
         continue;
       }
 
+      seenIds.add(id);
+      // productNo 는 API에 있을 때만 숫자만 남김. 없으면 빈 문자열(임의 생성·상품명 매칭 금지).
       parsedRows.push({
         id,
         content,
         rating: item.reviewScore != null ? String(item.reviewScore) : '',
         product: item.productName || '',
+        productNo: pickReviewProductNo(item),
+        createDate: item.createDate || item.reviewCreateDate || '',
         reviewType: mapReviewType(item.reviewType),
         option: '',
         writer: item.maskedWriterId || item.writerIdNo || '',
@@ -139,10 +167,27 @@
       parsedRows,
       skippedReplied,
       skippedEmpty,
+      skippedDuplicate,
       totalFetched: allItems.length,
       sourceLabel: `판매자센터 (${formatLookupDaysLabel(days)})`,
     };
   }
+
+  /** 문의 수집과 동일 계열. 없는 필드는 빈 값 — 상품명으로 productNo 추정하지 않음. */
+  function pickReviewProductNo(item) {
+    const raw =
+      item?.productNo ||
+      item?.channelProductNo ||
+      item?.productId ||
+      item?.product?.productNo ||
+      item?.product?.id ||
+      item?.product?.channelProductNo ||
+      '';
+    return String(raw).replace(/[^\d]/g, '');
+  }
+
+  // 테스트·정적 검증용 (IIFE 외부에서 필요 시 global 노출)
+  globalThis.__ssPickReviewProductNo = pickReviewProductNo;
 
   function clampCatalogDays(days, fallback = 365) {
     return clampLookupDays(days, { min: 0, max: MAX_CATALOG_DAYS, fallback });
@@ -277,7 +322,7 @@
         let json;
 
         try {
-          json = await postSearch(searchUrl, payload);
+          json = await callSearch(searchUrl, payload);
         } catch (err) {
           if (page === 0 && isRecoverableSearchError(err)) break;
           throw err;
@@ -305,6 +350,7 @@
             comment: comment || '',
             hasBody: !!comment,
             productName: item.productName || '',
+            productNo: pickReviewProductNo(item),
             createDate: item.createDate || '',
             reviewScore: item.reviewScore != null ? String(item.reviewScore) : '',
             reviewFull,
@@ -618,25 +664,120 @@
     return unique;
   }
 
+  /** 페이지에서 캡처한 search 메서드 (POST|GET). resolveSearchUrl이 설정 */
+  let capturedSearchMethod = 'POST';
+
+  /** /mg/contents/review/search 는 SPA 화면. API(/api/...)가 아님 → POST 시 405 */
+  function isSellerUiPageUrl(url) {
+    return /\/mg\//i.test(String(url || ''));
+  }
+
+  function isReviewSearchApiUrl(url) {
+    const u = String(url || '');
+    if (!u || isSellerUiPageUrl(u)) return false;
+    const hasApi =
+      /\/api\//i.test(u) ||
+      /sell\.smartstore\.naver\.com\/(?:o|n|i)\//i.test(u) ||
+      /^\/(?:api|o|n|i)\//i.test(u);
+    if (!hasApi) return false;
+    return /\/reviews?\/search/i.test(u) || (/review/i.test(u) && /search/i.test(u));
+  }
+
   async function resolveSearchUrl() {
     const configured =
       typeof CONFIG !== 'undefined' && CONFIG.REVIEW_SEARCH_URL
         ? String(CONFIG.REVIEW_SEARCH_URL).trim()
         : '';
-    if (configured) return toAbsoluteUrl(configured);
+    if (configured && isReviewSearchApiUrl(configured)) {
+      capturedSearchMethod = 'POST';
+      return toAbsoluteUrl(configured);
+    }
 
-    const captured = await readCapturedUrl();
-    if (captured) return toAbsoluteUrl(captured);
+    const captured = await readCapturedEndpoint();
+    if (captured?.url && isReviewSearchApiUrl(captured.url)) {
+      capturedSearchMethod = captured.method === 'GET' ? 'GET' : 'POST';
+      return toAbsoluteUrl(captured.url);
+    }
+    // 잘못 저장된 SPA URL(/mg/...)이면 즉시 제거
+    if (captured?.url && isSellerUiPageUrl(captured.url)) {
+      await clearCapturedSearchUrl();
+    }
 
     const fromPerf = findSearchUrlFromPerformance();
-    if (fromPerf) return toAbsoluteUrl(fromPerf);
+    if (fromPerf && isReviewSearchApiUrl(fromPerf)) {
+      capturedSearchMethod = 'POST';
+      return toAbsoluteUrl(fromPerf);
+    }
+
+    const probed = await probeSearchApiCandidates();
+    if (probed) {
+      capturedSearchMethod = probed.method;
+      return probed.url;
+    }
 
     throw new Error(
-      '리뷰 search URL을 아직 모릅니다.\n\n' +
-        '1. 판매자센터 [리뷰 관리] 페이지에서 F5(새로고침)\n' +
-        '2. 리뷰 목록이 화면에 보이는지 확인\n' +
-        '3. 확장 프로그램 새로고침 후 다시 시도'
+      '리뷰 API 주소를 아직 모릅니다.\n\n' +
+        '화면 주소(/mg/contents/review/search)가 아니라\n' +
+        '목록을 불러올 때 나가는 /api/.../search 가 필요합니다.\n\n' +
+        '1. 확장 프로그램 새로고침\n' +
+        '2. 판매자센터 [리뷰 관리] 탭에서 F5\n' +
+        '3. 리뷰 목록이 실제로 보일 때까지 대기\n' +
+        '4. 다시 가져오기'
     );
+  }
+
+  async function probeSearchApiCandidates() {
+    const probePayload = buildSearchPayload(0, 1, { onlyUnreplied: true });
+    for (const path of SEARCH_API_CANDIDATES) {
+      const url = toAbsoluteUrl(path);
+      if (isSellerUiPageUrl(url)) continue;
+      try {
+        const result = await fetchSearchOnce(url, probePayload, 'POST');
+        if (result.res.status === 405) {
+          const getTry = await fetchSearchOnce(url, probePayload, 'GET');
+          if (getTry.res.ok && !getTry.parseFailed && looksLikeReviewSearchJson(getTry.json)) {
+            await persistCapturedEndpoint(url, 'GET');
+            return { url, method: 'GET' };
+          }
+          continue;
+        }
+        if (result.res.ok && !result.parseFailed && looksLikeReviewSearchJson(result.json)) {
+          await persistCapturedEndpoint(url, 'POST');
+          return { url, method: 'POST' };
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  function looksLikeReviewSearchJson(json) {
+    if (!json || typeof json !== 'object') return false;
+    if (Array.isArray(json.contents) || Array.isArray(json?.data?.contents)) return true;
+    if (json.code && /NOT_FOUND|ERROR/i.test(String(json.code))) return false;
+    return false;
+  }
+
+  function persistCapturedEndpoint(url, method) {
+    return new Promise((resolve) => {
+      const handler = (event) => {
+        if (event.source !== window || event.data?.type !== 'SS_REVIEW_URL_SAVED') return;
+        window.removeEventListener('message', handler);
+        resolve();
+      };
+      window.addEventListener('message', handler);
+      window.postMessage(
+        {
+          type: 'SS_REVIEW_SAVE_URL',
+          url: String(url).split('?')[0],
+          method: method === 'GET' ? 'GET' : 'POST',
+        },
+        '*'
+      );
+      setTimeout(() => {
+        window.removeEventListener('message', handler);
+        resolve();
+      }, 200);
+    });
   }
 
   function toAbsoluteUrl(url) {
@@ -648,19 +789,41 @@
     const entries = performance.getEntriesByType('resource');
     for (let i = entries.length - 1; i >= 0; i--) {
       const name = entries[i].name || '';
-      if (!name.includes('smartstore.naver.com')) continue;
-      if (!/(?:^|[/?])search(?:[/?]|$)/i.test(name)) continue;
-      return name;
+      if (!isReviewSearchApiUrl(name)) continue;
+      try {
+        return String(name).split('?')[0];
+      } catch (_) {
+        return name;
+      }
     }
     return null;
   }
 
-  function readCapturedUrl() {
+  function clearCapturedSearchUrl() {
+    return new Promise((resolve) => {
+      const done = () => resolve();
+      const handler = (event) => {
+        if (event.source !== window || event.data?.type !== 'SS_REVIEW_URL_CLEARED') return;
+        window.removeEventListener('message', handler);
+        done();
+      };
+      window.addEventListener('message', handler);
+      window.postMessage({ type: 'SS_REVIEW_CLEAR_URL' }, '*');
+      setTimeout(() => {
+        window.removeEventListener('message', handler);
+        done();
+      }, 200);
+    });
+  }
+
+  function readCapturedEndpoint() {
     return new Promise((resolve) => {
       const handler = (event) => {
         if (event.source !== window || event.data?.type !== 'SS_REVIEW_URL') return;
         window.removeEventListener('message', handler);
-        resolve(event.data.url || null);
+        const url = event.data.url || null;
+        const method = String(event.data.method || 'POST').toUpperCase() === 'GET' ? 'GET' : 'POST';
+        resolve(url ? { url, method } : null);
       };
       window.addEventListener('message', handler);
       window.postMessage({ type: 'SS_REVIEW_GET_URL' }, '*');
@@ -671,33 +834,109 @@
     });
   }
 
-  async function postSearch(url, payload) {
-    const res = await fetch(url, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
+  function buildSearchQuery(payload) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(payload || {})) {
+      if (value == null) continue;
+      if (Array.isArray(value)) {
+        for (const item of value) params.append(key, String(item));
+        continue;
+      }
+      if (typeof value === 'boolean') {
+        params.set(key, value ? 'true' : 'false');
+        continue;
+      }
+      params.set(key, String(value));
+    }
+    return params.toString();
+  }
 
-    let json;
+  async function fetchSearchOnce(url, payload, method) {
+    if (isSellerUiPageUrl(url)) {
+      const err = new Error(
+        '화면 주소(/mg/contents/review/search)에는 요청할 수 없습니다. 리뷰 관리에서 F5 후 다시 시도하세요.'
+      );
+      err.code = 'UI_PAGE_URL';
+      throw err;
+    }
+    const m = String(method || 'POST').toUpperCase() === 'GET' ? 'GET' : 'POST';
+    const opts = {
+      method: m,
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    };
+    let requestUrl = url;
+    if (m === 'GET') {
+      const q = buildSearchQuery(payload);
+      requestUrl = q ? `${url}${url.includes('?') ? '&' : '?'}${q}` : url;
+    } else {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(payload);
+    }
+
+    const res = await fetch(requestUrl, opts);
+    let json = null;
+    let parseFailed = false;
     try {
       json = await res.json();
     } catch (_) {
-      throw new Error(`API 응답 파싱 실패 (${res.status})`);
+      parseFailed = true;
+    }
+    return { res, json, parseFailed, method: m, requestUrl };
+  }
+
+  async function callSearch(url, payload) {
+    if (isSellerUiPageUrl(url) || !isReviewSearchApiUrl(url)) {
+      await clearCapturedSearchUrl();
+      const probed = await probeSearchApiCandidates();
+      if (!probed) {
+        throw new Error(
+          '잘못된 리뷰 주소입니다(/mg/ 화면 URL).\n확장 새로고침 → 리뷰 관리 F5 → 목록 확인 후 다시 가져오세요.'
+        );
+      }
+      url = probed.url;
+      capturedSearchMethod = probed.method;
     }
 
-    if (json?.code === 'GW.NOT_FOUND' || /NOT_FOUND/i.test(String(json?.code || ''))) {
-      throw new Error(json.message || 'search URL이 맞지 않습니다.');
+    const preferred = capturedSearchMethod === 'GET' ? 'GET' : 'POST';
+    const alternate = preferred === 'POST' ? 'GET' : 'POST';
+
+    let first = await fetchSearchOnce(url, payload, preferred);
+    if (first.res.status === 405) {
+      const second = await fetchSearchOnce(url, payload, alternate);
+      if (second.res.ok && !second.parseFailed) {
+        capturedSearchMethod = alternate;
+        return second.json;
+      }
+      first = second;
     }
 
-    if (!res.ok) {
-      throw new Error(json?.message || `API 오류 (${res.status})`);
+    if (first.res.status === 405 || (first.parseFailed && first.res.status === 405)) {
+      await clearCapturedSearchUrl();
+      throw new Error(
+        `리뷰 검색 API가 ${first.method}를 거부했습니다(405).\n\n` +
+          '판매자센터 [리뷰 관리]에서 F5로 새로고침해 목록이 뜬 뒤,\n' +
+          '확장 프로그램을 새로고침하고 다시 가져오기를 눌러 주세요.\n' +
+          `(URL: ${String(url).slice(0, 120)})`
+      );
     }
 
-    return json;
+    if (first.parseFailed) {
+      throw new Error(`API 응답 파싱 실패 (${first.res.status})`);
+    }
+
+    if (first.json?.code === 'GW.NOT_FOUND' || /NOT_FOUND/i.test(String(first.json?.code || ''))) {
+      await clearCapturedSearchUrl();
+      throw new Error(
+        first.json.message || 'search URL이 맞지 않습니다. 리뷰 관리 페이지를 F5 후 다시 시도해 주세요.'
+      );
+    }
+
+    if (!first.res.ok) {
+      throw new Error(first.json?.message || `API 오류 (${first.res.status})`);
+    }
+
+    return first.json;
   }
 
   function buildSearchPayload(page, range, options = {}) {

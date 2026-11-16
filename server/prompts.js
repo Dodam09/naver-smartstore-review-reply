@@ -1,3 +1,31 @@
+import {
+  TONE_V2_VERSION,
+  buildAnalyzeMetaPrompt,
+  buildAnalyzeToneV2Prompt,
+  getDefaultToneProfile,
+  isValidToneProfile,
+  normalizeToneProfile,
+  parseToneProfileJson,
+  renderToneProfileToSystemPrompt,
+  resolveToneSystemPrompt,
+  sanitizeLearnedStylePrompt,
+  stripPolicyPromiseLines,
+} from './tone-profile.js';
+
+export {
+  TONE_V2_VERSION,
+  buildAnalyzeMetaPrompt,
+  buildAnalyzeToneV2Prompt,
+  getDefaultToneProfile,
+  isValidToneProfile,
+  normalizeToneProfile,
+  parseToneProfileJson,
+  renderToneProfileToSystemPrompt,
+  resolveToneSystemPrompt,
+  sanitizeLearnedStylePrompt,
+  stripPolicyPromiseLines,
+};
+
 export function normalizeInquiryPairs(pairs, limit = 40) {
   const unique = [];
   const seen = new Set();
@@ -8,42 +36,175 @@ export function normalizeInquiryPairs(pairs, limit = 40) {
     const key = `${question.slice(0, 80)}\n${answer.slice(0, 80)}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    unique.push({ question, answer });
+    unique.push({
+      question,
+      answer,
+      productNo: String(raw?.productNo || '').trim(),
+      productName: String(raw?.productName || raw?.product || '').trim(),
+    });
     if (unique.length >= limit) break;
   }
   return unique;
 }
 
+/** 답변 완료 Q&A → 상품·배송 초안(판매자 확인용). 추측·효능 확정 금지. */
+export function buildInquiryKnowledgeDraftPrompt(pairs) {
+  const list = normalizeInquiryPairs(pairs, 30);
+  const blocks = list.map((item, i) => {
+    const meta = [
+      item.productNo ? `상품번호: ${item.productNo}` : '',
+      item.productName ? `상품명: ${item.productName}` : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    return [
+      `### 페어 ${i + 1}${meta ? ` (${meta})` : ''}`,
+      `[문의]\n${item.question || '(문의문 없음)'}`,
+      `[판매자 답변]\n${item.answer}`,
+    ].join('\n');
+  });
+
+  return [
+    '역할: 스마트스토어 판매자의 과거 상품문의 Q&A만 보고, 상품·배송 지식 **초안**을 JSON으로 정리합니다.',
+    '이 초안은 자동 확정이 아닙니다. 판매자가 확인·수정한 뒤에만 사실로 씁니다.',
+    '',
+    '규칙:',
+    '- 판매자 답변에 **명시된 내용만** 적습니다. 문의문에만 있고 답에 확인되지 않은 스펙·일정은 넣지 않습니다.',
+    '- 확실하지 않으면 빈 문자열("")로 둡니다. 추측·일반론·효능·치료·예방 주장을 만들지 않습니다.',
+    '- 개별 주문 송장·출고일·도착 예정처럼 그때그때 달라지는 상태는 정책 초안에 넣지 않습니다.',
+    '- 상품이 여러 개면 products 배열에 나눕니다. 상품번호를 알면 productNo에 넣고, 모르면 비웁니다.',
+    '- policies는 스토어 공통(배송비·교환·환불·CS)만. 상품별 주의사항은 products.cautions에 둡니다.',
+    '- warnings에는 모순·불확실·효능 언급 등 판매자가 확인할 메모를 짧게 적습니다.',
+    '',
+    '출력: JSON 객체만. 설명·마크다운·코드펜스 금지.',
+    '{',
+    '  "products": [',
+    '    {',
+    '      "productNo": "",',
+    '      "productName": "",',
+    '      "detailDescription": "",',
+    '      "specs": "",',
+    '      "usage": "",',
+    '      "optionsCompat": "",',
+    '      "cautions": "",',
+    '      "extra": "",',
+    '      "confidence": "low|medium|high"',
+    '    }',
+    '  ],',
+    '  "policies": {',
+    '    "shipping": "",',
+    '    "exchangeReturn": "",',
+    '    "refund": "",',
+    '    "customerService": "",',
+    '    "confidence": "low|medium|high"',
+    '  },',
+    '  "warnings": []',
+    '}',
+    '',
+    '[과거 문의 Q&A]',
+    blocks.join('\n\n') || '(없음)',
+  ].join('\n');
+}
+
+function clipDraftText(value, max = 1200) {
+  return String(value || '')
+    .replace(/\r\n/g, '\n')
+    .trim()
+    .slice(0, max);
+}
+
+export function parseInquiryKnowledgeDraft(raw) {
+  const text = String(raw || '')
+    .replace(/```json/gi, '```')
+    .replace(/```/g, '')
+    .trim();
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) {
+    return {
+      products: [],
+      policies: {
+        shipping: '',
+        exchangeReturn: '',
+        refund: '',
+        customerService: '',
+        confidence: 'low',
+      },
+      warnings: ['초안 JSON을 읽지 못했습니다. 다시 시도해 주세요.'],
+      parseFailed: true,
+    };
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(text.slice(start, end + 1));
+  } catch {
+    return {
+      products: [],
+      policies: {
+        shipping: '',
+        exchangeReturn: '',
+        refund: '',
+        customerService: '',
+        confidence: 'low',
+      },
+      warnings: ['초안 JSON 파싱에 실패했습니다.'],
+      parseFailed: true,
+    };
+  }
+
+  const conf = (v) => {
+    const s = String(v || '').toLowerCase();
+    return s === 'high' || s === 'medium' || s === 'low' ? s : 'low';
+  };
+
+  const products = (Array.isArray(parsed.products) ? parsed.products : [])
+    .slice(0, 8)
+    .map((p) => ({
+      productNo: clipDraftText(p?.productNo, 64),
+      productName: clipDraftText(p?.productName, 200),
+      detailDescription: clipDraftText(p?.detailDescription),
+      specs: clipDraftText(p?.specs),
+      usage: clipDraftText(p?.usage),
+      optionsCompat: clipDraftText(p?.optionsCompat),
+      cautions: clipDraftText(p?.cautions),
+      extra: clipDraftText(p?.extra),
+      confidence: conf(p?.confidence),
+    }))
+    .filter(
+      (p) =>
+        p.productNo ||
+        p.productName ||
+        p.detailDescription ||
+        p.specs ||
+        p.usage ||
+        p.optionsCompat ||
+        p.cautions ||
+        p.extra
+    );
+
+  const pol = parsed.policies || {};
+  const policies = {
+    shipping: clipDraftText(pol.shipping),
+    exchangeReturn: clipDraftText(pol.exchangeReturn),
+    refund: clipDraftText(pol.refund),
+    customerService: clipDraftText(pol.customerService),
+    confidence: conf(pol.confidence),
+  };
+
+  const warnings = (Array.isArray(parsed.warnings) ? parsed.warnings : [])
+    .map((w) => clipDraftText(w, 240))
+    .filter(Boolean)
+    .slice(0, 12);
+
+  return { products, policies, warnings, parseFailed: false };
+}
+
+/** 문의 페어는 답변 문장만 말투 분석에 사용 (정책·효능 추출 금지). */
 export function buildInquiryPlaybookPrompt(pairs) {
   const list = normalizeInquiryPairs(pairs);
-  const block = list
-    .map((item, i) => `[${i + 1}]\n문의: ${item.question || '(문의 없음)'}\n답변: ${item.answer}`)
-    .join('\n\n');
-
-  return `당신은 이 스마트스토어의 상품문의 응대 지침서를 만듭니다.
-아래는 사장님이 실제로 주고받은 문의와 답변입니다. 말투만이 아니라, 이 스토어가 어떻게 안내하는지를 추출하세요.
-
-출력은 이후 새 문의 답글을 작성할 **시스템 지시문** 본문만.
-각 지침은 한 줄에 하나씩, 아래 형식으로만 쓰세요 (설명·따옴표·마크다운 없이):
-[말투·표현] - ...
-[응대 원칙] - ...
-[답변 방식] - ...
-[상품·안내] - ...
-[기타] - ... (해당 없으면 생략)
-
-8~16개 지침.
-반드시 포함할 것:
-- 말투, 문장 길이, 이모지, 자주 쓰는 표현
-- 샘플에서 반복되는 안내(대상, 사용법, 배송, 품질 우려, 일정 등) — 샘플에 있는 내용만
-- 샘플에서 사장님이 하지 않는 행동(없으면 하지 말 것). 예: 사과를 안 하면 사과하지 말 것, 취소를 먼저 안 꺼내면 제안하지 말 것, 고객센터·병원으로 안 넘기면 넘기지 말 것
-- 새 문의에는 고객이 물은 조건에 바로 답하고, 이 스토어의 과거 결론을 따를 것
-- 샘플에 없는 사실·수치·절차는 지어내지 말 것
-- 복붙 티 나지 않게, 스마트스토어 상품문의 판매자 답글임을 명시
-- 고객 문의/리뷰 문장을 따옴표로 다시 쓰지 말 것. "~라는 말씀에"도 쓰지 말고, 내용은 내 말로 받아 적을 것
-- 지침에는 말투·안내 방식만 적을 것. 샘플의 스토어명·제품명 고유명과 [스토어 이름] 같은 자리표시는 넣지 말 것
-
-실제 문의/답변:
-${block}`;
+  const answers = list.map((item) => item.answer).filter(Boolean);
+  return buildAnalyzeToneV2Prompt('inquiry', answers);
 }
 
 export function normalizeSamples(samples) {
@@ -57,49 +218,6 @@ export function normalizeSamples(samples) {
     unique.push(s);
   }
   return unique.slice(0, 20);
-}
-
-export function buildAnalyzeMetaPrompt(context, normalizedSamples) {
-  const sampleBlock = normalizedSamples.map((s, i) => `[${i + 1}]\n${s}`).join('\n\n');
-  const isInquiry = context === 'inquiry';
-
-  if (isInquiry) {
-    return `당신은 네이버 스마트스토어 판매자 답글 스타일 분석 전문가입니다.
-아래는 실제 사장님이 작성한 **상품문의** 판매자 답글 샘플입니다. 말투, 문장 길이, 인사·안내 표현, 이모지 사용, 종결어미, 자주 쓰는 표현, 피해야 할 표현을 분석한 뒤, 같은 스타일로 고객 상품문의 답글을 작성하게 할 **시스템 지시문(system instruction)** 을 한국어로 작성하세요.
-
-규칙:
-- 출력은 시스템 지시문 본문만
-- 각 지침은 한 줄에 하나씩. 예: [말투·표현] - 존댓말로 짧게 답한다
-- 분류는 [말투·표현] [응대 원칙] [답변 방식] [상품·안내] [기타] 중 하나만 사용
-- 5~12개 지침
-- "복붙 티 나지 않게", "문의 내용의 질문에 구체적으로 답변", "고객 문장을 따옴표로 인용하지 말 것"을 반드시 포함
-- 지침에는 말투·형식만 적을 것. 샘플의 스토어명·제품명·브랜드 등 고유명은 복사하지 말 것
-- [스토어 이름] 같은 자리표시도 넣지 말 것. 인사에 스토어명을 넣으라는 지침을 만들지 말 것. 상품명·협업자명에서 판매자명을 뽑으라는 지침도 만들지 말 것
-- 공개된 상품 정보는 문의 질문에 맞게 검색해 확인된 사실을 답하도록 지시. 확인되지 않은 사실은 지어내지 말 것
-- 리뷰 감사 인사 위주가 아닌, 문의 Q&A·안내 톤으로 작성하도록 지시
-- 샘플에 없는 이모지·유행어를 무리하게 추가하지 말 것
-- 스마트스토어 상품문의 판매자 답글임을 명시
-
-샘플 답글:
-${sampleBlock}`;
-  }
-
-  return `당신은 네이버 스마트스토어 판매자 답글 스타일 분석 전문가입니다.
-아래는 실제 사장님이 작성한 판매자 답글 샘플입니다. 말투, 문장 길이, 인사·감사 표현, 이모지 사용, 종결어미, 자주 쓰는 표현, 피해야 할 표현을 분석한 뒤, 같은 스타일로 고객 리뷰 답글을 작성하게 할 **시스템 지시문(system instruction)** 을 한국어로 작성하세요.
-
-규칙:
-- 출력은 시스템 지시문 본문만
-- 각 지침은 한 줄에 하나씩. 예: [말투·표현] - 존댓말로 짧게 답한다
-- 분류는 [말투·표현] [응대 원칙] [답변 방식] [상품·안내] [기타] 중 하나만 사용
-- 5~12개 지침
-- "복붙 티 나지 않게", "리뷰 내용에 구체적으로 반응", "고객 문장을 따옴표로 인용하지 말 것"을 반드시 포함
-- 지침에는 말투·형식만 적을 것. 샘플의 스토어명·제품명·브랜드 등 고유명은 복사하지 말 것
-- [스토어 이름] 같은 자리표시도 넣지 말 것. 인사에 스토어명을 넣으라는 지침을 만들지 말 것. 상품명·협업자명에서 판매자명을 뽑으라는 지침도 만들지 말 것
-- 샘플에 없는 이모지·유행어를 무리하게 추가하지 말 것
-- 스마트스토어 판매자 답글임을 명시
-
-샘플 답글:
-${sampleBlock}`;
 }
 
 export function inferProductBrand(product) {
@@ -116,12 +234,6 @@ function stripStorePlaceholders(text, replacement = '') {
       /[\[［【「『{(]\s*[^\]］】」』})\n]{0,24}(?:스마트\s*)?(?:스토어|쇼핑몰|브랜드|상호|샵|숍|가게|판매자|shop|store)[^\]］】」』})\n]{0,12}[\]］】」』})]/gi,
       replacement
     );
-}
-
-export function sanitizeLearnedStylePrompt(prompt) {
-  return stripStorePlaceholders(prompt, '확인된 스토어명만(없으면 이름 없이)')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
 }
 
 export function scrubReplyPlaceholders(text) {
@@ -157,6 +269,9 @@ export function buildReplyHardRulesSuffix(product = '', storeName = '') {
     '- 소재·성분·제조·설계 특성("~특성상", "원래 그렇다", "순면이라서")을 입력에 없으면 설명하지 않는다. 불만·이슈의 원인을 추론하는 문장을 쓰지 않는다.',
     '- 고객의 주소·연락처·주문번호 등 개인정보를 공개 답글에 다시 적지 않는다.',
     '- 판매자가 제공하지 않은 환불·교환·재배송·할인·포인트·사은품을 임의로 약속하지 않는다. 확인되지 않은 처리 기간·배송 일정을 단정하지 않는다.',
+    '- "제품 개선에 반영/도움이 될"처럼 확인되지 않은 제품 개선·리뉴얼 약속을 만들지 않는다.',
+    '- 개별 주문의 출고·송장·도착·재고 등 실시간 상태는 연동되지 않으므로 단정하지 않는다. 일반 배송 정책과 주문 상태를 혼동하지 않는다.',
+    '- 과거 Q&A만으로 배송·교환·환불 정책이나 효능을 확정하지 않는다. 정책·효능은 판매자 등록 근거 또는 확인된 공식 자료가 있을 때만 말한다.',
     '- 긍정 리뷰 작성·수정·삭제를 요구하지 않는다. 리뷰의 대가로 선물·보상을 제안하지 않는다.',
     '- 고객과 논쟁하지 않는다. 고객 잘못이나 미확인 문제 원인을 임의로 단정하지 않는다.',
     '- 공감은 짧게 가능하나, 과도한 사과·책임 인정 단정은 하지 않는다. 고객이 말하지 않은 내용을 과도하게 확대하지 않는다.',
@@ -307,7 +422,8 @@ export function buildProductFactLookupPrompt(row, references = []) {
     '- 추측·일반론·다른 제품에서 흔한 표현을 이 상품 사실처럼 쓰지 마세요.',
     '',
     '출력은 JSON만 (설명·마크다운 금지):',
-    '{"matchedProduct":true,"facts":["사실1"],"missing":["못 찾은 항목"],"discardedOtherProducts":true}',
+    '{"matchedProduct":true,"facts":["사실1"],"sources":["https://공식출처"],"missing":["못 찾은 항목"],"discardedOtherProducts":true}',
+    '- sources[i]는 facts[i]의 출처 URL 또는 공식 문서명. 출처를 확인하지 못한 사실은 facts에 넣지 마세요.',
   ]
     .filter(Boolean)
     .join('\n');
@@ -316,7 +432,7 @@ export function buildProductFactLookupPrompt(row, references = []) {
 export function parseProductFactLookup(rawText) {
   const text = String(rawText || '').trim();
   if (!text) {
-    return { matchedProduct: false, facts: [], missing: ['검색 결과 없음'] };
+    return { matchedProduct: false, facts: [], sources: [], missing: ['검색 결과 없음'] };
   }
 
   let jsonText = text;
@@ -333,16 +449,22 @@ export function parseProductFactLookup(rawText) {
     const facts = Array.isArray(parsed.facts)
       ? parsed.facts.map((f) => String(f).trim()).filter(Boolean).slice(0, 12)
       : [];
+    const sources = Array.isArray(parsed.sources)
+      ? parsed.sources.map((s) => String(s).trim()).filter(Boolean).slice(0, 12)
+      : [];
     const missing = Array.isArray(parsed.missing)
       ? parsed.missing.map((f) => String(f).trim()).filter(Boolean).slice(0, 8)
       : [];
+    // 출처가 하나도 없으면 공식 사실로 확정하지 않음
+    const groundedFacts = sources.length ? facts : [];
     return {
-      matchedProduct: parsed.matchedProduct !== false && facts.length > 0,
-      facts,
-      missing,
+      matchedProduct: parsed.matchedProduct !== false && groundedFacts.length > 0,
+      facts: groundedFacts,
+      sources,
+      missing: sources.length ? missing : [...missing, '공식 출처 미확인'],
     };
   } catch (_) {
-    return { matchedProduct: false, facts: [], missing: ['사실 추출 실패'] };
+    return { matchedProduct: false, facts: [], sources: [], missing: ['사실 추출 실패'] };
   }
 }
 
@@ -350,13 +472,38 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
   const webSearch = options.webSearch === true;
   const verifiedFacts = Array.isArray(options.verifiedFacts) ? options.verifiedFacts : null;
   const missingFacts = Array.isArray(options.missingFacts) ? options.missingFacts : [];
+  const judgment = String(options.judgment || '').trim();
   const factMode = verifiedFacts != null || webSearch;
+
+  const judgmentBlock =
+    judgment === 'REALTIME_REQUIRED'
+      ? [
+          '[서버 판정: REALTIME_REQUIRED — 변경 불가]',
+          '- 주문·출고·송장·재고는 공식 조회 근거가 없습니다. 확정 수치·일정을 쓰지 마세요.',
+          '- "확인 후 안내드리겠습니다" 수준만 작성하세요. 답변 가능하다고 단정하지 마세요.',
+          '',
+        ].join('\n')
+      : judgment === 'SELLER_CONFIRM'
+        ? [
+            '[서버 판정: SELLER_CONFIRM — 변경 불가]',
+            '- 서버가 판매자 확인이 필요하다고 판정했습니다. 이 판정을 뒤집지 마세요.',
+            '- 위 "확인된 사실"에 있는 내용만 말하고, 나머지는 확인 후 안내하겠다고 하세요.',
+            '- 과거 Q&A·추측으로 빈칸을 채우거나 "가능합니다/포함됩니다"처럼 단정하지 마세요.',
+            '',
+          ].join('\n')
+        : judgment === 'ANSWERABLE'
+          ? [
+              '[서버 판정: ANSWERABLE — 변경 불가]',
+              '- 아래 확인된 사실(및 승인 FAQ)만 근거로 답하세요. 근거 밖 사실을 추가하지 마세요.',
+              '- 서버가 답변 가능으로 판정한 범위만 답하고, 임의로 "확인 필요"로 바꾸지 마세요.',
+              '',
+            ].join('\n')
+          : '';
   const refBlock =
     references.length > 0
       ? [
-          factMode
-            ? '아래는 이 상품(또는 비슷한 문의)에 대한 실제 판매자 답변입니다. 확인된 사실로 쓰세요.'
-            : '아래는 이 스토어의 실제 판매자 답변입니다. 비슷한 문의의 결론·안내 방식을 분석해 이번 문의에 맞게 새로 쓰세요. 그대로 복붙하지 마세요.',
+          '아래는 과거 판매자 Q&A **참고 자료**입니다. 말투·응대 흐름만 참고하세요.',
+          '과거 답변만으로 배송 정책·교환·환불 정책·효능·성분·호환을 확정하지 마세요. 그런 내용은 판매자 등록 상품정보·스토어 정책·확인된 공식 사실이 있을 때만 쓰세요.',
           '다른 상품 답변의 스펙은 가져오지 마세요. 과거 답에 없는 구체 사실(고유명·수치·일정·URL·혜택)은 지어내지 마세요.',
           ...references.map(
             (ref, index) =>
@@ -403,48 +550,47 @@ export function buildInquiryUserContent(row, references = [], options = {}) {
     : [];
   // 스토어명·자리표시·원문 복붙·임의 약속 등은 system 공통 하드룰에 있음. 여기엔 문의 전용만.
   const commonPriorityRules = [
-    '- 최우선: 구체 사실은 참고 답변·응대 지침(사장님이 저장한 지침)·확인된 사실·문의문에 있는 것만 쓰세요. 어디에도 없으면 지어내지 마세요.',
+    '- 최우선: 구체 사실은 판매자 등록 상품정보·스토어 정책·확인된 공식 사실·문의문에 있는 것만 쓰세요. 과거 Q&A는 참고일 뿐 정책·효능을 확정하지 마세요.',
     '- 근거에 없으면 그 내용을 빼세요. 추측으로 채우지 마세요.',
     '- 문의에 적힌 질문 그대로 답하세요. 더 넓은 질문으로 바꾸거나 상품 소개로 시작하지 마세요.',
     '- 고객이 처리해 달라고 명확히 요청하지 않은 조치(취소·반품·환불·고객센터·병원 상담)는 제안하지 마세요.',
     '- 죄송·사과 문구는 넣지 마세요. 공감은 짧게 하고 바로 안내하세요.',
     '- "상세페이지를 확인하세요", "다시 남겨 주세요"로 답을 넘기지 마세요.',
     '- 질문하지 않은 스펙 목록은 나열하지 마세요.',
+    '- 개별 주문 출고·송장·재고는 확인된 값이 없으면 단정하지 말고 확인 후 안내하겠다고 하세요.',
   ];
   const factRules = [
     '- 이 문의는 상품 사실(스펙·구성·호환·용량 등)이 필요합니다. 확인된 사실만 쓰세요.',
     '- 문의의 핵심 질문에 첫 1~2문장에서 바로 답하세요. 돌려 말하지 마세요.',
+    '- 위 "확인된 사실" 중 질문에 필요한 것만 쓰세요. 출처가 표시된 사실만 사용하세요.',
     hasSellerRefs
-      ? '- 같은 상품의 과거 판매자 답변에 있는 사실도 확인된 사실로 쓰세요. 웹보다 우선합니다.'
+      ? '- 과거 판매자 답변은 말투·응대 흐름 참고용입니다. 스펙·정책·효능을 과거 답만으로 확정하지 마세요.'
       : '',
-    '- 위 "확인된 사실" 중 질문에 필요한 것만 쓰세요.',
-    '- 금지 문구: "확인된 정보가 없어", "정확한 안내가 어렵습니다", "담당 부서에 확인 후", "잠시만 기다려 주세요"(사실 문의 회피용).',
+    '- 금지 문구: 근거 없이 "됩니다/포함됩니다"처럼 단정하기. 확인된 사실이 없을 때는 추측하지 마세요.',
     '- 고객이 A 포함 여부를 물었고 확인된 사실에 관련 구성이 있으면: 그 고유명을 말하고, A 자체 포함 여부는 확인된 범위만 말하세요.',
     '- "상세페이지를 확인해 주세요"처럼 확인된 사실을 고객에게 떠넘기지 마세요.',
     '- 확인된 사실에 없는 고유명·함량·개수·출시 월·날짜는 절대 추가하지 마세요.',
     '- 다른 제품·일반 상식으로 빈칸을 채우지 마세요.',
     hasFacts
-      ? '- 확인되지 않은 항목이 있으면, 확인된 내용을 말한 뒤에만 그 항목을 짧게 보완 안내하세요.'
-      : hasSellerRefs
-        ? '- 웹에서 확인된 사실이 없어도, 같은 상품의 과거 판매자 답변에 있는 정보로 답하세요.'
-        : '- 확인된 사실이 없을 때만, 공개 정보에서 확인하지 못했다고 짧게 말하고 지어내지 마세요.',
+      ? '- 확인되지 않은 항목이 있으면, 확인된 내용을 말한 뒤에만 그 항목은 확인이 필요하다고 짧게 안내하세요.'
+      : '- 확인된 사실이 없으면 추측하지 말고, 확인 후 안내드리겠다고 짧게 답하세요.',
   ];
   const sellerRules = [
-    '- 이 문의는 스펙 조사가 아닙니다. 아래 과거 판매자 답변을 분석해 이번 문의에 맞게 새로 쓰세요.',
-    '- 비슷한 문의의 결론(가능/주의/방법)과 설명 방식을 따르세요. 일반 상식이나 상품 소개로 새로 만들지 마세요.',
+    '- 이 문의는 스펙 조사가 아닙니다. 아래 과거 판매자 답변의 응대 흐름을 참고해 이번 문의에 맞게 새로 쓰세요.',
+    '- 과거 Q&A만으로 배송·교환·환불 정책이나 효능을 확정하지 마세요.',
     '- 첫 문장에서 상품이 무엇인지 소개하지 마세요. 물은 조건부터 답하세요.',
     '- "상세페이지를 참고하세요"로 사용법·가능 여부를 떠넘기지 마세요.',
     '- 과거 답변에 없는 상담 권고("전문가/병원에 문의하세요")는 넣지 마세요.',
     hasSellerRefs
       ? '- 과거 답변에 없는 구체 사실(고유명·수치·일정·URL·혜택)은 추가하지 마세요.'
       : '- 참고 답변이 없으면 문의·상품명에 있는 범위만 짧게 답하세요. 없는 사실은 지어내지 마세요.',
-    '- 과거 판매자 답변에 있는 안내를, 웹 상세에 없다고 해서 뒤집지 마세요.',
   ];
   const rules = factMode
     ? [...factRules, ...commonPriorityRules, ...returnRules, ...eligibilityRules]
     : [...sellerRules, ...commonPriorityRules, ...returnRules, ...eligibilityRules];
 
   return [
+    judgmentBlock,
     refBlock,
     factBlock,
     missingBlock,

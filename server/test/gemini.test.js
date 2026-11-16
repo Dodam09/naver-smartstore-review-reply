@@ -137,3 +137,27 @@ test('클라이언트 취소는 재시도하지 않는다', async () => {
   });
   assert.equal(calls, 1);
 });
+
+test('GEMINI_API_KEY 미설정 시 가짜 성공 없이 오류를 반환한다', async () => {
+  const prev = process.env.GEMINI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  let calls = 0;
+  setGeminiFetchForTests(async () => {
+    calls += 1;
+    return fakeResponse({ status: 200 });
+  });
+  try {
+    await assert.rejects(() => generateText('리뷰'), (err) => {
+      assert.equal(err instanceof GeminiError, true);
+      assert.equal(err.code, 'GEMINI_NOT_CONFIGURED');
+      assert.equal(err.status, 500);
+      assert.equal(err.retryable, false);
+      assert.match(err.message, /GEMINI_API_KEY/);
+      assert.equal(String(err.message).includes('AIza'), false);
+      return true;
+    });
+    assert.equal(calls, 0);
+  } finally {
+    process.env.GEMINI_API_KEY = prev || 'test-key';
+  }
+});

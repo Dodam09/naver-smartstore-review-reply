@@ -216,6 +216,67 @@ function renderSelect() {
   updateSelectCounts();
 }
 
+function renderKnowledgePanelHtml(item) {
+  const api = globalThis.InquiryKnowledgeUi;
+  if (!api?.buildKnowledgePanelModel) return '';
+  const model = api.buildKnowledgePanelModel(item);
+  if (model.primary === 'none' && !model.hasUsedKnowledge && !model.judgment) return '';
+
+  const secondary = (model.secondaryBadges || [])
+    .map(
+      (b) =>
+        `<span class="badge ${escapeHtml(b.className)}">${escapeHtml(b.label)}</span>`
+    )
+    .join('');
+  const reasonBlock =
+    model.primary === 'realtime'
+      ? `<div class="realtime-hint">${escapeHtml(
+          model.confirmReason ||
+            '주문·출고·송장·재고는 실시간 확인이 필요합니다. 추측해서 답하지 마세요.'
+        )}</div>`
+      : model.primary === 'seller_confirm'
+        ? `<div class="confirm-hint">${escapeHtml(
+            model.confirmReason || '판매자 확인이 필요한 초안입니다. 검토한 뒤 올려 주세요.'
+          )}</div>`
+        : model.primary === 'manual'
+          ? `<div class="manual-hint">${escapeHtml(
+              item.manualReason || '비슷한 과거 답변이 없어 직접 작성해 주세요.'
+            )}</div>`
+          : '';
+
+  const missing =
+    model.missingFields?.length > 0
+      ? `부족한 정보: ${model.missingFields.join(', ')}`
+      : '';
+  const metaLines = [
+    model.judgment ? `판정: ${model.judgment}` : '',
+    missing,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const listHtml = model.hasUsedKnowledge
+    ? `<ul class="knowledge-panel-list">${model.usedKnowledgeLines
+        .map((line) => `<li>${escapeHtml(line)}</li>`)
+        .join('')}</ul>`
+    : `<div class="knowledge-panel-empty">서버가 기록한 지식 근거 없음 (추측·임의 생성하지 않음)</div>`;
+
+  const actions = (model.actions || [])
+    .map((a) => `<div>${escapeHtml(a)}</div>`)
+    .join('');
+
+  return `
+    ${reasonBlock}
+    <div class="knowledge-panel" data-inquiry-id="${escapeHtml(String(item.id))}">
+      <div class="knowledge-panel-title">${escapeHtml(model.title || '지식 근거')}</div>
+      <div class="card-badges" style="margin-bottom:8px;">${secondary}</div>
+      ${metaLines ? `<div class="knowledge-panel-meta">${escapeHtml(metaLines)}</div>` : ''}
+      <div class="knowledge-panel-title" style="font-size:12px;margin-top:4px;">사용된 지식</div>
+      ${listHtml}
+      ${actions ? `<div class="knowledge-panel-actions">${actions}</div>` : ''}
+    </div>`;
+}
+
 function renderReview() {
   if (!draftItems.length) {
     els.reviewList.innerHTML =
@@ -229,45 +290,47 @@ function renderReview() {
     const aManual = a.needsManual && !String(a.reply || '').trim() ? 0 : 1;
     const bManual = b.needsManual && !String(b.reply || '').trim() ? 0 : 1;
     if (aManual !== bManual) return aManual - bManual;
-    const aConfirm = a.needsConfirm ? 0 : 1;
-    const bConfirm = b.needsConfirm ? 0 : 1;
-    return aConfirm - bConfirm;
+    const rank = (item) => {
+      const j = globalThis.InquiryKnowledgeUi?.pickJudgment?.(item) || '';
+      if (j === 'REALTIME_REQUIRED') return 0;
+      if (item.needsConfirm || j === 'SELLER_CONFIRM') return 1;
+      return 2;
+    };
+    return rank(a) - rank(b);
   });
 
   els.reviewList.innerHTML = sorted
     .map((item) => {
       const needsManual = !!item.needsManual && !String(item.reply || '').trim();
-      const needsConfirm = !!item.needsConfirm && !needsManual;
-      const cardClass = needsManual ? ' needs-manual' : needsConfirm ? ' needs-confirm' : '';
+      const model = globalThis.InquiryKnowledgeUi?.buildKnowledgePanelModel?.(item) || null;
+      const cardClass = model?.cardClass ? ` ${model.cardClass}` : needsManual ? ' needs-manual' : '';
+      const primaryBadge =
+        model?.badgeLabel
+          ? `<span class="badge ${escapeHtml(model.badgeClass || '')}">${escapeHtml(
+              model.badgeLabel
+            )}</span>`
+          : '';
       return `
     <article class="card review-card${cardClass}" data-id="${escapeHtml(item.id)}">
       <div class="card-top">
         <div class="card-id">#${escapeHtml(item.id)}</div>
         <div class="card-badges">
-          ${needsManual ? '<span class="badge manual">직접 작성</span>' : ''}
-          ${needsConfirm ? '<span class="badge confirm">확인 필요</span>' : ''}
+          ${primaryBadge}
           ${item.secret ? '<span class="badge secret">비밀</span>' : ''}
           ${item.writer ? `<span class="badge">${escapeHtml(item.writer)}</span>` : ''}
         </div>
       </div>
       ${item.product ? `<div class="card-product">${escapeHtml(item.product)}</div>` : ''}
       <div class="inquiry-box">${escapeHtml(item.inquiryContent || '')}</div>
-      ${
-        needsManual
-          ? `<div class="manual-hint">${escapeHtml(
-              item.manualReason || '비슷한 과거 답변이 없어 직접 작성해 주세요.'
-            )}</div>`
-          : needsConfirm
-            ? `<div class="confirm-hint">${escapeHtml(
-                item.confirmReason || '반품·배송 안내는 검토한 뒤 올려 주세요.'
-              )}</div>`
-            : ''
-      }
+      ${renderKnowledgePanelHtml(item)}
       <div class="reply-label">${needsManual ? '직접 답글 작성' : '판매자 답글'}</div>
       <textarea class="reply-input" data-id="${escapeHtml(item.id)}" maxlength="2000" placeholder="${
         needsManual ? '여기에 직접 답글을 적어 주세요' : ''
       }">${escapeHtml(item.reply || '')}</textarea>
       <div class="char-count">${(item.reply || '').length} / 2000</div>
+      <div class="review-card-actions">
+        <button type="button" class="regen-btn" data-id="${escapeHtml(item.id)}">이 답글 다시 만들기</button>
+      </div>
     </article>`;
     })
     .join('');
@@ -278,6 +341,10 @@ function renderReview() {
       scheduleSaveDraft();
       updateReviewStatsFromUi();
     });
+  });
+
+  els.reviewList.querySelectorAll('.regen-btn').forEach((btn) => {
+    btn.addEventListener('click', () => onRegenerateDraftItem(btn.dataset.id, btn));
   });
 
   updateReviewStats();
@@ -419,14 +486,25 @@ function updateReviewStats() {
   els.applyStatus.textContent = applyEnabled ? '준비됨' : '아직';
   els.applyStatus.style.color = applyEnabled ? '#0a7a3f' : '#333';
 
-  const confirmPending = draftItems.filter((i) => i.needsConfirm && String(i.reply || '').trim()).length;
+  const pickJ = (i) => globalThis.InquiryKnowledgeUi?.pickJudgment?.(i) || '';
+  const realtimePending = draftItems.filter(
+    (i) => pickJ(i) === 'REALTIME_REQUIRED' && String(i.reply || '').trim()
+  ).length;
+  const confirmPending = draftItems.filter((i) => {
+    if (!String(i.reply || '').trim()) return false;
+    const j = pickJ(i);
+    if (j === 'REALTIME_REQUIRED') return false;
+    return !!i.needsConfirm || j === 'SELLER_CONFIRM';
+  }).length;
 
   if (applyEnabled) {
     els.reviewSummary.textContent = '준비됐어요. 판매자센터 상품문의에서 [답글]만 누르면 자동으로 채워집니다.';
   } else if (manualPending > 0) {
     els.reviewSummary.textContent = `직접 작성 ${manualPending}건이 남았어요. 빨간 카드를 먼저 채워 주세요.`;
+  } else if (realtimePending > 0) {
+    els.reviewSummary.textContent = `실시간 조회 필요 ${realtimePending}건이 있어요. 보라색 카드의 재고·주문 정보를 확인하세요.`;
   } else if (confirmPending > 0) {
-    els.reviewSummary.textContent = `확인 필요 ${confirmPending}건이 있어요. 노란 카드의 반품·배송 초안을 검토해 주세요.`;
+    els.reviewSummary.textContent = `확인 필요 ${confirmPending}건이 있어요. 노란 카드의 지식 근거를 검토해 주세요.`;
   } else if (filled === total && total > 0) {
     els.reviewSummary.textContent = '답글 확인이 끝났어요. 아래 「판매자센터에서 직접 올리기」를 누르세요.';
   } else {
@@ -462,12 +540,89 @@ function collectItemsFromUi() {
   els.reviewList.querySelectorAll('.reply-input').forEach((ta) => {
     const id = String(ta.dataset.id);
     if (!map.has(id)) return;
-    const item = map.get(id);
-    item.reply = ta.value.trim();
-    if (item.reply) item.needsManual = false;
+    const prev = map.get(id);
+    const nextReply = ta.value.trim();
+    const api = globalThis.InquiryKnowledgeUi;
+    const item = api?.applyKnowledgeOnEdit
+      ? api.applyKnowledgeOnEdit(prev, nextReply)
+      : { ...prev, reply: nextReply, needsManual: nextReply ? false : prev.needsManual };
     if (shouldLearnEditedInquiryReply(item)) item.learnAsGuideline = true;
+    map.set(id, item);
   });
   return [...map.values()];
+}
+
+async function onRegenerateDraftItem(id, buttonEl) {
+  const targetId = String(id || '');
+  if (!targetId) return;
+  draftItems = collectItemsFromUi();
+  const item = draftItems.find((row) => String(row.id) === targetId);
+  if (!item) {
+    showBanner('해당 초안을 찾을 수 없습니다.', 'warn');
+    return;
+  }
+
+  const settingsData = await storageGet(SETTINGS_KEY);
+  const settings = settingsData[SETTINGS_KEY] || {};
+  const apiKey = settings.apiKey || '';
+  if (!(await hasAiCredentialsAsync(apiKey))) {
+    showBanner('AI 연결이 필요해요. [계정]에서 로그인하거나 API 키를 넣어 주세요.', 'warn');
+    return;
+  }
+  if (!isInquiryStyleConfigured(settings)) {
+    showBanner('응대 지침이 없습니다. 답변 스타일 설정에서 지침서를 먼저 만들어 주세요.', 'warn');
+    return;
+  }
+
+  const systemPrompt = resolveInquirySystemPrompt(settings);
+  if (buttonEl) {
+    buttonEl.disabled = true;
+    buttonEl.textContent = '다시 만드는 중…';
+  }
+  showBanner(`#${targetId} 답글을 다시 만드는 중…`, 'info');
+
+  chrome.runtime.sendMessage(
+    {
+      type: 'REGENERATE_INQUIRY_DRAFT',
+      payload: {
+        id: targetId,
+        apiKey,
+        systemPrompt,
+        model: CONFIG.GEMINI_MODEL,
+        productNo: item.productNo || '',
+      },
+    },
+    async (response) => {
+      if (chrome.runtime.lastError || !response?.ok) {
+        if (buttonEl) {
+          buttonEl.disabled = false;
+          buttonEl.textContent = '이 답글 다시 만들기';
+        }
+        showBanner(
+          response?.error || chrome.runtime.lastError?.message || '재생성 실패',
+          'warn'
+        );
+        return;
+      }
+      const next = response.item;
+      draftItems = draftItems.map((row) =>
+        String(row.id) === targetId ? { ...row, ...next } : row
+      );
+      applyEnabled = false;
+      await storageSet({
+        [DRAFT_KEY]: { items: draftItems, updatedAt: Date.now() },
+        [APPLY_KEY]: false,
+      });
+      renderReview();
+      const judgment = next?.judgment || response.judgment || '';
+      showBanner(
+        judgment
+          ? `#${targetId} 재생성 완료 · 판정 ${judgment} · 근거 갱신됨`
+          : `#${targetId} 재생성 완료 · 근거 갱신됨`,
+        'info'
+      );
+    }
+  );
 }
 
 async function persistLearnedInquiryGuidelines(items) {
@@ -611,12 +766,26 @@ function updateReviewBanner() {
   const manualPending = draftItems.filter(
     (i) => i.needsManual && !String(i.reply || '').trim()
   ).length;
-  const confirmPending = draftItems.filter((i) => i.needsConfirm && String(i.reply || '').trim()).length;
+  const pickJ = (i) => globalThis.InquiryKnowledgeUi?.pickJudgment?.(i) || '';
+  const realtimePending = draftItems.filter(
+    (i) => pickJ(i) === 'REALTIME_REQUIRED' && String(i.reply || '').trim()
+  ).length;
+  const confirmPending = draftItems.filter((i) => {
+    if (!String(i.reply || '').trim()) return false;
+    const j = pickJ(i);
+    if (j === 'REALTIME_REQUIRED') return false;
+    return !!i.needsConfirm || j === 'SELLER_CONFIRM';
+  }).length;
   if (applyEnabled) {
     showBanner('준비됐어요. 판매자센터에서 [답글]만 누르면 자동으로 채워집니다.', 'info');
   } else if (manualPending > 0) {
     showBanner(
       `직접 작성 ${manualPending}건이 있어요. 빨간 「직접 작성」 카드에 답글을 적어 주세요.`,
+      'warn'
+    );
+  } else if (realtimePending > 0) {
+    showBanner(
+      `실시간 조회 필요 ${realtimePending}건이 있어요. 보라색 카드의 재고·주문 정보를 확인한 뒤 올려 주세요.`,
       'warn'
     );
   } else if (confirmPending > 0) {
@@ -653,7 +822,7 @@ async function onGenerate() {
 
   const settingsData = await storageGet(SETTINGS_KEY);
   const settings = settingsData[SETTINGS_KEY] || {};
-  const apiKey = settings.apiKey || CONFIG.GEMINI_API_KEY;
+  const apiKey = settings.apiKey || '';
 
   if (!(await hasAiCredentialsAsync(apiKey))) {
     showProgress('AI 연결이 필요해요. [계정]에서 로그인하거나 API 키를 넣어 주세요.', true);

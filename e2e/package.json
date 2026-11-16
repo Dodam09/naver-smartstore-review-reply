@@ -1,0 +1,12 @@
+{
+  "name": "smartstore-extension-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:ext": "node run-extension-e2e.mjs",
+    "test:seller-access": "node run-seller-center-access-check.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}

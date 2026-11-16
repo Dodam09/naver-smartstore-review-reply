@@ -1,4 +1,15 @@
-importScripts('config.js', 'lib/lookup-days.js', 'lib/tone-presets.js', 'lib/inquiry-reference.js', 'lib/inquiry-search.js', 'lib/reply-scrub.js', 'lib/ai-proxy.js', 'lib/analytics.js');
+importScripts(
+  'config.js',
+  'config.local.js',
+  'lib/lookup-days.js',
+  'lib/tone-presets.js',
+  'lib/tone-profile.js',
+  'lib/inquiry-reference.js',
+  'lib/inquiry-search.js',
+  'lib/reply-scrub.js',
+  'lib/ai-proxy.js',
+  'lib/analytics.js'
+);
 
 let isRunning = false;
 let isInquiryRunning = false;
@@ -338,6 +349,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'REGENERATE_INQUIRY_DRAFT') {
+    regenerateInquiryDraftItem(message.payload || {})
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((err) => sendResponse({ ok: false, error: err.message || String(err) }));
+    return true;
+  }
+
   if (message.type === 'ANALYZE_TONE_SAMPLES') {
     analyzeToneSamples(message.payload)
       .then((result) => sendResponse({ ok: true, ...result }))
@@ -387,6 +405,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message.type === 'ANALYZE_TONE_SAMPLES_JOB') {
     runAnalyzeToneJob(message.payload || {})
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((err) => sendResponse({ ok: false, error: err.message || String(err) }));
+    return true;
+  }
+
+  if (message.type === 'DRAFT_KNOWLEDGE_FROM_INQUIRIES_JOB') {
+    draftKnowledgeFromInquiries(message.payload || {})
       .then((result) => sendResponse({ ok: true, ...result }))
       .catch((err) => sendResponse({ ok: false, error: err.message || String(err) }));
     return true;
@@ -691,6 +716,7 @@ async function runGenerateInquiries(payload) {
             id: row.id,
             inquiryContent: row.content,
             product: row.product || '',
+            productNo: String(row.productNo || '').replace(/[^\d]/g, ''),
             writer: row.writer || '',
             secret: !!row.secret,
             reply: '',
@@ -702,6 +728,10 @@ async function runGenerateInquiries(payload) {
             confirmReason: '',
             manualReason: getManualInquiryReason(row, references, settings),
             referenceIds: [],
+            judgment: null,
+            usedKnowledge: [],
+            evidence: null,
+            missingFields: [],
           });
           success++;
           manualCount++;
@@ -716,7 +746,7 @@ async function runGenerateInquiries(payload) {
           continue;
         }
 
-        const replyRaw = await generateInquiryReply(
+        const generated = await generateInquiryReply(
           apiKey,
           systemPrompt,
           row,
@@ -726,12 +756,26 @@ async function runGenerateInquiries(payload) {
         );
         if (inquiryStopRequested || signal.aborted) break;
 
-        const confirm = evaluateInquiryReplyConfirm(row, replyRaw, references, [], systemPrompt);
+        const replyRaw = typeof generated === 'string' ? generated : generated?.text;
+        const serverMeta = typeof generated === 'object' && generated?.fromServer ? generated : null;
+        const knowledgeMeta = pickInquiryKnowledgeMeta(serverMeta);
+        const confirm = serverMeta
+          ? {
+              needsManual: !!serverMeta.needsManual || !String(replyRaw || '').trim(),
+              needsConfirm: !!serverMeta.needsConfirm,
+              reason:
+                serverMeta.reason ||
+                serverMeta.evidence?.confirmReason ||
+                (serverMeta.evidence?.missingFields || []).join(', ') ||
+                '',
+            }
+          : evaluateInquiryReplyConfirm(row, replyRaw, references, [], systemPrompt);
         if (confirm.needsManual || !String(replyRaw || '').trim()) {
           draftItems.push({
             id: row.id,
             inquiryContent: row.content,
             product: row.product || '',
+            productNo: String(row.productNo || '').replace(/[^\d]/g, ''),
             writer: row.writer || '',
             secret: !!row.secret,
             reply: '',
@@ -745,6 +789,11 @@ async function runGenerateInquiries(payload) {
               confirm.reason ||
               '참고·확인된 사실에 없는 구체 내용을 지어내 직접 작성으로 넘겼습니다.',
             referenceIds: references.map((ref) => ref.id),
+            evidence: knowledgeMeta.evidence,
+            confirmationId: knowledgeMeta.confirmationId,
+            judgment: knowledgeMeta.judgment,
+            usedKnowledge: knowledgeMeta.usedKnowledge,
+            missingFields: knowledgeMeta.missingFields,
           });
           success++;
           manualCount++;
@@ -765,6 +814,7 @@ async function runGenerateInquiries(payload) {
           id: row.id,
           inquiryContent: row.content,
           product: row.product || '',
+          productNo: String(row.productNo || '').replace(/[^\d]/g, ''),
           writer: row.writer || '',
           secret: !!row.secret,
           reply,
@@ -776,6 +826,11 @@ async function runGenerateInquiries(payload) {
           confirmReason: confirm.reason,
           manualReason: '',
           referenceIds: references.map((ref) => ref.id),
+          evidence: knowledgeMeta.evidence,
+          confirmationId: knowledgeMeta.confirmationId,
+          missingFields: knowledgeMeta.missingFields,
+          judgment: knowledgeMeta.judgment,
+          usedKnowledge: knowledgeMeta.usedKnowledge,
         });
         success++;
         if (confirm.needsConfirm) confirmCount++;
@@ -977,71 +1032,41 @@ async function analyzeToneSamples(payload) {
       pairs: payload.pairs || [],
       context,
       model: model || CONFIG.GEMINI_MODEL,
+      previousToneProfile: payload.previousToneProfile || null,
     });
     return {
       prompt: data.prompt,
+      toneProfile: data.toneProfile || null,
+      usedFallback: !!data.usedFallback,
+      fallbackReason: data.fallbackReason || '',
       sampleCount: data.sampleCount,
     };
   }
 
-  const normalized = normalizeAnalysisSamples(samples);
-  if (normalized.length < 2) {
-    const rawCount = (samples || []).filter((s) => String(s).trim().length >= 8).length;
-    if (rawCount >= 2) {
-      throw new Error(
-        '선택한 답글의 앞부분이 너무 비슷해 분석 샘플이 부족합니다.\n' +
-          '내용이 서로 다른 답글을 2개 이상 선택해 주세요.'
-      );
-    }
-    throw new Error('분석할 샘플 답글이 2개 이상 필요합니다.');
+  throw new Error(
+    '확장에서 Gemini를 직접 호출할 수 없습니다. API_BASE_URL 서버 프록시를 설정하세요.'
+  );
+}
+
+async function draftKnowledgeFromInquiries(payload) {
+  const { apiKey, pairs, model } = payload || {};
+  await ensureAiCredentials(apiKey);
+
+  if (!useAiProxy()) {
+    throw new Error(
+      '확장에서 Gemini를 직접 호출할 수 없습니다. API_BASE_URL 서버 프록시를 설정하세요.'
+    );
   }
 
-  const sampleBlock = normalized.map((s, i) => `[${i + 1}]\n${s}`).join('\n\n');
-  const isInquiry = context === 'inquiry';
-  const metaPrompt = isInquiry
-    ? `당신은 네이버 스마트스토어 판매자 답글 스타일 분석 전문가입니다.
-아래는 실제 사장님이 작성한 **상품문의** 판매자 답글 샘플입니다. 말투, 문장 길이, 인사·안내 표현, 이모지 사용, 종결어미, 자주 쓰는 표현, 피해야 할 표현을 분석한 뒤, 같은 스타일로 고객 상품문의 답글을 작성하게 할 **시스템 지시문(system instruction)** 을 한국어로 작성하세요.
-
-규칙:
-- 출력은 시스템 지시문 본문만
-- 각 지침은 한 줄에 하나씩. 예: [말투·표현] - 존댓말로 짧게 답한다
-- 분류는 [말투·표현] [응대 원칙] [답변 방식] [상품·안내] [기타] 중 하나만 사용
-- 5~12개 지침
-- "복붙 티 나지 않게", "문의 내용의 질문에 구체적으로 답변"을 반드시 포함
-- 지침에는 말투·형식만 적을 것. 샘플의 스토어명·제품명 고유명과 자리표시는 넣지 말 것
-- [스토어 이름] 같은 자리표시도 넣지 말 것. 인사에 스토어명을 넣으라는 지침을 만들지 말 것. 상품명·협업자명에서 판매자명을 뽑으라는 지침도 만들지 말 것
-- 공개된 상품 정보는 문의 질문에 맞게 검색해 확인된 사실을 답하도록 지시. 확인되지 않은 사실은 지어내지 말 것
-- 리뷰 감사 인사 위주가 아닌, 문의 Q&A·안내 톤으로 작성하도록 지시
-- 샘플에 없는 이모지·유행어를 무리하게 추가하지 말 것
-- 스마트스토어 상품문의 판매자 답글임을 명시
-
-샘플 답글:
-${sampleBlock}`
-    : `당신은 네이버 스마트스토어 판매자 답글 스타일 분석 전문가입니다.
-아래는 실제 사장님이 작성한 판매자 답글 샘플입니다. 말투, 문장 길이, 인사·감사 표현, 이모지 사용, 종결어미, 자주 쓰는 표현, 피해야 할 표현을 분석한 뒤, 같은 스타일로 고객 리뷰 답글을 작성하게 할 **시스템 지시문(system instruction)** 을 한국어로 작성하세요.
-
-규칙:
-- 출력은 시스템 지시문 본문만
-- 각 지침은 한 줄에 하나씩. 예: [말투·표현] - 존댓말로 짧게 답한다
-- 분류는 [말투·표현] [응대 원칙] [답변 방식] [상품·안내] [기타] 중 하나만 사용
-- 5~12개 지침
-- "복붙 티 나지 않게", "리뷰 내용에 구체적으로 반응"을 반드시 포함
-- 지침에는 말투·형식만 적을 것. 샘플의 스토어명·제품명 고유명과 자리표시는 넣지 말 것
-- [스토어 이름] 같은 자리표시도 넣지 말 것. 인사에 스토어명을 넣으라는 지침을 만들지 말 것. 상품명·협업자명에서 판매자명을 뽑으라는 지침도 만들지 말 것
-- 샘플에 없는 이모지·유행어를 무리하게 추가하지 말 것
-- 스마트스토어 판매자 답글임을 명시
-
-샘플 답글:
-${sampleBlock}`;
-
-  const prompt = await callGeminiText(apiKey, metaPrompt, model, { temperature: 0.35 });
-  if (!prompt || prompt.length < 30) {
-    throw new Error('스타일 분석 결과가 너무 짧습니다. 샘플을 더 추가해 보세요.');
-  }
+  const data = await postAiApi('/api/knowledge/draft-from-inquiries', {
+    pairs: pairs || [],
+    model: model || CONFIG.GEMINI_MODEL,
+  });
 
   return {
-    prompt: sanitizeLearnedStylePrompt(prompt.trim()),
-    sampleCount: normalized.length,
+    draft: data.draft || { products: [], policies: {}, warnings: [] },
+    sampleCount: data.sampleCount || 0,
+    parseFailed: !!data.parseFailed,
   };
 }
 
@@ -1049,43 +1074,11 @@ function normalizeAnalysisSamples(samples) {
   return normalizeSamples(samples);
 }
 
-async function callGeminiText(apiKey, userText, model, options = {}) {
-  if (useAiProxy()) {
-    throw new Error('callGeminiText는 서버 프록시 모드에서 직접 호출할 수 없습니다.');
-  }
-
-  const geminiModel = model || CONFIG.GEMINI_MODEL;
-  const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: userText }] }],
-      generationConfig: {
-        temperature: options.temperature ?? 0.7,
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    const errBody = await response.text();
-    let message = errBody.slice(0, 300);
-    try {
-      const parsed = JSON.parse(errBody);
-      message = parsed.error?.message || message;
-    } catch (_) {}
-    throw new Error(`API 오류 (${response.status}): ${message}`);
-  }
-
-  const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts
-    ?.map((p) => p.text)
-    .join('')
-    .trim();
-  if (!text) throw new Error('빈 응답');
-  return text;
+async function callGeminiText(_apiKey, _userText, _model, _options = {}) {
+  // 클라이언트 직접 호출 금지 — 서버 프록시(/api/*)만 사용
+  throw new Error(
+    '확장에서 Gemini를 직접 호출할 수 없습니다. API_BASE_URL 서버 프록시를 설정하세요.'
+  );
 }
 
 async function generateReply(apiKey, systemPrompt, row, model, signal) {
@@ -1104,49 +1097,210 @@ async function generateReply(apiKey, systemPrompt, row, model, signal) {
     return scrubGeneratedReply(data.text);
   }
 
-  const userContent = buildReviewUserContentLocal(row);
+  throw new Error(
+    '확장에서 Gemini를 직접 호출할 수 없습니다. API_BASE_URL 서버 프록시를 설정하세요.'
+  );
+}
 
-  const geminiModel = model || CONFIG.GEMINI_MODEL;
-  const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${encodeURIComponent(apiKey)}`;
+function pickInquiryKnowledgeMeta(serverMeta) {
+  if (!serverMeta || typeof serverMeta !== 'object') {
+    return {
+      judgment: null,
+      usedKnowledge: [],
+      evidence: null,
+      missingFields: [],
+      confirmationId: null,
+    };
+  }
+  const evidence = serverMeta.evidence || null;
+  const usedKnowledge = Array.isArray(serverMeta.usedKnowledge)
+    ? serverMeta.usedKnowledge
+    : Array.isArray(evidence?.usedKnowledge)
+      ? evidence.usedKnowledge
+      : [];
+  return {
+    judgment: serverMeta.judgment || evidence?.judgment || null,
+    usedKnowledge,
+    evidence,
+    missingFields: Array.isArray(evidence?.missingFields)
+      ? evidence.missingFields
+      : Array.isArray(serverMeta.missingFields)
+        ? serverMeta.missingFields
+        : [],
+    confirmationId: serverMeta.confirmation?.id || serverMeta.confirmationId || null,
+  };
+}
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    signal,
-    body: JSON.stringify({
-      systemInstruction: {
-        parts: [{ text: appendReplyHardRulesLocal(systemPrompt, row) }],
-      },
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: userContent }],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.7,
-      },
-    }),
-  });
+async function regenerateInquiryDraftItem(payload = {}) {
+  const draftKey = CONFIG.INQUIRY_DRAFT_KEY || 'smartstoreInquiryDraft';
+  const storageKey = CONFIG.INQUIRY_STORAGE_KEY || 'smartstoreInquiryReplies';
+  const applyKey = CONFIG.INQUIRY_APPLY_ENABLED_KEY || 'smartstoreInquiryApplyEnabled';
+  const id = String(payload.id || '').trim();
+  if (!id) throw new Error('문의 번호가 없습니다.');
 
-  if (!response.ok) {
-    const errBody = await response.text();
-    let message = errBody.slice(0, 300);
-    try {
-      const parsed = JSON.parse(errBody);
-      message = parsed.error?.message || message;
-    } catch (_) {}
-    throw new Error(`API 오류 (${response.status}): ${message}`);
+  const data = await storageGet([draftKey, storageKey, CONFIG.SETTINGS_KEY]);
+  const draft = data[draftKey] || { items: [] };
+  const items = Array.isArray(draft.items) ? [...draft.items] : [];
+  const index = items.findIndex((item) => String(item.id) === id);
+  if (index < 0) throw new Error('해당 문의 초안을 찾을 수 없습니다.');
+
+  const current = items[index];
+  const settings = data[CONFIG.SETTINGS_KEY] || {};
+  const apiKey = payload.apiKey || settings.apiKey || '';
+  await ensureAiCredentials(apiKey);
+
+  const systemPrompt = String(payload.systemPrompt || '').trim();
+  if (!systemPrompt || isLegacyBuiltinPrompt(systemPrompt)) {
+    throw new Error(
+      '응대 지침이 없습니다. 「답변 스타일 설정」에서 기존 답글로 지침서를 먼저 만들어 주세요.'
+    );
   }
 
-  const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts
-    ?.map((p) => p.text)
-    .join('')
-    .trim();
-  if (!text) throw new Error('빈 응답');
-  return scrubGeneratedReply(text);
+  const row = {
+    id: current.id,
+    content: current.inquiryContent || '',
+    product: current.product || '',
+    productNo: String(current.productNo || payload.productNo || '').replace(/[^\d]/g, ''),
+    secret: !!current.secret,
+    writer: current.writer || '',
+  };
+  if (!String(row.content || '').trim()) throw new Error('문의 내용이 없습니다.');
+
+  const check = await ensureReplyGenerationAllowed(1);
+  if (!check.ok) throw new Error(check.message);
+
+  let references = [];
+  try {
+    references = await loadInquiryReferencesForRow(row);
+  } catch (_) {
+    references = [];
+  }
+
+  const generated = await generateInquiryReply(
+    apiKey,
+    systemPrompt,
+    row,
+    payload.model || CONFIG.GEMINI_MODEL,
+    null,
+    references
+  );
+  const text = typeof generated === 'string' ? generated : generated?.text;
+  const serverMeta = typeof generated === 'object' && generated ? generated : null;
+  const knowledgeMeta = pickInquiryKnowledgeMeta(serverMeta);
+  const session = await loadAuthSession();
+
+  let nextItem;
+  if (serverMeta?.fromServer) {
+    const needsManual = !!serverMeta.needsManual || !String(text || '').trim();
+    if (needsManual) {
+      nextItem = {
+        ...current,
+        productNo: row.productNo,
+        reply: '',
+        aiReply: '',
+        originalReply: '',
+        needsManual: true,
+        learnAsGuideline: true,
+        needsConfirm: false,
+        confirmReason: '',
+        manualReason: serverMeta.reason || '답글을 만들지 못했습니다.',
+        judgment: knowledgeMeta.judgment,
+        usedKnowledge: knowledgeMeta.usedKnowledge,
+        evidence: knowledgeMeta.evidence,
+        missingFields: knowledgeMeta.missingFields,
+        confirmationId: knowledgeMeta.confirmationId,
+        referenceIds: references.map((ref) => ref.id),
+      };
+    } else {
+      nextItem = {
+        ...current,
+        productNo: row.productNo,
+        reply: text,
+        aiReply: text,
+        originalReply: text,
+        needsManual: false,
+        learnAsGuideline: false,
+        needsConfirm: !!serverMeta.needsConfirm,
+        confirmReason:
+          serverMeta.reason ||
+          serverMeta.evidence?.confirmReason ||
+          (serverMeta.evidence?.missingFields || []).join(', ') ||
+          '',
+        manualReason: '',
+        judgment: knowledgeMeta.judgment,
+        usedKnowledge: knowledgeMeta.usedKnowledge,
+        evidence: knowledgeMeta.evidence,
+        missingFields: knowledgeMeta.missingFields,
+        confirmationId: knowledgeMeta.confirmationId,
+        referenceIds: references.map((ref) => ref.id),
+      };
+    }
+  } else {
+    const confirm = evaluateInquiryReplyConfirm(row, text, references, [], systemPrompt);
+    if (confirm.needsManual || !String(text || '').trim()) {
+      nextItem = {
+        ...current,
+        productNo: row.productNo,
+        reply: '',
+        aiReply: '',
+        originalReply: '',
+        needsManual: true,
+        learnAsGuideline: true,
+        needsConfirm: false,
+        confirmReason: '',
+        manualReason:
+          confirm.reason ||
+          '참고·확인된 사실에 없는 구체 내용을 지어내 직접 작성으로 넘겼습니다.',
+        judgment: null,
+        usedKnowledge: [],
+        evidence: null,
+        missingFields: [],
+        confirmationId: null,
+        referenceIds: references.map((ref) => ref.id),
+      };
+    } else {
+      nextItem = {
+        ...current,
+        productNo: row.productNo,
+        reply: text,
+        aiReply: text,
+        originalReply: text,
+        needsManual: false,
+        learnAsGuideline: false,
+        needsConfirm: confirm.needsConfirm,
+        confirmReason: confirm.reason,
+        manualReason: '',
+        judgment: null,
+        usedKnowledge: [],
+        evidence: null,
+        missingFields: [],
+        confirmationId: null,
+        referenceIds: references.map((ref) => ref.id),
+      };
+    }
+  }
+
+  items[index] = nextItem;
+  const replyMap = { ...(data[storageKey] || {}) };
+  if (nextItem.reply) storeInquiryReplyKeys(replyMap, nextItem.id, nextItem.reply);
+  else {
+    delete replyMap[String(nextItem.id)];
+    const norm = String(nextItem.id).replace(/[^\d]/g, '');
+    if (norm) delete replyMap[norm];
+  }
+
+  await storageSet({
+    [draftKey]: { items, updatedAt: Date.now() },
+    [storageKey]: replyMap,
+    [applyKey]: false,
+  });
+
+  return {
+    item: nextItem,
+    usage: session?.usage || check.usage || null,
+    judgment: nextItem.judgment || null,
+    usedKnowledge: nextItem.usedKnowledge || [],
+  };
 }
 
 async function runTestInquiryReply(payload = {}) {
@@ -1187,7 +1341,7 @@ async function runTestInquiryReply(payload = {}) {
   const check = await ensureReplyGenerationAllowed(1);
   if (!check.ok) throw new Error(check.message);
 
-  const text = await generateInquiryReply(
+  const generated = await generateInquiryReply(
     apiKey,
     systemPrompt,
     row,
@@ -1195,8 +1349,44 @@ async function runTestInquiryReply(payload = {}) {
     null,
     references
   );
+  const text = typeof generated === 'string' ? generated : generated?.text;
+  const serverMeta = typeof generated === 'object' && generated ? generated : null;
 
   const session = await loadAuthSession();
+  if (serverMeta?.fromServer) {
+    const needsManual = serverMeta.needsManual || !String(text || '').trim();
+    if (needsManual) {
+      return {
+        deferred: true,
+        needsManual: true,
+        needsConfirm: false,
+        reason: serverMeta.reason || '답글을 만들지 못했습니다.',
+        text: '',
+        usage: session?.usage || check.usage || null,
+        referenceCount: references.length,
+        evidence: serverMeta.evidence || null,
+        confirmation: serverMeta.confirmation || null,
+      };
+    }
+    return {
+      deferred: false,
+      needsManual: false,
+      needsConfirm: !!serverMeta.needsConfirm,
+      reason:
+        serverMeta.reason ||
+        serverMeta.evidence?.confirmReason ||
+        (serverMeta.evidence?.missingFields || []).join(', ') ||
+        '',
+      text,
+      usage: session?.usage || check.usage || null,
+      referenceCount: references.length,
+      evidence: serverMeta.evidence || null,
+      confirmation: serverMeta.confirmation || null,
+      judgment: serverMeta.judgment || serverMeta.evidence?.judgment || null,
+      usedKnowledge: serverMeta.usedKnowledge || [],
+    };
+  }
+
   const confirm = evaluateInquiryReplyConfirm(row, text, references, [], systemPrompt);
   if (confirm.needsManual || !String(text || '').trim()) {
     return {
@@ -1236,207 +1426,30 @@ async function generateInquiryReply(apiKey, systemPrompt, row, model, signal, re
       signal
     );
     await trackAnalyticsEvent('generate_success', { channel: 'inquiry' });
-    return scrubGeneratedReply(data.text);
+    return {
+      fromServer: true,
+      text: scrubGeneratedReply(data.text),
+      needsConfirm: !!data.needsConfirm,
+      reason: data.evidence?.confirmReason || '',
+      evidence: data.evidence || null,
+      confirmation: data.confirmation || null,
+      judgment: data.judgment || data.evidence?.judgment || null,
+      usedKnowledge: data.usedKnowledge || [],
+      needsManual: false,
+    };
   }
 
-  const refBlock =
-    references.length > 0
-      ? [
-          inquiryNeedsWebSearch(row)
-            ? '아래는 이 상품(또는 비슷한 문의)에 대한 실제 판매자 답변입니다. 확인된 사실로 쓰세요.'
-            : '아래는 이 스토어의 실제 판매자 답변입니다. 비슷한 문의의 결론·안내 방식을 분석해 이번 문의에 맞게 새로 쓰세요. 그대로 복붙하지 마세요.',
-          '다른 상품 답변의 스펙은 가져오지 마세요. 과거 답에 없는 구체 사실(고유명·수치·일정·URL·혜택)은 지어내지 마세요.',
-          ...references.map(
-            (ref, index) =>
-              `[참고 ${index + 1}${ref.product ? ` · ${ref.product}` : ''}]\n문의: ${ref.question}\n답변: ${ref.answer}`
-          ),
-          '',
-        ].join('\n')
-      : '';
-
-  const webSearch = inquiryNeedsWebSearch(row);
-  let verifiedFacts = null;
-  let missingFacts = [];
-
-  if (webSearch) {
-    try {
-      const factUrl =
-        `https://generativelanguage.googleapis.com/v1beta/models/${
-          model || CONFIG.GEMINI_MODEL
-        }:generateContent?key=${encodeURIComponent(apiKey)}`;
-      const factRes = await fetch(factUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal,
-        body: JSON.stringify({
-          systemInstruction: {
-            parts: [{ text: '당신은 상품 정보 검증기입니다. 지시된 JSON만 출력하세요.' }],
-          },
-          contents: [{ role: 'user', parts: [{ text: buildProductFactLookupPrompt(row, references) }] }],
-          generationConfig: { temperature: 0.1 },
-          tools: [{ google_search: {} }],
-        }),
-      });
-      if (factRes.ok) {
-        const factData = await factRes.json();
-        const factText = factData.candidates?.[0]?.content?.parts
-          ?.map((p) => p.text)
-          .join('')
-          .trim();
-        const parsed = parseProductFactLookup(factText);
-        verifiedFacts = parsed.facts;
-        missingFacts = parsed.missing;
-      } else {
-        verifiedFacts = [];
-        missingFacts = ['상품 정보 검색 실패'];
-      }
-    } catch (_) {
-      verifiedFacts = [];
-      missingFacts = ['상품 정보 검색 실패'];
-    }
-  }
-
-  const factBlock =
-    verifiedFacts && verifiedFacts.length
-      ? [
-          '[이 상품에서 확인된 사실 — 질문에 답할 때만 쓰세요. 질문과 무관한 스펙은 나열하지 마세요]',
-          ...verifiedFacts.map((f, i) => `${i + 1}. ${f}`),
-          '',
-        ].join('\n')
-      : verifiedFacts
-        ? '[확인된 사실 없음 — 구체 스펙·고유명·수치를 절대 지어내지 마세요. 다만 "담당 부서 확인"으로 답 전체를 대체하지 마세요.]\n'
-        : '';
-  const missingBlock =
-    missingFacts.length > 0
-      ? `[확인되지 않은 항목]\n${missingFacts.map((f) => `- ${f}`).join('\n')}\n`
-      : '';
-
-  const userContent = [
-    refBlock,
-    factBlock,
-    missingBlock,
-    row.product && `이번 상품명: ${row.product}`,
-    row.productNo && `상품번호: ${row.productNo}`,
-    row.writer && `문의자: ${row.writer}`,
-    row.secret != null && `비밀문의: ${row.secret ? '예' : '아니오'}`,
-    `문의 내용:\n${row.content}`,
-    '작성 규칙이 시스템 말투보다 우선합니다. 말투만 맞추고, 내용은 과거 판매자 답변·확인된 사실을 따르세요.',
-    '물은 내용은 내 말로 받아 적으세요. "~라고 하셔서"처럼 원문을 따옴표로 되풀이하지 마세요.',
-    '작성 규칙:',
-    ...buildInquiryAnswerRules({
-      webSearch: false,
-      hasVerifiedFacts: Array.isArray(verifiedFacts) && verifiedFacts.length > 0,
-      hasSellerRefs: references.length > 0,
-      isReturn: isReturnInquiry(row),
-      isEligibility: isEligibilityInquiry(row),
-      product: row.product || '',
-    }),
-    '위 상품문의에 대한 판매자 답글 본문만 출력하세요.',
-  ]
-    .filter(Boolean)
-    .join('\n');
-
-  const geminiModel = model || CONFIG.GEMINI_MODEL;
-  const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-  const body = {
-    systemInstruction: {
-      parts: [{ text: appendReplyHardRulesLocal(systemPrompt, row) }],
-    },
-    contents: [
-      {
-        role: 'user',
-        parts: [{ text: userContent }],
-      },
-    ],
-    generationConfig: {
-      temperature: webSearch ? 0.3 : 0.35,
-    },
-  };
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    signal,
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const errBody = await response.text();
-    let message = errBody.slice(0, 300);
-    try {
-      const parsed = JSON.parse(errBody);
-      message = parsed.error?.message || message;
-    } catch (_) {}
-    throw new Error(`API 오류 (${response.status}): ${message}`);
-  }
-
-  const data = await response.json();
-  let text = data.candidates?.[0]?.content?.parts
-    ?.map((p) => p.text)
-    .join('')
-    .trim();
-  if (!text) throw new Error('빈 응답');
-
-  text = await groundInquiryReplyText(
-    apiKey,
-    row,
-    text,
-    references,
-    verifiedFacts || [],
-    geminiModel,
-    signal,
-    systemPrompt
+  throw new Error(
+    '확장에서 Gemini를 직접 호출할 수 없습니다. API_BASE_URL 서버 프록시를 설정하세요.'
   );
-  return scrubGeneratedReply(text);
 }
 
-async function groundInquiryReplyText(apiKey, row, draft, references, verifiedFacts, model, signal, guidelines = '') {
-  let reply = String(draft || '').trim();
+async function groundInquiryReplyText(_apiKey, row, draft, references, verifiedFacts, _model, _signal, guidelines = '') {
+  // 클라이언트 직접 Gemini 호출 제거 — 서버 프록시 경로만 사용
+  const reply = String(draft || '').trim();
   if (!reply) return '';
-
-  let grounding = assessInquiryReplyGrounding(row, reply, references, verifiedFacts, guidelines);
-  if (grounding.grounded) return reply;
-
-  const rewriteSystem =
-    '당신은 판매자 답글 교정기입니다. 근거에 없는 구체 사실을 삭제하고, 수정된 답글 본문만 출력하세요.';
-  const rewriteUser = buildInquiryGroundingRewritePrompt(
-    row,
-    reply,
-    references,
-    verifiedFacts,
-    guidelines
-  );
-
-  try {
-    const url =
-      `https://generativelanguage.googleapis.com/v1beta/models/${
-        model || CONFIG.GEMINI_MODEL
-      }:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal,
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: rewriteSystem }] },
-        contents: [{ role: 'user', parts: [{ text: rewriteUser }] }],
-        generationConfig: { temperature: 0.15 },
-      }),
-    });
-    if (!response.ok) return '';
-    const data = await response.json();
-    reply = data.candidates?.[0]?.content?.parts
-      ?.map((p) => p.text)
-      .join('')
-      .trim();
-  } catch (_) {
-    return '';
-  }
-
-  grounding = assessInquiryReplyGrounding(row, reply, references, verifiedFacts, guidelines);
-  if (!grounding.grounded) return '';
-  return reply;
+  const grounding = assessInquiryReplyGrounding(row, reply, references, verifiedFacts, guidelines);
+  return grounding.grounded ? reply : '';
 }
 
 function normalizeReviewId(id) {
@@ -1617,6 +1630,15 @@ async function patchSampleFlow(flowPatch, sampleReplies) {
 
 function formatSampleFetchError(message) {
   const msg = String(message || '가져오기 실패');
+  if (/Cannot access contents of the page|must request permission to access the respective host/i.test(msg)) {
+    return (
+      '판매자센터 페이지 접근 권한이 없습니다.\n\n' +
+      '1. chrome://extensions → 이 확장 [세부정보]\n' +
+      '2. [사이트 액세스]를 "모든 사이트에서" 또는 sell.smartstore.naver.com 허용\n' +
+      '3. https://sell.smartstore.naver.com 상품문의/리뷰 탭을 연 뒤 F5\n' +
+      '4. 확장 새로고침 후 다시 시도'
+    );
+  }
   if (/Receiving end does not exist|Could not establish connection/i.test(msg)) {
     return (
       '판매자센터 페이지와 연결되지 않았습니다.\n\n' +
@@ -1628,10 +1650,18 @@ function formatSampleFetchError(message) {
   return msg;
 }
 
-const SELLER_TAB_URL = 'https://sell.smartstore.naver.com/*';
-const INQUIRY_CONTENT_SCRIPT_FILES = ['config.js', 'content-inquiry-import.js'];
+const SELLER_TAB_URLS = [
+  'https://sell.smartstore.naver.com/*',
+  'https://sell.storefarm.naver.com/*',
+  'https://sell.shop.naver.com/*',
+];
+const SELLER_TAB_URL = SELLER_TAB_URLS[0];
+const SELLER_HOST_RE =
+  /^https:\/\/sell\.(?:smartstore|storefarm|shop)\.naver\.com\//i;
+const INQUIRY_CONTENT_SCRIPT_FILES = ['config.js', 'config.local.js', 'content-inquiry-import.js'];
 const SELLER_CONTENT_SCRIPT_FILES = [
   'config.js',
+  'config.local.js',
   'content.js',
   'content-import.js',
   'content-submit.js',
@@ -1688,18 +1718,33 @@ function scoreSellerTab(tab) {
   if (/review/i.test(url)) score += 20;
   if (/comment|inquir|contents/i.test(url)) score += 18;
   if (/sell\.smartstore\.naver\.com/i.test(url)) score += 5;
+  if (/sell\.(?:storefarm|shop)\.naver\.com/i.test(url)) score += 3;
   if (tab.active) score += 3;
   return score;
 }
 
 async function getSellerTab() {
-  const tabs = await chrome.tabs.query({ url: SELLER_TAB_URL });
-  if (!tabs.length) {
+  const tabs = await chrome.tabs.query({ url: SELLER_TAB_URLS });
+  const usable = (tabs || []).filter((tab) => SELLER_HOST_RE.test(String(tab.url || '')));
+  if (!usable.length) {
     throw new Error(
-      'NO_SELLER_TAB\n판매자센터 리뷰·문의 페이지가 열려 있지 않습니다. 그 페이지를 연 뒤 다시 가져오기를 누르세요.'
+      'NO_SELLER_TAB\n판매자센터 리뷰·문의 페이지가 열려 있지 않습니다. https://sell.smartstore.naver.com 을 연 뒤 다시 가져오기를 누르세요.'
     );
   }
-  return tabs.slice().sort((a, b) => scoreSellerTab(b) - scoreSellerTab(a))[0];
+  return usable.slice().sort((a, b) => scoreSellerTab(b) - scoreSellerTab(a))[0];
+}
+
+async function assertSellerTabInjectable(tab) {
+  const fresh = tab?.id != null ? await chrome.tabs.get(tab.id).catch(() => tab) : tab;
+  const url = String(fresh?.url || '');
+  if (!SELLER_HOST_RE.test(url)) {
+    throw new Error(
+      formatSampleFetchError(
+        `Cannot access contents of the page. Extension manifest must request permission to access the respective host.\n현재 탭: ${url || '(없음)'}`
+      )
+    );
+  }
+  return fresh;
 }
 
 function pingInquiryTab(tabId) {
@@ -1711,10 +1756,14 @@ function pingInquiryTab(tabId) {
 }
 
 async function injectInquiryContentScripts(tabId) {
-  await chrome.scripting.executeScript({
-    target: { tabId, allFrames: false },
-    files: INQUIRY_CONTENT_SCRIPT_FILES,
-  });
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId, allFrames: false },
+      files: INQUIRY_CONTENT_SCRIPT_FILES,
+    });
+  } catch (err) {
+    throw new Error(formatSampleFetchError(String(err.message || err)));
+  }
 }
 
 async function ensureInquiryTabReady(tabId) {
@@ -1764,7 +1813,7 @@ function sendTabMessage(tabId, messageType, payload, timeoutMs = 90000) {
 }
 
 async function relayInquiryTabMessage(messageType, payload, timeoutMs = 90000) {
-  const tab = await getSellerTab();
+  const tab = await assertSellerTabInjectable(await getSellerTab());
   await ensureInquiryTabReady(tab.id);
   return sendTabMessage(tab.id, messageType, payload, timeoutMs);
 }
@@ -1778,10 +1827,14 @@ function pingSellerTab(tabId) {
 }
 
 async function injectSellerContentScripts(tabId) {
-  await chrome.scripting.executeScript({
-    target: { tabId, allFrames: false },
-    files: SELLER_CONTENT_SCRIPT_FILES,
-  });
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId, allFrames: false },
+      files: SELLER_CONTENT_SCRIPT_FILES,
+    });
+  } catch (err) {
+    throw new Error(formatSampleFetchError(String(err.message || err)));
+  }
 }
 
 async function ensureSellerTabReady(tabId) {
@@ -1806,7 +1859,7 @@ function catalogFetchTimeoutMs(days) {
 }
 
 async function relaySellerTabMessage(messageType, payload, timeoutMs = 90000) {
-  const tab = await getSellerTab();
+  const tab = await assertSellerTabInjectable(await getSellerTab());
   await ensureSellerTabReady(tab.id);
   return sendTabMessage(tab.id, messageType, payload, timeoutMs);
 }
@@ -1868,6 +1921,7 @@ async function runAnalyzeToneJob(payload) {
   const presetsKey = isInquiry ? 'inquiryCustomPresets' : 'customPresets';
   const presetIdKey = isInquiry ? 'inquiryTonePresetId' : 'tonePresetId';
   const promptKey = isInquiry ? 'inquirySystemPrompt' : 'systemPrompt';
+  const toneProfileKey = isInquiry ? 'inquiryToneProfile' : 'toneProfile';
 
   await patchSampleFlowByContext(context, {
     analyzing: true,
@@ -1877,13 +1931,20 @@ async function runAnalyzeToneJob(payload) {
   });
 
   try {
-    const result = await analyzeToneSamples({ ...payload, context });
+    const dataBefore = await storageGet([CONFIG.SETTINGS_KEY]);
+    const settingsBefore = dataBefore[CONFIG.SETTINGS_KEY] || {};
+    const result = await analyzeToneSamples({
+      ...payload,
+      context,
+      previousToneProfile: payload.previousToneProfile || settingsBefore[toneProfileKey] || null,
+    });
     const data = await storageGet([CONFIG.SETTINGS_KEY]);
     const settings = data[CONFIG.SETTINGS_KEY] || {};
     const learned = {
       id: learnedId,
       name: `내 스타일 (샘플 ${result.sampleCount}개)`,
       prompt: result.prompt,
+      toneProfile: result.toneProfile || null,
       updatedAt: Date.now(),
     };
     const customPresets = [
@@ -1917,6 +1978,7 @@ async function runAnalyzeToneJob(payload) {
           [presetsKey]: customPresets,
           [presetIdKey]: learnedId,
           [promptKey]: result.prompt,
+          [toneProfileKey]: result.toneProfile || null,
           [flowKey]: nextSampleFlow,
         },
       });

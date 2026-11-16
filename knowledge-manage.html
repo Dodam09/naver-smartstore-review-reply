@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 자동답글 · 문의 지식 관리</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: "Pretendard", "Noto Sans KR", -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 15px;
+      color: #1c1917;
+      background: #f3f1ee;
+    }
+    .top {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px 24px;
+      background: #fff;
+      border-bottom: 1px solid #e7e5e4;
+    }
+    .top h1 { margin: 0; font-size: 18px; font-weight: 700; }
+    .top p { margin: 4px 0 0; color: #78716c; font-size: 13px; }
+    .top-actions { display: flex; gap: 8px; flex-shrink: 0; }
+    .page-status {
+      position: sticky;
+      top: 72px;
+      z-index: 19;
+      margin: 0;
+      padding: 10px 24px;
+      background: #ecfdf5;
+      border-bottom: 1px solid #a7f3d0;
+      color: #065f46;
+      font-size: 13px;
+      white-space: pre-wrap;
+      display: none;
+    }
+    .page-status.show { display: block; }
+    .page-status.error {
+      background: #fef2f2;
+      border-color: #fecaca;
+      color: #991b1b;
+    }
+    .auth-banner {
+      display: none;
+      margin: 12px 24px 0;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: #fff7ed;
+      border: 1px solid #fdba74;
+      color: #9a3412;
+    }
+    .auth-banner.show { display: block; }
+    button, .btn {
+      border: 1px solid #d6d3d1;
+      background: #fff;
+      color: #1c1917;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font: inherit;
+      cursor: pointer;
+    }
+    button.primary { background: #0f766e; border-color: #0f766e; color: #fff; }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    .wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 16px 24px 40px;
+      display: grid;
+      grid-template-columns: 0.9fr 1.1fr;
+      gap: 16px;
+      align-items: start;
+    }
+    @media (max-width: 960px) {
+      .wrap { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: #fff;
+      border: 1px solid #e7e5e4;
+      border-radius: 16px;
+      padding: 16px;
+    }
+    .card h2 { margin: 0 0 4px; font-size: 16px; }
+    .card .desc { margin: 0 0 12px; color: #78716c; font-size: 13px; line-height: 1.45; }
+    label { display: block; margin: 8px 0 4px; font-size: 13px; color: #44403c; }
+    input, textarea, select {
+      width: 100%;
+      border: 1px solid #d6d3d1;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font: inherit;
+      background: #fff;
+    }
+    textarea { resize: vertical; min-height: 64px; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .row > * { flex: 1 1 120px; }
+    .hint { margin-top: 8px; color: #78716c; font-size: 12px; line-height: 1.4; white-space: pre-wrap; }
+    .summary {
+      margin: 0 0 10px;
+      padding: 10px 12px;
+      background: #fafaf9;
+      border-radius: 10px;
+      font-size: 13px;
+      color: #57534e;
+    }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+    .toolbar input[type="search"] { flex: 1 1 180px; }
+    .knowledge-list { margin-top: 4px; max-height: min(62vh, 640px); overflow: auto; }
+    .kb-product-card {
+      display: block;
+      width: 100%;
+      text-align: left;
+      border: 1px solid #e7e5e4;
+      background: #fff;
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      font: inherit;
+    }
+    .kb-product-card:hover { border-color: #a8a29e; }
+    .kb-product-card.active {
+      border-color: #0f766e;
+      background: #f0fdfa;
+      box-shadow: 0 0 0 2px rgba(15,118,110,.12);
+    }
+    .kb-product-name {
+      font-weight: 700;
+      line-height: 1.35;
+      white-space: normal;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+    .kb-product-meta {
+      margin-top: 4px;
+      color: #78716c;
+      font-size: 12px;
+      line-height: 1.4;
+      white-space: normal;
+      word-break: break-word;
+    }
+    #productKnowledgeCard input,
+    #productKnowledgeCard textarea {
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+    #kbProductName {
+      min-height: 64px;
+      line-height: 1.4;
+    }
+    #knowledgeDetailCard {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #e7e5e4;
+    }
+    details { margin-top: 10px; }
+    summary { cursor: pointer; font-weight: 600; margin-bottom: 6px; }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div>
+      <h1>문의용 상품·정책 지식 (선택)</h1>
+      <p>같은 상품은 하나로 묶여 보입니다. 저장 결과는 이 아래 바로 표시됩니다.</p>
+    </div>
+    <div class="top-actions">
+      <button type="button" id="pageRefreshBtn">새로고침</button>
+      <button type="button" class="primary" id="pageCloseBtn">닫기</button>
+    </div>
+  </div>
+
+  <div class="page-status" id="pageStatus" role="status"></div>
+  <div class="auth-banner" id="authBanner">로그인이 필요합니다. 확장 사이드패널에서 로그인한 뒤 이 창을 새로고침하세요.</div>
+
+  <div class="wrap">
+    <section class="card">
+      <h2>저장된 상품</h2>
+      <p class="desc">상품만 목록으로 둡니다. 누르면 오른쪽에서 필드별로 수정합니다.</p>
+      <div class="summary" id="knowledgeSummary">로그인 후 새로고침하세요.</div>
+      <div class="toolbar">
+        <input id="knowledgeSearchQ" type="search" placeholder="상품명·내용 검색" />
+        <button type="button" class="primary" id="knowledgeRefreshBtn">검색</button>
+      </div>
+      <details>
+        <summary>필터 (선택)</summary>
+        <div class="row">
+          <input id="knowledgeFilterProductNo" type="text" placeholder="상품번호" />
+          <select id="knowledgeFilterType">
+            <option value="">전체 유형</option>
+            <option value="product">상품 정보</option>
+            <option value="policy">스토어 정책</option>
+            <option value="faq">승인 FAQ</option>
+            <option value="pending">확인 필요</option>
+          </select>
+        </div>
+        <div class="row">
+          <select id="knowledgeFilterTrust">
+            <option value="">승인 상태</option>
+            <option value="approved">approved</option>
+            <option value="unverified">unverified</option>
+            <option value="conflict">conflict</option>
+            <option value="dismissed">dismissed</option>
+          </select>
+          <select id="knowledgeFilterEffective">
+            <option value="">유효기간</option>
+            <option value="indefinite">무기한</option>
+            <option value="active">유효</option>
+            <option value="expired">만료</option>
+            <option value="not_yet">시작 전</option>
+          </select>
+        </div>
+      </details>
+      <input id="knowledgeStoreId" type="text" placeholder="스토어 ID (선택)" autocomplete="off" style="margin-top:8px;" />
+      <div class="knowledge-list" id="knowledgeEntryList"></div>
+      <div class="row">
+        <button type="button" id="knowledgePrevBtn">이전</button>
+        <span class="hint" id="knowledgePageInfo" style="text-align:center;"></span>
+        <button type="button" id="knowledgeNextBtn">다음</button>
+      </div>
+      <div id="knowledgeDetailCard" hidden>
+        <div class="card-title" id="knowledgeDetailTitle" style="font-weight:700;margin-bottom:4px;">필드 상세</div>
+        <div class="hint" id="knowledgeDetailMeta"></div>
+        <label for="knowledgeDetailContent">내용</label>
+        <textarea id="knowledgeDetailContent" rows="5"></textarea>
+        <div class="row">
+          <div>
+            <label for="knowledgeDetailValidFrom">유효 시작</label>
+            <input id="knowledgeDetailValidFrom" type="date" />
+          </div>
+          <div>
+            <label for="knowledgeDetailValidTo">유효 종료</label>
+            <input id="knowledgeDetailValidTo" type="date" />
+          </div>
+        </div>
+        <div class="row">
+          <button type="button" class="primary" id="knowledgeSaveBtn">필드 저장</button>
+          <button type="button" id="knowledgeDeleteBtn">삭제</button>
+          <button type="button" id="knowledgeApproveBtn" hidden>사실 승인</button>
+          <button type="button" id="knowledgeDismissBtn" hidden>무시</button>
+        </div>
+        <div class="hint" id="knowledgeDetailStatus"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>등록·수정</h2>
+      <p class="desc">왼쪽에서 상품을 고르거나, 여기서 새로 저장합니다.</p>
+      <div id="productKnowledgeCard">
+        <div class="row">
+          <button type="button" id="kbSeedAmilyBtn">아밀리 예시 채우기</button>
+        </div>
+        <label for="kbProductNo">상품번호</label>
+        <input id="kbProductNo" type="text" placeholder="스마트스토어 상품번호" />
+        <label for="kbProductName">상품명</label>
+        <textarea id="kbProductName" rows="2" placeholder="상품명 전체"></textarea>
+        <label for="kbDetail">상세 설명</label>
+        <textarea id="kbDetail" rows="4"></textarea>
+        <label for="kbSpecs">주요 성분·사양</label>
+        <textarea id="kbSpecs" rows="3"></textarea>
+        <label for="kbUsage">사용 방법</label>
+        <textarea id="kbUsage" rows="3"></textarea>
+        <label for="kbOptions">옵션</label>
+        <textarea id="kbOptions" rows="3"></textarea>
+        <label for="kbCautions">주의사항</label>
+        <textarea id="kbCautions" rows="3"></textarea>
+        <label for="kbExtra">기타</label>
+        <textarea id="kbExtra" rows="3"></textarea>
+        <div class="row">
+          <button type="button" class="primary" id="kbSaveBtn">상품정보 저장</button>
+          <button type="button" id="kbLoadBtn">불러오기</button>
+          <button type="button" id="kbDeleteBtn">삭제</button>
+        </div>
+        <div class="hint" id="kbStatus" hidden></div>
+
+        <details>
+          <summary>스토어 공통 정책</summary>
+          <label for="policyShipping">배송</label>
+          <textarea id="policyShipping" rows="2"></textarea>
+          <label for="policyExchange">교환·반품</label>
+          <textarea id="policyExchange" rows="2"></textarea>
+          <label for="policyRefund">환불</label>
+          <textarea id="policyRefund" rows="2"></textarea>
+          <label for="policyCs">고객센터</label>
+          <textarea id="policyCs" rows="2"></textarea>
+          <div class="row">
+            <button type="button" id="policySaveBtn">정책 저장</button>
+          </div>
+        </details>
+      </div>
+    </section>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="config.local.js"></script>
+  <script src="lib/ai-proxy.js"></script>
+  <script src="lib/knowledge-manage.js"></script>
+  <script src="knowledge-manage-page.js"></script>
+</body>
+</html>

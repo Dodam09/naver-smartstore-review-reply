@@ -95,12 +95,14 @@ const els = {
   inquiryModeWork: document.getElementById('inquiryModeWork'),
   inquiryModeStyle: document.getElementById('inquiryModeStyle'),
   inquiryModeTest: document.getElementById('inquiryModeTest'),
+  inquiryModeKnowledge: document.getElementById('inquiryModeKnowledge'),
   inquiryActiveStyleBanner: document.getElementById('inquiryActiveStyleBanner'),
   inquiryActiveStylePrompt: document.getElementById('inquiryActiveStylePrompt'),
   inquiryActiveStyleChangeBtn: document.getElementById('inquiryActiveStyleChangeBtn'),
   inquiryWorkPanel: document.getElementById('inquiryWorkPanel'),
   inquiryStylePanel: document.getElementById('inquiryStylePanel'),
   inquiryTestPanel: document.getElementById('inquiryTestPanel'),
+  inquiryKnowledgePanel: document.getElementById('inquiryKnowledgePanel'),
   inquiryTestProduct: document.getElementById('inquiryTestProduct'),
   inquiryTestProductName: document.getElementById('inquiryTestProductName'),
   inquiryTestProductHint: document.getElementById('inquiryTestProductHint'),
@@ -221,7 +223,7 @@ async function init() {
       learnedPromptEditorPaste: els.reviewLearnedPromptEditorPaste,
       styleModeList: els.reviewStyleModeList,
     },
-    getApiKey: () => els.apiKey.value.trim() || CONFIG.GEMINI_API_KEY || '',
+    getApiKey: () => (els.apiKey ? els.apiKey.value.trim() : ''),
     getModel: () => CONFIG.GEMINI_MODEL,
     onSettingsDirty: scheduleSaveSettings,
     features: { stylePick: true },
@@ -265,7 +267,7 @@ async function init() {
       learnedPromptEditorPaste: els.inquiryLearnedPromptEditorPaste,
       styleModeList: els.inquiryStyleModeList,
     },
-    getApiKey: () => els.apiKey.value.trim() || CONFIG.GEMINI_API_KEY || '',
+    getApiKey: () => (els.apiKey ? els.apiKey.value.trim() : ''),
     getModel: () => CONFIG.GEMINI_MODEL,
     onSettingsDirty: scheduleSaveSettings,
     features: { stylePick: true },
@@ -303,6 +305,8 @@ async function init() {
   els.fetchDays.addEventListener('change', scheduleSaveSettings);
   els.inquiryFetchDays.addEventListener('change', scheduleSaveSettings);
   els.kakaoLoginBtn?.addEventListener('click', onKakaoLogin);
+  document.getElementById('emailLoginBtn')?.addEventListener('click', () => onEmailAuth('login'));
+  document.getElementById('emailRegisterBtn')?.addEventListener('click', () => onEmailAuth('register'));
   document.querySelectorAll('[data-login-promo]').forEach((btn) => {
     btn.addEventListener('click', onKakaoLogin);
   });
@@ -337,7 +341,7 @@ async function init() {
   ]);
 
   const settings = data[CONFIG.SETTINGS_KEY] || {};
-  els.apiKey.value = settings.apiKey || CONFIG.GEMINI_API_KEY || '';
+  if (els.apiKey) els.apiKey.value = settings.apiKey || '';
   renderLookupDayOptions(els.fetchDays, {
     includeLong: true,
     selected: settings.reviewLookupDays ?? 7,
@@ -397,8 +401,17 @@ function initWorkPanelSteps() {
   els.reviewActiveStyleChangeBtn?.addEventListener('click', () => setReviewPanelMode('style'));
   els.inquiryModeWork?.addEventListener('click', () => setInquiryPanelMode('work'));
   els.inquiryModeStyle?.addEventListener('click', () => setInquiryPanelMode('style'));
-  // 답글 테스트는 개발자용 — 일반 UI에서 숨김
+  els.inquiryModeTest?.addEventListener('click', () => setInquiryPanelMode('test'));
+  els.inquiryModeKnowledge?.addEventListener('click', () => setInquiryPanelMode('knowledge'));
   els.inquiryTestBtn?.addEventListener('click', onInquiryTestGenerate);
+  document.getElementById('openKnowledgeManageBtn')?.addEventListener('click', () => {
+    if (typeof openOrFocusExtensionTab === 'function') {
+      openOrFocusExtensionTab('knowledge-manage.html');
+    } else {
+      chrome.tabs.create({ url: chrome.runtime.getURL('knowledge-manage.html') });
+    }
+  });
+  document.getElementById('inquiryApproveFactBtn')?.addEventListener('click', approveInquiryFactToKb);
   els.inquiryTestProduct?.addEventListener('change', onInquiryTestProductChange);
   els.inquiryTestProductName?.addEventListener('input', scheduleSaveInquiryTestDraft);
   els.inquiryTestQuestion?.addEventListener('input', scheduleSaveInquiryTestDraft);
@@ -441,14 +454,25 @@ function setReviewPanelMode(mode) {
 }
 
 function setInquiryPanelMode(mode) {
-  if (mode === 'test') mode = 'work';
+  // 답글 테스트·지식관리 UI는 스토어 비노출 — 진입 시 작업 모드로 돌림
+  if (mode === 'test' || mode === 'knowledge') mode = 'work';
   inquiryPanelMode = mode;
   els.inquiryModeWork?.classList.toggle('active', mode === 'work');
   els.inquiryModeStyle?.classList.toggle('active', mode === 'style');
   els.inquiryModeTest?.classList.toggle('active', false);
+  els.inquiryModeKnowledge?.classList.toggle('active', false);
   els.inquiryWorkPanel?.classList.toggle('active', mode === 'work');
   els.inquiryStylePanel?.classList.toggle('active', mode === 'style');
   els.inquiryTestPanel?.classList.toggle('active', false);
+  els.inquiryKnowledgePanel?.classList.toggle('active', false);
+  if (els.inquiryTestPanel) {
+    els.inquiryTestPanel.hidden = true;
+    els.inquiryTestPanel.setAttribute('aria-hidden', 'true');
+  }
+  if (els.inquiryKnowledgePanel) {
+    els.inquiryKnowledgePanel.hidden = true;
+    els.inquiryKnowledgePanel.setAttribute('aria-hidden', 'true');
+  }
   if (els.inquiryActiveStyleBanner) {
     els.inquiryActiveStyleBanner.hidden = false;
   }
@@ -746,9 +770,9 @@ async function onInquiryTestGenerate() {
 
   const settingsData = await storageGet(CONFIG.SETTINGS_KEY);
   const settings = settingsData[CONFIG.SETTINGS_KEY] || {};
-  const apiKey = settings.apiKey || CONFIG.GEMINI_API_KEY;
+  const apiKey = settings.apiKey || '';
   if (!(await hasAiCredentialsAsync(apiKey))) {
-    setInquiryTestFeedback('error', 'AI 연결이 필요해요', '[계정]에서 로그인하거나 API 키를 넣어 주세요.');
+    setInquiryTestFeedback('error', 'AI 연결이 필요해요', '[계정]에서 로그인해 주세요.');
     return;
   }
 
@@ -809,17 +833,31 @@ async function onInquiryTestGenerate() {
           meta
         );
       } else if (response.needsConfirm) {
+        const missing = (response.evidence?.missingFields || []).join(', ');
+        const judgment = response.judgment || response.evidence?.judgment || '';
         setInquiryTestFeedback(
           'warn',
-          '확인 필요',
-          response.reason || '초안을 검토한 뒤 사용하세요.',
+          judgment === 'REALTIME_REQUIRED' ? '실시간 조회 필요' : '확인 필요',
+          [
+            judgment ? `판정: ${judgment}` : '',
+            response.reason || response.evidence?.confirmReason || '초안을 검토한 뒤 사용하세요.',
+            missing ? `부족한 정보: ${missing}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n'),
           meta
         );
+        showInquiryConfirmEvidence(response);
       } else {
         setInquiryTestFeedback(
           'ok',
           '테스트 완료',
-          '1건 차감됨 · 미리보기 초안입니다.',
+          [
+            response.judgment ? `판정: ${response.judgment}` : '',
+            '1건 차감됨 · 미리보기 초안입니다.',
+          ]
+            .filter(Boolean)
+            .join(' · '),
           meta
         );
         if (typeof showUxToast === 'function') {
@@ -837,10 +875,268 @@ async function onInquiryTestGenerate() {
         }
       }
 
+      if (window.KnowledgeManage?.showUsedKnowledge) {
+        window.KnowledgeManage.showUsedKnowledge(
+          response.usedKnowledge || response.evidence?.usedKnowledge || [],
+          response.judgment || response.evidence?.judgment || ''
+        );
+      }
+      if (!response.needsConfirm) hideInquiryConfirmEvidence();
       await refreshInquiryTestUsageHint();
       await saveInquiryTestDraft();
     }
   );
+}
+
+function showInquiryConfirmEvidence(response) {
+  const card = document.getElementById('inquiryConfirmEvidence');
+  if (!card) return;
+  card.hidden = false;
+  const q = document.getElementById('inquiryConfirmQuestion');
+  const m = document.getElementById('inquiryConfirmMissing');
+  const r = document.getElementById('inquiryConfirmReason');
+  if (q) {
+    q.textContent = `고객 질문: ${(
+      response.confirmation?.question ||
+      els.inquiryTestQuestion?.value ||
+      ''
+    ).slice(0, 200)}`;
+  }
+  if (m) {
+    m.textContent = `부족한 상품정보: ${(response.evidence?.missingFields || []).join(', ') || '(없음)'}`;
+  }
+  if (r) {
+    r.textContent = `확인되지 않은 이유: ${
+      response.reason || response.evidence?.confirmReason || response.confirmation?.reason || ''
+    }`;
+  }
+  const idEl = document.getElementById('inquiryConfirmId');
+  const noEl = document.getElementById('inquiryConfirmProductNo');
+  if (idEl) idEl.value = String(response.confirmation?.id || '');
+  if (noEl) noEl.value = String(response.confirmation?.productNo || '');
+}
+
+function hideInquiryConfirmEvidence() {
+  const card = document.getElementById('inquiryConfirmEvidence');
+  if (card) card.hidden = true;
+}
+
+function hideInquiryUsedKnowledge() {
+  if (window.KnowledgeManage?.hideUsedKnowledge) window.KnowledgeManage.hideUsedKnowledge();
+}
+
+/** 지식 폼·지식 관리 화면이 공유하는 store_id (커머스 자동수집과 무관) */
+function knowledgeUiStoreId() {
+  return String(
+    document.getElementById('commerceStoreId')?.value ||
+      document.getElementById('knowledgeStoreId')?.value ||
+      ''
+  ).trim();
+}
+
+function knowledgeUiStoreScope() {
+  const storeId = knowledgeUiStoreId();
+  return storeId ? { storeId } : {};
+}
+
+function knowledgeUiStoreQuery() {
+  const storeId = knowledgeUiStoreId();
+  return storeId ? `?storeId=${encodeURIComponent(storeId)}` : '';
+}
+
+/** 공개 보도·자사몰 기준 예시 (효능 단정 문구 제외). 상품번호는 스토어 실번호로 교체 가능 */
+function fillAmilyExampleKnowledgeForm() {
+  const set = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.value = value;
+  };
+  // 과거에 판매자센터 문의에 보이던 채널 상품번호 (다르면 폼에서 수정)
+  set('kbProductNo', '9373097375');
+  set('kbProductName', '아밀리 락토프리 프로바이오틱스');
+  set(
+    'kbDetail',
+    '반려동물(강아지·고양이) 전용 락토프리 프로바이오틱스. Lactobacillus crispatus KT-11 유산균과 프리바이오틱스·브로멜라인 소화효소를 포함한 제품으로 안내됩니다. (출처: 아밀리 출시 보도·자사몰 상품 안내)'
+  );
+  set(
+    'kbSpecs',
+    '균주: Lactobacillus crispatus KT-11. 유당·포도당·솔비톨·자일리톨 및 인공감미료·인공색소·글루텐 등 배제 안내(출시 보도 기준).'
+  );
+  set(
+    'kbUsage',
+    '하루 1회, 사료나 간식에 직접 뿌리거나 물에 녹여 급여. 기호에 따라 단독 급여 가능.'
+  );
+  set('kbOptions', '단품 / 2개 묶음 등 구성으로 판매(스토어 옵션 기준).');
+  set(
+    'kbCautions',
+    '반려동물 전용. 사람 섭취 금지. 이상 증상이 있으면 급여를 중단하고 수의사와 상담하세요.'
+  );
+  set('kbExtra', '공식몰 배송비 안내: 3,000원 (5만원 이상 구매 시 무료) — 스토어 설정과 다를 수 있음.');
+  set('policyShipping', '기본 배송비 3,000원, 50,000원 이상 구매 시 무료배송(자사몰 기준·스토어 설정 확인).');
+  set('policyExchange', '단순 변심 교환·반품은 수령 후 7일 이내, 상품 미개봉·재판매 가능 상태일 때 가능(스토어 정책에 따름).');
+  set('policyRefund', '환불은 결제 수단에 따라 영업일 기준 처리됩니다. 주문별 진행 상황은 판매자센터에서 확인합니다.');
+  set('policyCs', '평일 고객센터 응대(스토어 공지 시간 기준). 주문·송장·재고는 실시간 확인 후 안내.');
+}
+
+async function seedAmilyExampleKnowledge() {
+  const status = document.getElementById('kbStatus');
+  const btn = document.getElementById('kbSeedAmilyBtn');
+  if (btn?.disabled) return;
+  try {
+    if (btn) btn.disabled = true;
+    fillAmilyExampleKnowledgeForm();
+    if (status) status.textContent = '예시 내용 채움 → 저장 중…';
+    await saveProductKnowledgeFromForm();
+    await saveStorePoliciesFromForm();
+    if (status) status.textContent = '아밀리 예시 상품·정책을 저장했습니다. 아래 목록을 새로고침하세요.';
+    if (window.KnowledgeManage?.refresh) void window.KnowledgeManage.refresh();
+  } catch (err) {
+    if (status) status.textContent = err.message || String(err);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function saveProductKnowledgeFromForm() {
+  const status = document.getElementById('kbStatus');
+  const btn = document.getElementById('kbSaveBtn');
+  if (btn?.disabled) return;
+  try {
+    if (typeof fetchAuthApi !== 'function') throw new Error('로그인이 필요합니다.');
+    const productNo = String(document.getElementById('kbProductNo')?.value || '').trim();
+    if (!productNo) throw new Error('상품번호를 입력하세요.');
+    if (btn) btn.disabled = true;
+    if (status) status.textContent = '저장 중…';
+    const data = await fetchAuthApi('/api/product-knowledge', {
+      method: 'POST',
+      body: {
+        ...knowledgeUiStoreScope(),
+        productNo,
+        productName: document.getElementById('kbProductName')?.value || '',
+        detailDescription: document.getElementById('kbDetail')?.value || '',
+        specs: document.getElementById('kbSpecs')?.value || '',
+        usage: document.getElementById('kbUsage')?.value || '',
+        optionsCompat: document.getElementById('kbOptions')?.value || '',
+        cautions: document.getElementById('kbCautions')?.value || '',
+        extra: document.getElementById('kbExtra')?.value || '',
+        source: 'manual',
+        trustStatus: 'approved',
+      },
+    });
+    if (status) {
+      status.textContent = `저장됨 · ${data.item?.productNo || productNo}${
+        knowledgeUiStoreId() ? ` · store ${knowledgeUiStoreId()}` : ''
+      }`;
+    }
+    if (window.KnowledgeManage?.refresh) void window.KnowledgeManage.refresh();
+  } catch (err) {
+    if (status) status.textContent = err.message || String(err);
+    throw err;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function loadProductKnowledgeToForm() {
+  const status = document.getElementById('kbStatus');
+  try {
+    const productNo = String(document.getElementById('kbProductNo')?.value || '').trim();
+    if (!productNo) throw new Error('상품번호를 입력하세요.');
+    const data = await fetchAuthApi(
+      `/api/product-knowledge/${encodeURIComponent(productNo)}${knowledgeUiStoreQuery()}`
+    );
+    const item = data.item;
+    if (document.getElementById('kbProductName')) document.getElementById('kbProductName').value = item.productName || '';
+    if (document.getElementById('kbDetail')) document.getElementById('kbDetail').value = item.detailDescription || '';
+    if (document.getElementById('kbSpecs')) document.getElementById('kbSpecs').value = item.specs || '';
+    if (document.getElementById('kbUsage')) document.getElementById('kbUsage').value = item.usage || '';
+    if (document.getElementById('kbOptions')) document.getElementById('kbOptions').value = item.optionsCompat || '';
+    if (document.getElementById('kbCautions')) document.getElementById('kbCautions').value = item.cautions || '';
+    if (document.getElementById('kbExtra')) document.getElementById('kbExtra').value = item.extra || '';
+    if (status) {
+      status.textContent = `불러옴 · 출처 ${item.source || 'manual'} · 상태 ${item.trustStatus || '-'} · 확인 ${item.verifiedAt || '-'}`;
+    }
+  } catch (err) {
+    if (status) status.textContent = err.message || String(err);
+  }
+}
+
+async function deleteProductKnowledgeFromForm() {
+  const status = document.getElementById('kbStatus');
+  try {
+    const productNo = String(document.getElementById('kbProductNo')?.value || '').trim();
+    if (!productNo) throw new Error('상품번호를 입력하세요.');
+    if (!window.confirm(`상품 #${productNo} 지식을 삭제할까요?`)) return;
+    const data = await fetchAuthApi(
+      `/api/product-knowledge/${encodeURIComponent(productNo)}${knowledgeUiStoreQuery()}`,
+      {
+        method: 'DELETE',
+        body: knowledgeUiStoreScope(),
+      }
+    );
+    if (!data?.deleted) throw new Error('삭제할 상품정보가 없습니다.');
+    ['kbProductName', 'kbDetail', 'kbSpecs', 'kbUsage', 'kbOptions', 'kbCautions', 'kbExtra'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    if (status) status.textContent = `삭제됨 · ${productNo}`;
+    if (window.KnowledgeManage?.refresh) void window.KnowledgeManage.refresh();
+  } catch (err) {
+    if (status) status.textContent = err.message || String(err);
+  }
+}
+
+async function saveStorePoliciesFromForm() {
+  const status = document.getElementById('kbStatus');
+  const btn = document.getElementById('policySaveBtn');
+  if (btn?.disabled) return;
+  try {
+    if (btn) btn.disabled = true;
+    if (status) status.textContent = '정책 저장 중…';
+    await fetchAuthApi('/api/store-policies', {
+      method: 'PUT',
+      body: {
+        ...knowledgeUiStoreScope(),
+        shipping: document.getElementById('policyShipping')?.value || '',
+        exchangeReturn: document.getElementById('policyExchange')?.value || '',
+        refund: document.getElementById('policyRefund')?.value || '',
+        customerService: document.getElementById('policyCs')?.value || '',
+        source: 'manual',
+        trustStatus: 'approved',
+      },
+    });
+    if (status) {
+      status.textContent = `스토어 정책을 저장했습니다.${
+        knowledgeUiStoreId() ? ` · store ${knowledgeUiStoreId()}` : ''
+      }`;
+    }
+    if (window.KnowledgeManage?.refresh) void window.KnowledgeManage.refresh();
+  } catch (err) {
+    if (status) status.textContent = err.message || String(err);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function approveInquiryFactToKb() {
+  const status = document.getElementById('inquiryApproveFactStatus');
+  try {
+    const id = String(document.getElementById('inquiryConfirmId')?.value || '').trim();
+    const productNo = String(document.getElementById('inquiryConfirmProductNo')?.value || '').trim();
+    const value = String(document.getElementById('inquiryConfirmFactInput')?.value || '').trim();
+    if (!id || !productNo || !value) throw new Error('상품번호·확인 사실을 입력하세요.');
+    await fetchAuthApi(`/api/inquiry-confirmations/${encodeURIComponent(id)}/approve-fact`, {
+      method: 'POST',
+      body: {
+        productNo,
+        field: 'extra',
+        value,
+        productName: document.getElementById('kbProductName')?.value || '',
+      },
+    });
+    if (status) status.textContent = 'Knowledge Base에 저장했습니다.';
+  } catch (err) {
+    if (status) status.textContent = err.message || String(err);
+  }
 }
 
 function refreshReviewWorkStatus() {
@@ -1903,8 +2199,9 @@ function applyAuthGate(loggedIn) {
   authGateActive = false;
   document.body.classList.remove('auth-gate');
 
+  // 핵심 3단계 흐름 문구는 인증 상태와 무관하게 유지
   if (els.headerSub) {
-    els.headerSub.textContent = '기존 답글 자동 분석 기반 · 리뷰·문의 수집부터 작성까지';
+    els.headerSub.textContent = '가져오기 → 말투 지침 → 답글 초안';
   }
 
   if (els.accountCardDesc) {
@@ -1969,10 +2266,59 @@ async function initAccountUi() {
     els.kakaoLoginBtn.hidden = !kakaoLoginEnabled;
   }
   if (els.accountStatus && !kakaoLoginEnabled) {
-    els.accountStatus.textContent = '카카오 로그인을 잠시 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.';
+    els.accountStatus.textContent = '카카오 로그인을 잠시 사용할 수 없습니다. 이메일 로그인을 이용해 주세요.';
   }
 
+  await refreshEmailAuthAvailability();
+  updateApiBaseHint();
   await syncAccountUi({ force: true });
+}
+
+function updateApiBaseHint() {
+  const el = document.getElementById('apiBaseHint');
+  if (!el) return;
+  const base = String(CONFIG.API_BASE_URL || '').replace(/\/$/, '');
+  const local = CONFIG.__LOCAL_API_OVERRIDE__ === true || /127\.0\.0\.1|localhost/.test(base);
+  el.textContent = local
+    ? `API: ${base} (로컬 오버레이)`
+    : `API: ${base || '(미설정)'}`;
+}
+
+async function refreshEmailAuthAvailability() {
+  const box = document.getElementById('emailAuthBox');
+  if (!box) return;
+  let registrationOpen = false;
+  let localApi = CONFIG.__LOCAL_API_OVERRIDE__ === true;
+  try {
+    const health = await fetchServerHealth();
+    registrationOpen = health?.registrationOpen === true;
+    const base = String(CONFIG.API_BASE_URL || '');
+    localApi = localApi || /127\.0\.0\.1|localhost/.test(base);
+  } catch (_) {}
+  // 로컬 API이거나 가입이 열린 서버에서만 이메일 로그인 UI 표시
+  box.hidden = !(localApi || registrationOpen);
+}
+
+async function onEmailAuth(mode) {
+  const status = document.getElementById('emailAuthStatus');
+  const email = String(document.getElementById('emailAuthEmail')?.value || '').trim();
+  const password = String(document.getElementById('emailAuthPassword')?.value || '');
+  if (!email || password.length < 8) {
+    if (status) status.textContent = '이메일과 8자 이상 비밀번호를 입력하세요.';
+    return;
+  }
+  if (status) status.textContent = mode === 'register' ? '가입 중…' : '로그인 중…';
+  try {
+    if (mode === 'register') {
+      await registerWithPassword(email, password);
+    } else {
+      await loginWithPassword(email, password);
+    }
+    if (status) status.textContent = '로그인되었습니다.';
+    await syncAccountUi({ force: true });
+  } catch (err) {
+    if (status) status.textContent = err.message || String(err);
+  }
 }
 
 async function renderAccountUi() {
@@ -1983,6 +2329,8 @@ async function renderAccountUi() {
 
   if (els.accountLoggedOut) els.accountLoggedOut.hidden = loggedIn;
   if (els.accountLoggedIn) els.accountLoggedIn.hidden = !loggedIn;
+
+  updateApiBaseHint();
 
   if (!loggedIn) {
     updateLoginPromos(false);

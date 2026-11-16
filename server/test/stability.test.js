@@ -311,7 +311,7 @@ test('타임아웃과 생성 중 오류는 사용량을 차감하지 않는다',
   assert.equal(getUsageSummary(session.user.id, 'none', undefined, false).replyUsed, 0);
 });
 
-test('근거 없는 문의 답변이 비면 사용량을 차감하지 않는다', async () => {
+test('근거 없는 주문상태 문의는 확인 필요 초안을 주고 사용량을 기록한다', async () => {
   const session = await createSession();
   setGeminiFetchForTests(async () => fakeOk('자세한 안내는 https://example.com 에서 확인해 주세요.'));
   const res = await request('/api/generate-reply', {
@@ -323,9 +323,11 @@ test('근거 없는 문의 답변이 비면 사용량을 차감하지 않는다'
       row: { content: '배송은 언제 출발하나요', product: '테스트상품' },
     },
   });
-  assert.equal(res.status, 502);
-  assert.equal(res.data.code, 'EMPTY_REPLY');
-  assert.equal(getUsageSummary(session.user.id, 'none', undefined, false).replyUsed, 0);
+  assert.equal(res.status, 200);
+  assert.equal(res.data.needsConfirm, true);
+  assert.match(String(res.data.text || ''), /확인/);
+  assert.ok(res.data.confirmation?.id);
+  assert.equal(getUsageSummary(session.user.id, 'none', undefined, false).replyUsed, 1);
 });
 
 test('정상 답변은 요청마다 정확히 1건만 차감한다', async () => {

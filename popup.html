@@ -308,6 +308,60 @@
       display: block;
     }
 
+    .knowledge-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .knowledge-summary-grid span {
+      display: block;
+      padding: 8px;
+      border-radius: var(--radius-md);
+      background: var(--surface-muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .knowledge-entry-item {
+      width: 100%;
+      text-align: left;
+      padding: 10px;
+      margin: 0 0 6px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      cursor: pointer;
+      font-family: inherit;
+      color: inherit;
+    }
+
+    .knowledge-entry-item.active {
+      border-color: var(--accent, #03c75a);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .knowledge-entry-item .ke-title {
+      font-weight: 600;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+
+    .knowledge-entry-item .ke-meta {
+      font-size: 11px;
+      color: var(--text-secondary);
+      line-height: 1.4;
+    }
+
+    .used-knowledge-card {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface-muted);
+    }
+
     .style-page-badge {
       display: inline-block;
       margin-bottom: var(--space-2);
@@ -1823,7 +1877,7 @@
     <div class="header-top">
       <div class="header-top-text">
         <h1>스마트스토어 AI 자동답글</h1>
-        <p class="sub" id="headerSub">기존 답글 자동 분석 기반 · 리뷰·문의 수집부터 작성까지</p>
+        <p class="sub" id="headerSub">가져오기 → 말투 지침 → 답글 초안</p>
       </div>
       <button type="button" class="header-help-btn" id="headerTourBtn" title="사용 방법 안내">도움 · 튜토리얼</button>
     </div>
@@ -2176,6 +2230,10 @@
 
       <button type="button" class="mode-btn style-tab" id="inquiryModeStyle" data-tour="inquiry-style">답변 스타일 설정</button>
 
+      <!-- 답글 테스트: 비노출 -->
+      <button type="button" class="mode-btn" id="inquiryModeTest" hidden aria-hidden="true">답글 테스트 · KB</button>
+      <button type="button" class="mode-btn" id="inquiryModeKnowledge" hidden aria-hidden="true">AI 지식 관리</button>
+
     </div>
 
 
@@ -2260,7 +2318,15 @@
 
     </div>
 
-
+      <details class="style-sub" style="margin-top:14px;">
+        <summary>선택 · 저장된 상품·정책 지식 보기</summary>
+        <div class="details-body">
+          <p class="hint" style="margin:0 0 8px;">문의가 없어도 볼 수 있습니다. 필수 아님 · 스펙·배송 사실을 쓸 때만 등록하세요.</p>
+          <button id="openKnowledgeManageBtn" class="secondary" type="button" style="width:100%;">
+            상품·정책 지식 관리 →
+          </button>
+        </div>
+      </details>
 
     </div>
 
@@ -2452,7 +2518,7 @@
 
 
 
-    <div id="inquiryTestPanel" class="mode-panel" hidden aria-hidden="true" style="display:none!important">
+    <div id="inquiryTestPanel" class="mode-panel" aria-hidden="true" hidden>
       <div class="card">
         <div class="test-layout">
           <section class="test-setup">
@@ -2492,10 +2558,31 @@
             <textarea id="inquiryTestResult" rows="10" placeholder="여기에 테스트 답글이 표시됩니다." readonly></textarea>
             <div class="test-meta-row" id="inquiryTestMeta" hidden></div>
             <div class="hint" id="inquiryTestStatus" hidden></div>
+            <div class="used-knowledge-card" id="inquiryUsedKnowledge" hidden>
+              <div class="card-title" style="margin-top:10px;">AI 답변 근거</div>
+              <div class="hint" id="inquiryUsedKnowledgeList"></div>
+            </div>
+            <div class="confirm-evidence-card" id="inquiryConfirmEvidence" hidden>
+              <div class="card-title" style="margin-top:10px;">확인 필요</div>
+              <div class="hint" id="inquiryConfirmQuestion"></div>
+              <div class="hint" id="inquiryConfirmMissing"></div>
+              <div class="hint" id="inquiryConfirmReason"></div>
+              <label for="inquiryConfirmFactInput">확인한 사실 (Knowledge Base에 저장)</label>
+              <textarea id="inquiryConfirmFactInput" rows="3" placeholder="예: 주요 성분 비타민C 100mg"></textarea>
+              <input type="hidden" id="inquiryConfirmProductNo" value="" />
+              <input type="hidden" id="inquiryConfirmId" value="" />
+              <button id="inquiryApproveFactBtn" class="secondary" type="button">사실 승인 후 KB 저장</button>
+              <div class="hint" id="inquiryApproveFactStatus"></div>
+            </div>
           </section>
+
         </div>
       </div>
     </div>
+
+    <!-- 지식 관리는 knowledge-manage.html 에서 처리. 커머스 카드는 보류로 숨김 유지용 스텁 -->
+    <div id="inquiryKnowledgePanel" class="mode-panel" aria-hidden="true" hidden></div>
+    <div id="commerceCatalogCard" hidden aria-hidden="true"></div>
 
 
 
@@ -2521,6 +2608,21 @@
         <button id="kakaoLoginBtn" class="kakao-login" type="button" hidden>카카오로 시작 · 무료 체험</button>
 
         <div class="hint" id="accountStatus"></div>
+
+        <div id="emailAuthBox" style="margin-top:10px;" hidden>
+          <div class="card-desc">로컬/이메일 로그인 (가입이 열린 서버에서만)</div>
+          <label for="emailAuthEmail">이메일</label>
+          <input id="emailAuthEmail" type="email" placeholder="you@example.com" autocomplete="username" />
+          <label for="emailAuthPassword">비밀번호</label>
+          <input id="emailAuthPassword" type="password" placeholder="8자 이상" autocomplete="current-password" />
+          <div class="row-inline" style="margin-top:8px;">
+            <button id="emailLoginBtn" class="secondary" type="button">이메일 로그인</button>
+            <button id="emailRegisterBtn" class="secondary" type="button">가입 후 로그인</button>
+          </div>
+          <div class="hint" id="emailAuthStatus" style="margin-top:6px;"></div>
+        </div>
+
+        <div class="hint" id="apiBaseHint" style="margin-top:8px;"></div>
 
       </div>
 
@@ -2563,15 +2665,15 @@
 
 
 
-    <div class="card" id="apiKeyCard">
+    <div class="card" id="apiKeyCard" hidden>
 
-      <div class="card-title">AI 연결 (처음 한 번만)</div>
+      <div class="card-title">AI 연결 (레거시)</div>
 
-      <label for="apiKey">API 키</label>
+      <label for="apiKey">로컬 API 키 (사용 안 함)</label>
 
-      <input type="password" id="apiKey" placeholder="AIza..." autocomplete="off" />
+      <input type="password" id="apiKey" placeholder="서버 로그인으로 연결됩니다" autocomplete="off" />
 
-      <div class="hint" id="apiKeyHint">답글 자동 작성에 필요합니다. 내 컴퓨터에만 저장됩니다.</div>
+      <div class="hint" id="apiKeyHint">Gemini 키는 서버에서만 사용합니다. [계정]에서 로그인해 주세요.</div>
 
     </div>
 
@@ -2594,6 +2696,7 @@
   <script src="lib/console-filter.js"></script>
 
   <script src="config.js"></script>
+  <script src="config.local.js"></script>
 
   <script src="lib/ai-proxy.js"></script>
   <script src="lib/analytics.js"></script>
@@ -2613,6 +2716,10 @@
   <script src="lib/style-channel.js"></script>
 
   <script src="lib/ux-guide.js"></script>
+
+  <script src="lib/knowledge-manage.js"></script>
+
+  <script src="lib/commerce-catalog.js"></script>
 
   <script src="lib/onboarding-tour.js"></script>
 

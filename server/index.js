@@ -38,7 +38,53 @@ import {
   adminUndoCancelSubscription,
   getAdminDashboard,
 } from './admin.js';
-import { getDb, findUserById, markUserInstallGenerated, updateUserPlan } from './db.js';
+import {
+  getDb,
+  findUserById,
+  markUserInstallGenerated,
+  updateUserPlan,
+  listProductKnowledge,
+  getProductKnowledge,
+  upsertProductKnowledge,
+  deleteProductKnowledge,
+  getStorePolicies,
+  upsertStorePolicies,
+  createInquiryConfirmation,
+  getInquiryConfirmation,
+  listInquiryConfirmations,
+  approveInquiryFact,
+  dismissInquiryConfirmation,
+  checkKbLinkSync,
+  listCommerceProductSync,
+} from './db.js';
+import {
+  deleteKnowledgeEntry,
+  getKnowledgeEntry,
+  getKnowledgeSummary,
+  listKnowledgeEntries,
+  patchKnowledgeEntry,
+} from './knowledge-entries.js';
+import {
+  connectCommerceOauth,
+  disconnectCommerceOauth,
+  getCommerceOauthStatus,
+  reissueCommerceAccessToken,
+  safeOauthLog,
+} from './commerce-oauth.js';
+import { getCommerceSyncStatus, syncCommerceProductCatalog } from './commerce-sync.js';
+import {
+  approveCommerceProductField,
+  fetchCommerceProductDetail,
+  getCommerceProductCatalog,
+  rejectCommerceProductField,
+} from './commerce-detail.js';
+import { CommerceApiError } from './commerce-api.js';
+import {
+  resolveProductKnowledgeMatch,
+  resolveInquiryEvidence,
+  buildSellerConfirmDraft,
+  formatVerifiedFactsForPrompt,
+} from './evidence.js';
 import {
   GeminiError,
   GeminiQueueFullError,
@@ -46,11 +92,13 @@ import {
   generateText,
   generateWithSystem,
   getGeminiQueueStats,
+  isGeminiConfigured,
 } from './gemini.js';
 import { FREE_TRIAL, getPlan, normalizePlanId } from './plans.js';
 import {
-  buildAnalyzeMetaPrompt,
+  buildAnalyzeToneV2Prompt,
   buildInquiryPlaybookPrompt,
+  buildInquiryKnowledgeDraftPrompt,
   normalizeInquiryPairs,
   buildInquiryUserContent,
   buildProductFactLookupPrompt,
@@ -62,8 +110,11 @@ import {
   inquiryNeedsWebSearch,
   normalizeSamples,
   parseProductFactLookup,
+  parseInquiryKnowledgeDraft,
   assessInquiryReplyGrounding,
   buildInquiryGroundingRewritePrompt,
+  parseToneProfileJson,
+  resolveToneSystemPrompt,
 } from './prompts.js';
 import { SubscriptionError, cancelUserSubscriptionAtPeriodEnd, clearPendingDowngrade, undoCancelSubscription } from './subscription.js';
 import { startRenewalScheduler } from './renewal.js';
@@ -115,7 +166,7 @@ app.use(express.json({ limit: '1mb' }));
 
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Secret');
   if (req.method === 'OPTIONS') {
     res.sendStatus(204);
@@ -248,8 +299,9 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'naver-smartstore-reply-api',
-    version: '1.3.75',
-    geminiConfigured: !!String(process.env.GEMINI_API_KEY || '').trim(),
+    // 패키징 기준: 루트 manifest.json (배포/CWS 업로드 없음 — 표기 정합만)
+    version: '1.3.81',
+    geminiConfigured: isGeminiConfigured(),
     authEnabled: true,
     registrationOpen: ALLOW_REGISTRATION,
     kakaoLoginEnabled: isKakaoConfigured(),
@@ -869,10 +921,23 @@ app.post('/api/analyze-tone', authenticate, async (req, res) => {
     const metaPrompt =
       inquiryPairs.length >= 2
         ? buildInquiryPlaybookPrompt(inquiryPairs)
-        : buildAnalyzeMetaPrompt(context, normalized);
-    const prompt = await generateText(metaPrompt, { model, temperature: 0.35, signal });
+        : buildAnalyzeToneV2Prompt(context, normalized);
+    let raw = await generateText(metaPrompt, { model, temperature: 0.2, signal });
+    let toneProfile = parseToneProfileJson(raw, context);
+    if (!toneProfile) {
+      const retryPrompt = `${metaPrompt}\n\n이전 출력이 올바른 JSON이 아닙니다. 스키마에 맞는 JSON 객체만 다시 출력하세요.`;
+      raw = await generateText(retryPrompt, { model, temperature: 0.1, signal });
+      toneProfile = parseToneProfileJson(raw, context);
+    }
 
-    if (!prompt || prompt.length < 30) {
+    const resolved = resolveToneSystemPrompt({
+      toneProfile,
+      previousToneProfile: req.body?.previousToneProfile || null,
+      channel: context,
+      parseFailed: !toneProfile,
+    });
+
+    if (!resolved.prompt || resolved.prompt.length < 30) {
       res.status(502).json({ ok: false, error: '스타일 분석 결과가 너무 짧습니다. 샘플을 더 추가해 보세요.' });
       return;
     }
@@ -890,7 +955,10 @@ app.post('/api/analyze-tone', authenticate, async (req, res) => {
 
     res.json({
       ok: true,
-      prompt: sanitizeLearnedStylePrompt(prompt.trim()),
+      prompt: sanitizeLearnedStylePrompt(resolved.prompt),
+      toneProfile: resolved.toneProfile,
+      usedFallback: resolved.usedFallback,
+      fallbackReason: resolved.fallbackReason || '',
       sampleCount: inquiryPairs.length >= 2 ? inquiryPairs.length : normalized.length,
       usage: usage || null,
     });
@@ -901,6 +969,560 @@ app.post('/api/analyze-tone', authenticate, async (req, res) => {
     else await work();
   } catch (err) {
     sendAiError(res, err);
+  }
+});
+
+function requestStoreScope(req) {
+  const raw =
+    req.query?.storeId ??
+    req.query?.store_id ??
+    req.body?.storeId ??
+    req.body?.store_id;
+  return { storeId: raw };
+}
+
+app.get('/api/product-knowledge', authenticate, (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+    return;
+  }
+  res.json({ ok: true, items: listProductKnowledge(req.auth.user.id, requestStoreScope(req)) });
+});
+
+app.get('/api/product-knowledge/:productNo', authenticate, (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+    return;
+  }
+  const item = getProductKnowledge(req.auth.user.id, req.params.productNo, requestStoreScope(req));
+  if (!item) {
+    res.status(404).json({ ok: false, error: '상품정보를 찾을 수 없습니다.' });
+    return;
+  }
+  res.json({ ok: true, item });
+});
+
+app.post('/api/product-knowledge', authenticate, (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+    return;
+  }
+  try {
+    const item = upsertProductKnowledge(req.auth.user.id, {
+      ...(req.body || {}),
+      ...requestStoreScope(req),
+    });
+    res.json({ ok: true, item });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.put('/api/product-knowledge/:productNo', authenticate, (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+    return;
+  }
+  try {
+    const item = upsertProductKnowledge(req.auth.user.id, {
+      ...(req.body || {}),
+      ...requestStoreScope(req),
+      productNo: req.params.productNo,
+    });
+    res.json({ ok: true, item });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.delete('/api/product-knowledge/:productNo', authenticate, (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+    return;
+  }
+  const deleted = deleteProductKnowledge(req.auth.user.id, req.params.productNo, requestStoreScope(req));
+  res.json({ ok: true, deleted });
+});
+
+app.get('/api/store-policies', authenticate, (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+    return;
+  }
+  res.json({ ok: true, policies: getStorePolicies(req.auth.user.id, requestStoreScope(req)) });
+});
+
+app.put('/api/store-policies', authenticate, (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+    return;
+  }
+  try {
+    const policies = upsertStorePolicies(req.auth.user.id, {
+      ...(req.body || {}),
+      ...requestStoreScope(req),
+    });
+    res.json({ ok: true, policies });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.get('/api/commerce/oauth/status', authenticate, (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+    return;
+  }
+  res.json({ ok: true, oauth: getCommerceOauthStatus(req.auth.user.id, requestStoreScope(req)) });
+});
+
+app.post('/api/commerce/oauth/connect', authenticate, async (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+    return;
+  }
+  try {
+    const oauth = await connectCommerceOauth(req.auth.user.id, {
+      ...requestStoreScope(req),
+      type: req.body?.type || 'SELF',
+      accountId: req.body?.accountId,
+      // Secret은 요청 처리·서버 암호 보관만. 응답에 포함하지 않음.
+      clientId: req.body?.clientId,
+      clientSecret: req.body?.clientSecret,
+    });
+    const safe = safeOauthLog(oauth);
+    if (safe && typeof safe === 'object') {
+      delete safe.clientSecret;
+      delete safe.client_secret;
+      delete safe.accessTokenEnc;
+      delete safe.clientSecretEnc;
+    }
+    res.json({ ok: true, oauth: safe });
+  } catch (err) {
+    res.status(err.status && err.status < 500 ? err.status : 400).json({
+      ok: false,
+      error: err.message || String(err),
+      code: err.code,
+    });
+  }
+});
+
+app.post('/api/commerce/oauth/reissue', authenticate, async (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+    return;
+  }
+  try {
+    const oauth = await reissueCommerceAccessToken(req.auth.user.id, {
+      ...requestStoreScope(req),
+      clientId: req.body?.clientId,
+      clientSecret: req.body?.clientSecret,
+    });
+    res.json({ ok: true, oauth: safeOauthLog(oauth) });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err), code: err.code });
+  }
+});
+
+/** 레거시 인가코드 경로 — 410으로 교체 안내 */
+app.post('/api/commerce/oauth/begin', authenticate, (_req, res) => {
+  res.status(410).json({
+    ok: false,
+    error: '인가 코드 OAuth는 제거되었습니다. POST /api/commerce/oauth/connect 를 사용하세요.',
+    code: 'OAUTH_LEGACY_REMOVED',
+  });
+});
+app.post('/api/commerce/oauth/complete', authenticate, (_req, res) => {
+  res.status(410).json({
+    ok: false,
+    error: '인가 코드 OAuth는 제거되었습니다. POST /api/commerce/oauth/connect 를 사용하세요.',
+    code: 'OAUTH_LEGACY_REMOVED',
+  });
+});
+app.post('/api/commerce/oauth/refresh', authenticate, async (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+    return;
+  }
+  try {
+    const oauth = await reissueCommerceAccessToken(req.auth.user.id, requestStoreScope(req));
+    res.json({ ok: true, oauth: safeOauthLog(oauth) });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err), code: err.code });
+  }
+});
+
+app.post('/api/commerce/oauth/disconnect', authenticate, (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+    return;
+  }
+  const oauth = disconnectCommerceOauth(req.auth.user.id, requestStoreScope(req));
+  res.json({ ok: true, oauth });
+});
+
+app.post('/api/commerce/products/sync', authenticate, async (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+    return;
+  }
+  try {
+    const stats = await syncCommerceProductCatalog(req.auth.user.id, {
+      ...requestStoreScope(req),
+      pageSize: req.body?.pageSize,
+      maxPages: req.body?.maxPages,
+    });
+    res.json({ ok: true, sync: stats });
+  } catch (err) {
+    const status =
+      err instanceof CommerceApiError
+        ? err.status === 429
+          ? 429
+          : 400
+        : err.code === 'SYNC_IN_PROGRESS'
+          ? 409
+          : err.code === 'OAUTH_NOT_CONNECTED'
+            ? 401
+            : 400;
+    res.status(status).json({
+      ok: false,
+      error: err.message || String(err),
+      code: err.code,
+      retryable: !!err.retryable,
+    });
+  }
+});
+
+app.get('/api/commerce/products/sync/status', authenticate, (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+    return;
+  }
+  const scope = requestStoreScope(req);
+  res.json({
+    ok: true,
+    status: getCommerceSyncStatus(req.auth.user.id, scope),
+    items: listCommerceProductSync(req.auth.user.id, scope).map((row) => ({
+      channelProductNo: row.channel_product_no,
+      originProductNo: row.origin_product_no,
+      productName: row.product_name,
+      status: row.status,
+      contentHash: row.content_hash,
+      lastSyncedAt: row.last_synced_at,
+      detailFetched: !!(row.detail_fetched_at || row.detail_content_hash),
+      detailOk: row.detail_ok === 1 || row.detail_ok === true,
+      detailFetchedAt: row.detail_fetched_at || null,
+      detailError: row.detail_error || '',
+      // raw_json / detail_raw_json / 토큰 미노출
+    })),
+  });
+});
+
+app.get('/api/commerce/products/catalog', authenticate, (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+    return;
+  }
+  const catalog = getCommerceProductCatalog(req.auth.user.id, requestStoreScope(req));
+  res.json({ ok: true, catalog });
+});
+
+app.post('/api/commerce/products/detail', authenticate, async (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+    return;
+  }
+  try {
+    const result = await fetchCommerceProductDetail(req.auth.user.id, {
+      ...requestStoreScope(req),
+      channelProductNo: req.body?.channelProductNo || req.body?.productNo,
+      force: !!req.body?.force,
+    });
+    res.json({
+      ok: true,
+      detail: {
+        ...result,
+        knowledge: result.knowledge
+          ? {
+              productNo: result.knowledge.productNo,
+              productName: result.knowledge.productName,
+              source: result.knowledge.source,
+              trustStatus: result.knowledge.trustStatus,
+              fieldMeta: result.knowledge.fieldMeta,
+            }
+          : null,
+        // sync raw / tokens 미노출
+        sync: result.sync
+          ? {
+              channelProductNo: result.sync.channel_product_no,
+              detailFetchedAt: result.sync.detail_fetched_at,
+              detailOk: result.sync.detail_ok,
+              detailError: result.sync.detail_error,
+              status: result.sync.status,
+            }
+          : null,
+      },
+    });
+  } catch (err) {
+    const status =
+      err instanceof CommerceApiError
+        ? err.status === 429
+          ? 429
+          : err.status === 404
+            ? 404
+            : 400
+        : err.code === 'DETAIL_IN_PROGRESS'
+          ? 409
+          : err.code === 'OAUTH_NOT_CONNECTED'
+            ? 401
+            : 400;
+    res.status(status).json({
+      ok: false,
+      error: err.message || String(err),
+      code: err.code,
+      retryable: !!err.retryable,
+    });
+  }
+});
+
+app.post(
+  '/api/commerce/products/:channelProductNo/fields/:field/approve',
+  authenticate,
+  (req, res) => {
+    if (req.auth.mode !== 'user') {
+      res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+      return;
+    }
+    try {
+      const item = approveCommerceProductField(req.auth.user.id, {
+        ...requestStoreScope(req),
+        channelProductNo: req.params.channelProductNo,
+        field: req.params.field,
+        value: req.body?.value,
+        useScraped: req.body?.useScraped !== false,
+      });
+      res.json({ ok: true, item });
+    } catch (err) {
+      const status = err.code === 'NOT_FOUND' ? 404 : 400;
+      res.status(status).json({ ok: false, error: err.message || String(err), code: err.code });
+    }
+  }
+);
+
+app.post(
+  '/api/commerce/products/:channelProductNo/fields/:field/reject',
+  authenticate,
+  (req, res) => {
+    if (req.auth.mode !== 'user') {
+      res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+      return;
+    }
+    try {
+      const item = rejectCommerceProductField(req.auth.user.id, {
+        ...requestStoreScope(req),
+        channelProductNo: req.params.channelProductNo,
+        field: req.params.field,
+      });
+      res.json({ ok: true, item });
+    } catch (err) {
+      const status = err.code === 'NOT_FOUND' ? 404 : 400;
+      res.status(status).json({ ok: false, error: err.message || String(err), code: err.code });
+    }
+  }
+);
+
+app.get('/api/inquiry-confirmations', authenticate, (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+    return;
+  }
+  const status = String(req.query?.status || 'needs_confirm');
+  res.json({
+    ok: true,
+    items: listInquiryConfirmations(req.auth.user.id, {
+      status,
+      ...requestStoreScope(req),
+    }),
+  });
+});
+
+app.post('/api/inquiry-confirmations/:id/approve-fact', authenticate, (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+    return;
+  }
+  try {
+    const id = Number(req.params.id);
+    const mode = req.body?.mode === 'faq_only' ? 'faq_only' : 'mirror';
+    const result = approveInquiryFact(req.auth.user.id, id, {
+      mode,
+      field: req.body?.field || 'extra',
+      value: req.body?.value,
+      productNo: req.body?.productNo,
+      productName: req.body?.productName,
+      validFrom: req.body?.validFrom,
+      validTo: req.body?.validTo,
+      intentKey: req.body?.intentKey,
+      knowledgeCategory: req.body?.knowledgeCategory,
+      confirmPrompt: req.body?.confirmPrompt,
+    });
+    const sync =
+      result.confirmation?.kbLink?.mode === 'mirror'
+        ? checkKbLinkSync(req.auth.user.id, result.confirmation)
+        : { synced: true, reason: 'faq_only' };
+    res.json({
+      ok: true,
+      item: result.item,
+      confirmation: result.confirmation,
+      mode: result.mode,
+      kbSync: sync,
+    });
+  } catch (err) {
+    const code = err.code === 'NOT_FOUND' ? 404 : err.code === 'CONFLICT' ? 409 : 400;
+    res.status(code).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.post('/api/inquiry-confirmations/:id/dismiss', authenticate, (req, res) => {
+  if (req.auth.mode !== 'user') {
+    res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+    return;
+  }
+  try {
+    const id = Number(req.params.id);
+    const confirmation = dismissInquiryConfirmation(req.auth.user.id, id, {
+      reason: req.body?.reason,
+    });
+    res.json({ ok: true, confirmation });
+  } catch (err) {
+    const code = err.code === 'NOT_FOUND' ? 404 : err.code === 'CONFLICT' ? 409 : 400;
+    res.status(code).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+function requireUserAuth(req, res) {
+  if (req.auth.mode !== 'user') {
+    res.status(401).json({ ok: false, error: '로그인이 필요합니다.' });
+    return false;
+  }
+  return true;
+}
+
+function knowledgeErrorStatus(err) {
+  if (err.code === 'NOT_FOUND') return 404;
+  if (err.code === 'CONFLICT') return 409;
+  if (err.code === 'BAD_ENTRY_ID' || err.code === 'BAD_FIELD' || err.code === 'BAD_REQUEST') return 400;
+  if (err.code === 'INVALID_VALIDITY_RANGE') return 400;
+  return 400;
+}
+
+app.post('/api/knowledge/draft-from-inquiries', authenticate, async (req, res) => {
+  const signal = attachClientAbort(req, res);
+  try {
+    if (req.auth.mode === 'user' && !requireUserAuth(req, res)) return;
+
+    const pairs = normalizeInquiryPairs(req.body?.pairs);
+    if (pairs.length < 2) {
+      res.status(400).json({
+        ok: false,
+        error: '답변 완료 문의/답변 페어가 2건 이상 필요합니다.',
+      });
+      return;
+    }
+
+    const model = req.body?.model;
+    const prompt = buildInquiryKnowledgeDraftPrompt(pairs);
+    let raw = await generateText(prompt, { model, temperature: 0.1, signal });
+    let draft = parseInquiryKnowledgeDraft(raw);
+    if (draft.parseFailed) {
+      raw = await generateText(
+        `${prompt}\n\n이전 출력이 올바른 JSON이 아닙니다. 스키마에 맞는 JSON 객체만 다시 출력하세요.`,
+        { model, temperature: 0.05, signal }
+      );
+      draft = parseInquiryKnowledgeDraft(raw);
+    }
+
+    res.json({
+      ok: true,
+      draft: {
+        products: draft.products,
+        policies: draft.policies,
+        warnings: draft.warnings,
+      },
+      sampleCount: pairs.length,
+      parseFailed: !!draft.parseFailed,
+    });
+  } catch (err) {
+    sendAiError(res, err);
+  }
+});
+
+app.get('/api/knowledge/summary', authenticate, (req, res) => {
+  if (!requireUserAuth(req, res)) return;
+  res.json({
+    ok: true,
+    summary: getKnowledgeSummary(req.auth.user.id, undefined, requestStoreScope(req)),
+  });
+});
+
+app.get('/api/knowledge/entries', authenticate, (req, res) => {
+  if (!requireUserAuth(req, res)) return;
+  const result = listKnowledgeEntries(req.auth.user.id, {
+    ...(req.query || {}),
+    ...requestStoreScope(req),
+  });
+  res.json({ ok: true, ...result });
+});
+
+function knowledgeEntryIdFromReq(req) {
+  // product:123:specs 처럼 콜론 포함 — path 잔여분 또는 encode된 params
+  const raw = req.params.entryId || req.params[0] || '';
+  try {
+    return decodeURIComponent(String(raw));
+  } catch {
+    return String(raw);
+  }
+}
+
+app.get(/^\/api\/knowledge\/entries\/(.+)$/, authenticate, (req, res) => {
+  if (!requireUserAuth(req, res)) return;
+  try {
+    const entry = getKnowledgeEntry(
+      req.auth.user.id,
+      knowledgeEntryIdFromReq(req),
+      undefined,
+      requestStoreScope(req)
+    );
+    res.json({ ok: true, entry });
+  } catch (err) {
+    res.status(knowledgeErrorStatus(err)).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.patch(/^\/api\/knowledge\/entries\/(.+)$/, authenticate, (req, res) => {
+  if (!requireUserAuth(req, res)) return;
+  try {
+    const entry = patchKnowledgeEntry(req.auth.user.id, knowledgeEntryIdFromReq(req), {
+      ...(req.body || {}),
+      ...requestStoreScope(req),
+    });
+    res.json({ ok: true, entry });
+  } catch (err) {
+    res.status(knowledgeErrorStatus(err)).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.delete(/^\/api\/knowledge\/entries\/(.+)$/, authenticate, (req, res) => {
+  if (!requireUserAuth(req, res)) return;
+  try {
+    const result = deleteKnowledgeEntry(req.auth.user.id, knowledgeEntryIdFromReq(req), {
+      ...requestStoreScope(req),
+      clearKbField: req.query?.clearKb === '1' || req.body?.clearKbField === true,
+      reason: req.body?.reason || req.query?.reason,
+    });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(knowledgeErrorStatus(err)).json({ ok: false, error: err.message || String(err) });
   }
 });
 
@@ -931,59 +1553,125 @@ app.post('/api/generate-reply', authenticate, async (req, res) => {
       return;
     }
 
-    const webSearch = channel === 'inquiry' && inquiryNeedsWebSearch(row);
+    let evidence = null;
     let verifiedFacts = null;
     let missingFacts = [];
+    let officialSources = [];
+    const wantsFactLookup = channel === 'inquiry' && inquiryNeedsWebSearch(row);
 
-    if (webSearch) {
-      const lookupFacts = async (targetRow) => {
+    if (channel === 'inquiry' && req.auth.mode === 'user') {
+      const userId = req.auth.user.id;
+      const storeScope = {
+        storeId: req.body?.storeId ?? req.body?.store_id,
+      };
+      const match = resolveProductKnowledgeMatch({
+        userId,
+        productNo: row.productNo,
+        productName: row.product,
+        listByUser: (uid) => listProductKnowledge(uid, storeScope),
+        getByProductNo: (uid, pno) => getProductKnowledge(uid, pno, storeScope),
+      });
+      const policies = getStorePolicies(userId, storeScope);
+      let officialFacts = [];
+      let officialMissing = [];
+
+      const kbMissForFactSlots =
+        match.status !== 'exact' ||
+        !match.product ||
+        wantsFactLookup;
+
+      if (kbMissForFactSlots && wantsFactLookup) {
+        const lookupFacts = async (targetRow) => {
+          const factRaw = await generateWithSystem(
+            '당신은 상품 정보 검증기입니다. 지시된 JSON만 출력하세요. 출처를 확인한 사실만 넣으세요.',
+            buildProductFactLookupPrompt(targetRow, req.body?.references || []),
+            { model, temperature: 0.1, googleSearch: true, signal }
+          );
+          return parseProductFactLookup(factRaw);
+        };
+
+        try {
+          let parsed = await lookupFacts(row);
+          if (!parsed.facts.length) {
+            const { core } = buildProductSearchKeywords(row.product, row.content);
+            if (core && core !== String(row.product || '').trim()) {
+              parsed = await lookupFacts({ ...row, product: core });
+            }
+          }
+          officialFacts = parsed.facts;
+          officialMissing = parsed.missing;
+          officialSources = parsed.sources || [];
+        } catch (err) {
+          if (err?.name === 'AbortError') throw err;
+          console.warn('상품 사실 검색 실패');
+          officialMissing = ['상품 정보 검색 실패'];
+        }
+      }
+
+      const approvedFaqs = (
+        listInquiryConfirmations(userId, {
+          status: 'approved',
+          limit: 100,
+          ...storeScope,
+        }) || []
+      ).filter(Boolean);
+      evidence = resolveInquiryEvidence({
+        row,
+        userId,
+        productKnowledge: match.product,
+        storePolicies: policies,
+        productMatchStatus: match.status,
+        productMatchReason: match.reason || '',
+        officialFacts,
+        officialMissing,
+        officialSources,
+        approvedFaqs,
+      });
+      verifiedFacts = formatVerifiedFactsForPrompt(evidence);
+      missingFacts = evidence.missingFields || [];
+    } else if (channel === 'inquiry' && wantsFactLookup) {
+      // 비로그인/개발 모드는 기존 웹검색 호환 (출처 필수)
+      try {
         const factRaw = await generateWithSystem(
-          '당신은 상품 정보 검증기입니다. 지시된 JSON만 출력하세요.',
-          buildProductFactLookupPrompt(targetRow, req.body?.references || []),
+          '당신은 상품 정보 검증기입니다. 지시된 JSON만 출력하세요. 출처를 확인한 사실만 넣으세요.',
+          buildProductFactLookupPrompt(row, req.body?.references || []),
           { model, temperature: 0.1, googleSearch: true, signal }
         );
-        return parseProductFactLookup(factRaw);
-      };
-
-      try {
-        let parsed = await lookupFacts(row);
-
-        if (!parsed.facts.length) {
-          const { core } = buildProductSearchKeywords(row.product, row.content);
-          if (core && core !== String(row.product || '').trim()) {
-            parsed = await lookupFacts({ ...row, product: core });
-          }
-        }
-
+        const parsed = parseProductFactLookup(factRaw);
         verifiedFacts = parsed.facts;
         missingFacts = parsed.missing;
+        officialSources = parsed.sources || [];
       } catch (err) {
         if (err?.name === 'AbortError') throw err;
-        console.warn('상품 사실 검색 실패');
         verifiedFacts = [];
         missingFacts = ['상품 정보 검색 실패'];
       }
     }
 
+    const useFacts = channel === 'inquiry' && verifiedFacts != null;
+    const judgment = evidence?.judgment || null;
     const userContent =
       channel === 'inquiry'
         ? buildInquiryUserContent(row, req.body?.references || [], {
             webSearch: false,
-            verifiedFacts: webSearch ? verifiedFacts : null,
-            missingFacts: webSearch ? missingFacts : [],
+            verifiedFacts: useFacts ? verifiedFacts : null,
+            missingFacts: useFacts ? missingFacts : [],
+            judgment,
+            usedKnowledge: evidence?.usedKnowledge || [],
           })
         : buildReviewUserContent(row);
 
     let text = await generateWithSystem(appendReplyHardRules(systemPrompt, row), userContent, {
       model,
-      temperature: webSearch ? 0.3 : 0.35,
+      temperature: useFacts ? 0.3 : 0.35,
       googleSearch: false,
       signal,
     });
 
+    let confirmation = null;
     if (channel === 'inquiry') {
       const refs = req.body?.references || [];
-      const facts = webSearch ? verifiedFacts || [] : [];
+      const facts = useFacts ? verifiedFacts || [] : [];
       const guidelines = systemPrompt;
       let grounding = assessInquiryReplyGrounding(row, text, refs, facts, guidelines);
       if (!grounding.grounded) {
@@ -999,6 +1687,28 @@ app.post('/api/generate-reply', authenticate, async (req, res) => {
         }
         grounding = assessInquiryReplyGrounding(row, text, refs, facts, guidelines);
         if (!grounding.grounded) text = '';
+      }
+
+      if (evidence?.needsSellerConfirm && req.auth.mode === 'user') {
+        // REALTIME_REQUIRED: 공식 조회 없이 단정 답 금지 → 확인 초안 고정
+        if (!text || evidence.judgment === 'REALTIME_REQUIRED') {
+          text = buildSellerConfirmDraft(row, evidence);
+        }
+        confirmation = createInquiryConfirmation(req.auth.user.id, {
+          inquiryKey: String(row.id || row.inquiryId || '').slice(0, 120),
+          productNo: row.productNo || '',
+          productName: row.product || '',
+          question: row.content || '',
+          missingFields: (evidence.missingFields || []).join(', '),
+          reason: evidence.confirmReason || '',
+          draftReply: text,
+          evidenceJson: JSON.stringify({
+            slots: evidence.slots,
+            sources: evidence.sources,
+            judgment: evidence.judgment,
+            usedKnowledge: evidence.usedKnowledge,
+          }),
+        });
       }
     }
 
@@ -1026,7 +1736,28 @@ app.post('/api/generate-reply', authenticate, async (req, res) => {
       );
     }
 
-    res.json({ ok: true, text, usage: usage || null });
+    res.json({
+      ok: true,
+      text,
+      usage: usage || null,
+      evidence: evidence
+        ? {
+            needsSellerConfirm: evidence.needsSellerConfirm,
+            missingFields: evidence.missingFields,
+            confirmReason: evidence.confirmReason,
+            slots: evidence.slots,
+            sources: evidence.sources,
+            verifiedFacts: evidence.verifiedFacts,
+            judgment: evidence.judgment || null,
+            realtimeRequired: !!evidence.realtimeRequired,
+            faqConflict: !!evidence.faqConflict,
+          }
+        : null,
+      judgment: evidence?.judgment || null,
+      usedKnowledge: evidence?.usedKnowledge || [],
+      confirmation,
+      needsConfirm: !!(evidence && evidence.needsSellerConfirm),
+    });
   };
 
   try {
