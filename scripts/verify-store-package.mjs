@@ -13,7 +13,7 @@ const packDir = path.resolve(
 );
 const expectVersion = (() => {
   const i = args.indexOf('--expect-version');
-  return i >= 0 && args[i + 1] ? args[i + 1] : '1.3.85';
+  return i >= 0 && args[i + 1] ? args[i + 1] : '1.3.86';
 })();
 
 const report = {

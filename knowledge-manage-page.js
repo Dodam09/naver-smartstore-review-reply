@@ -227,7 +227,11 @@
     $('kbLoadBtn')?.addEventListener('click', () => void loadProductKnowledgeToForm());
     $('kbDeleteBtn')?.addEventListener('click', () => void deleteProductKnowledgeFromForm());
     $('policySaveBtn')?.addEventListener('click', () => void saveStorePoliciesFromForm());
-    $('kbSeedAmilyBtn')?.addEventListener('click', () => void seedAmilyExampleKnowledge());
+    const seedBtn = $('kbSeedAmilyBtn');
+    // 스토어/실사용 UI에서는 숨김 — 로컬에서 hidden 해제 시에만 바인딩
+    if (seedBtn && !seedBtn.hidden && seedBtn.getAttribute('aria-hidden') !== 'true') {
+      seedBtn.addEventListener('click', () => void seedAmilyExampleKnowledge());
+    }
     $('pageRefreshBtn')?.addEventListener('click', () => {
       if (window.KnowledgeManage?.refresh) void window.KnowledgeManage.refresh();
     });

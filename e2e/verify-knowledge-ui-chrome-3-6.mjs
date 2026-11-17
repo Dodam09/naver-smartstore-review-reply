@@ -101,7 +101,7 @@ async function main() {
     report.extensionId = extensionId;
 
     const manifest = JSON.parse(fs.readFileSync(path.join(EXT_ROOT, 'manifest.json'), 'utf8'));
-    record('extension_manifest_version', manifest.version === '1.3.85' ? 'PASS' : 'FAIL', {
+    record('extension_manifest_version', manifest.version === '1.3.86' ? 'PASS' : 'FAIL', {
       version: manifest.version,
     });
 

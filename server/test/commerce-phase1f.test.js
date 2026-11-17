@@ -35,6 +35,7 @@ const { syncCommerceProductCatalog, isCommerceSyncRunning } = await import('../c
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const popupHtml = fs.readFileSync(path.join(root, 'popup.html'), 'utf8');
+const knowledgeManageHtml = fs.readFileSync(path.join(root, 'knowledge-manage.html'), 'utf8');
 const catalogJs = fs.readFileSync(path.join(root, 'lib/commerce-catalog.js'), 'utf8');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 const indexJs = fs.readFileSync(path.join(root, 'server/index.js'), 'utf8');
@@ -73,6 +74,14 @@ test('1F-1: 커머스 UI 보류(숨김) · 클라이언트 로직·Secret 저장
   assert.equal(/localStorage\.setItem\([^\)]*secret/i.test(catalogJs), false);
   assert.match(catalogJs, /approveField/);
   assert.match(catalogJs, /rejectField/);
+});
+
+test('1F-1b: 아밀리 예시 채우기 버튼은 실사용 UI에서 숨김', () => {
+  assert.match(knowledgeManageHtml, /id="kbSeedAmilyBtn"/);
+  assert.match(
+    knowledgeManageHtml,
+    /id="kbSeedAmilyBtn"[^>]*\bhidden\b|\bhidden\b[^>]*id="kbSeedAmilyBtn"/
+  );
 });
 
 test('1F-2: mock OAuth 연결 성공 (body Client ID/Secret)', async () => {
@@ -266,13 +275,13 @@ test('1F-10: 목록 sync 중복 실행 방지 (lease)', async () => {
   assert.ok((stats.products || 0) >= 2 || (stats.upserted || 0) >= 0);
 });
 
-test('1F-11: 확장 manifest 1.3.85 · 서버 health 표기 분리 확인', () => {
+test('1F-11: 확장 manifest 1.3.86 · 서버 health 표기 분리 확인', () => {
   // 확장/스토어 패키지 버전 (UX·배포 단위)
-  assert.equal(manifest.version, '1.3.85');
-  // 서버 health 버전은 API 배포 단위로 따로 관리 (현재 1.3.85). 확장과 강제 일치시키지 않음.
+  assert.equal(manifest.version, '1.3.86');
+  // 서버 health 버전은 API 배포 단위로 따로 관리 (현재 1.3.86). 확장과 강제 일치시키지 않음.
   const healthVersion = indexJs.match(/\/health[\s\S]*?version:\s*'([^']+)'/);
   assert.ok(healthVersion, 'health 응답 version 필드 필요');
-  assert.equal(healthVersion[1], '1.3.85');
+  assert.equal(healthVersion[1], '1.3.86');
   assert.equal(/version:\s*'1\.3\.79'/.test(indexJs), false);
 });
 
