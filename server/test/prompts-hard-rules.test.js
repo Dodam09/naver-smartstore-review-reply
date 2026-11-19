@@ -114,7 +114,8 @@ test('리뷰 userContent는 건강·원인·고객센터 가드와 예시를 포
     product: '상품',
     content: '좋아요',
   });
-  assert.match(content, /길이와 호응을 조절/);
+  assert.match(content, /소중한 후기 감사합니다/);
+  assert.match(content, /말씀해 주셔서/);
   assert.match(content, /장 건강·배변·면역/);
   assert.match(content, /고객센터·채팅·전화/);
   assert.match(content, /~특성상/);
@@ -200,6 +201,9 @@ test('공통 하드룰에 주문 상태·과거 Q&A 정책 확정 금지가 들�
   assert.match(rules, /개별 주문의 출고·송장·도착·재고/);
   assert.match(rules, /과거 Q&A만으로 배송·교환·환불 정책/);
   assert.match(rules, /제품 개선에 반영/);
+  assert.match(rules, /소중한 후기 감사합니다/);
+  assert.match(rules, /말씀해 주셔서로 받지 않는다/);
+  assert.doesNotMatch(rules, /내 말로 짧게 받아 적는다/);
 });
 
 test('scrubReplyPlaceholders는 자리표시만 지우고 일반 인사는 남긴다', () => {
@@ -207,4 +211,15 @@ test('scrubReplyPlaceholders는 자리표시만 지우고 일반 인사는 남�
   assert.doesNotMatch(scrubbed, /스마트스토어 이름/);
   assert.match(scrubbed, /감사합니다/);
   assert.match(scrubReplyPlaceholders('안녕하세요, 구매해 주셔서 감사해요'), /감사해요/);
+});
+
+test('고객 말 간접인용은 생성 후 빠지고 감사 문장은 남는다', () => {
+  const raw =
+    "안녕하세요 고객님,\n아밀리 효소 바르는 펫치약에 대해 '아주 좋을 것 같다'고 말씀해 주셔서 정말 감사합니다!";
+  const scrubbed = scrubReplyPlaceholders(raw);
+  assert.doesNotMatch(scrubbed, /아주 좋을 것 같다/);
+  assert.doesNotMatch(scrubbed, /말씀해 주셔서/);
+  assert.match(scrubbed, /정말 감사합니다/);
+  const local = loadReplyScrub();
+  assert.equal(local.scrubGeneratedReply(raw), scrubbed);
 });
